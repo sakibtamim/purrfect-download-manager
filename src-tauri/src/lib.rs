@@ -80,6 +80,7 @@ pub fn run() {
             "--rpc-allow-origin-all",
             "--check-certificate=false",
             "--save-session-interval=10",
+            "--continue=true",
             &session_arg,
             &input_file_arg,
             &dir_arg,
