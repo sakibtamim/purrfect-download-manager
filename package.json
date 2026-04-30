@@ -1,5 +1,5 @@
 {
-  "name": "pdm-temp",
+  "name": "purrfect-download-manager",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "tauri": "tauri",
+    "clean": "node scripts/kill-zombies.js",
+    "dev:app": "pnpm run clean && pnpm run tauri dev",
     "setup": "node scripts/setup-sidecars.js"
   },
   "dependencies": {
