@@ -144,6 +144,31 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* Security & Antivirus */}
+        <section className="space-y-4 bg-zinc-900/40 border border-zinc-800 rounded-xl p-6">
+          <div className="flex items-center gap-2 mb-4 text-red-400">
+            <Activity className="h-5 w-5" />
+            <h2 className="text-lg font-semibold text-zinc-100">Security & Antivirus</h2>
+          </div>
+          
+          <div className="space-y-2">
+            <Label className="text-zinc-300">Google Safe Browsing API Key</Label>
+            <p className="text-sm text-zinc-500">
+              Provide an API key to automatically scan URLs for malware and phishing before downloading. 
+              Leave blank to disable security scanning.
+            </p>
+            <div className="mt-2">
+              <Input 
+                type="password"
+                value={useDownloadStore(state => state.safeBrowsingApiKey) || ""}
+                onChange={(e) => useDownloadStore.getState().setSafeBrowsingApiKey(e.target.value)}
+                placeholder="AIzaSyB..."
+                className="bg-zinc-950 border-zinc-800 text-zinc-300 font-mono"
+              />
+            </div>
+          </div>
+        </section>
+
       </div>
     </div>
   );

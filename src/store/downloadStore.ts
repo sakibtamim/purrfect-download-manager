@@ -26,12 +26,14 @@ export interface DownloadState {
   maxConcurrentDownloads: number;
   splitConnections: number;
   autoStart: boolean;
+  safeBrowsingApiKey: string;
 
   initSettings: () => Promise<void>;
   setDefaultDownloadDir: (dir: string) => Promise<void>;
   setMaxConcurrentDownloads: (max: number) => Promise<void>;
   setSplitConnections: (split: number) => Promise<void>;
   setAutoStart: (enabled: boolean) => Promise<void>;
+  setSafeBrowsingApiKey: (key: string) => Promise<void>;
   
   togglePlayfulMode: () => void;
   fetchDownloads: () => Promise<void>;
@@ -59,12 +61,14 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   maxConcurrentDownloads: 5,
   splitConnections: 1,
   autoStart: false,
+  safeBrowsingApiKey: "",
 
   initSettings: async () => {
     // Load from Store
     const maxConcurrent = await settingsStore.get<number>("maxConcurrentDownloads") || 5;
     const split = await settingsStore.get<number>("splitConnections") || 1;
     const dir = await settingsStore.get<string>("defaultDownloadDir") || "";
+    const apiKey = await settingsStore.get<string>("safeBrowsingApiKey") || "";
     
     // Auto start
     let autoStartEnabled = false;
@@ -76,7 +80,8 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       maxConcurrentDownloads: maxConcurrent,
       splitConnections: split,
       defaultDownloadDir: dir,
-      autoStart: autoStartEnabled
+      autoStart: autoStartEnabled,
+      safeBrowsingApiKey: apiKey
     });
 
     // Sync with aria2
@@ -123,6 +128,12 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     } catch(e) {
       console.error("Failed to toggle autostart", e);
     }
+  },
+
+  setSafeBrowsingApiKey: async (key: string) => {
+    await settingsStore.set("safeBrowsingApiKey", key);
+    await settingsStore.save();
+    set({ safeBrowsingApiKey: key });
   },
 
   togglePlayfulMode: () => set((state) => ({ isPlayfulMode: !state.isPlayfulMode })),
