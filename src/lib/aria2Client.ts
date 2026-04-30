@@ -6,7 +6,12 @@ export interface Aria2Download {
   completedLength: string;
   downloadSpeed: string;
   dir: string;
-  files: { path: string; length: string; completedLength: string }[];
+  files: { 
+    path: string; 
+    length: string; 
+    completedLength: string;
+    uris: { status: string; uri: string }[];
+  }[];
   errorMessage?: string;
 }
 
@@ -71,6 +76,10 @@ class Aria2Client {
 
   async getGlobalStat(): Promise<{ downloadSpeed: string; numActive: string; numStopped: string; numWaiting: string }> {
     return this.call("getGlobalStat");
+  }
+
+  async changeGlobalOption(options: Record<string, string>): Promise<string> {
+    return this.call("changeGlobalOption", [options]);
   }
 }
 

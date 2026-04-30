@@ -6,10 +6,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Play, Pause, X, FolderOpen, File } from "lucide-react";
+import { Play, Pause, X, FolderOpen, File, RefreshCw } from "lucide-react";
 
 export function DownloadCard({ download }: { download: Aria2Download }) {
-  const { isPlayfulMode, pauseDownload, resumeDownload, cancelDownload } = useDownloadStore();
+  const { isPlayfulMode, pauseDownload, resumeDownload, cancelDownload, addDownload } = useDownloadStore();
 
   const totalLength = parseInt(download.totalLength, 10);
   const completedLength = parseInt(download.completedLength, 10);
@@ -77,7 +77,7 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                   {fileName}
                 </h3>
                 <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline" className={`text-xs ${getStatusColor()}`}>
+                  <Badge variant="outline" className={`text-xs ${getStatusColor()} ${isPlayfulMode && download.status === "paused" ? "animate-breathe" : ""}`}>
                     {getStatusText()}
                   </Badge>
                   <span className="text-xs text-zinc-500">
@@ -106,6 +106,23 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
               {download.status === "complete" && (
                 <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-indigo-400 hover:bg-indigo-400/10" title="Open Folder">
                   <FolderOpen className="h-4 w-4" />
+                </Button>
+              )}
+              {(download.status === "error" || download.status === "removed") && (
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-8 w-8 text-zinc-400 hover:text-emerald-400 hover:bg-emerald-400/10" 
+                  title="Retry Download"
+                  onClick={() => {
+                    const uri = download.files[0]?.uris[0]?.uri;
+                    if (uri) {
+                      addDownload(uri);
+                      cancelDownload(download.gid); // Removes the failed record
+                    }
+                  }}
+                >
+                  <RefreshCw className="h-4 w-4" />
                 </Button>
               )}
             </div>

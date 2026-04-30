@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { aria2Client, Aria2Download } from '@/lib/aria2Client';
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 
 export interface DownloadState {
   active: Aria2Download[];
@@ -14,6 +15,7 @@ export interface DownloadState {
   pauseDownload: (gid: string) => Promise<void>;
   resumeDownload: (gid: string) => Promise<void>;
   cancelDownload: (gid: string) => Promise<void>;
+  setSpeedLimit: (bytesPerSecond: string) => Promise<void>;
 }
 
 export const useDownloadStore = create<DownloadState>((set, get) => ({
@@ -37,6 +39,34 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       const completed = stopped.filter(d => d.status === 'complete');
       const failed = stopped.filter(d => d.status === 'error' || d.status === 'removed');
 
+      const prevCompleted = get().completed;
+      const prevFailed = get().failed;
+      
+      const newCompleted = completed.filter(c => !prevCompleted.find(p => p.gid === c.gid));
+      const newFailed = failed.filter(f => !prevFailed.find(p => p.gid === f.gid));
+
+      const notify = async (title: string, body: string) => {
+        try {
+          let permissionGranted = await isPermissionGranted();
+          if (!permissionGranted) {
+            const permission = await requestPermission();
+            permissionGranted = permission === 'granted';
+          }
+          if (permissionGranted) {
+            sendNotification({ title, body });
+          }
+        } catch(e) {
+          console.warn("Notification failed", e);
+        }
+      };
+
+      if (newCompleted.length > 0 && prevCompleted.length > 0) {
+        notify("Download Complete", `${newCompleted.length} file(s) finished downloading.`);
+      }
+      if (newFailed.length > 0 && prevFailed.length > 0 && newFailed.some(f => f.status === 'error')) {
+        notify("Download Failed", "A download has failed or encountered an error.");
+      }
+
       set({ 
         active: combinedActive, 
         completed, 
@@ -49,7 +79,9 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   },
 
   addDownload: async (url: string) => {
-    await aria2Client.addUri([url]);
+    await aria2Client.addUri([url], {
+      "check-certificate": "false"
+    });
     await get().fetchDownloads();
   },
 
@@ -66,5 +98,9 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   cancelDownload: async (gid: string) => {
     await aria2Client.remove(gid);
     await get().fetchDownloads();
+  },
+
+  setSpeedLimit: async (bytesPerSecond: string) => {
+    await aria2Client.changeGlobalOption({ "max-overall-download-limit": bytesPerSecond });
   }
 }));
