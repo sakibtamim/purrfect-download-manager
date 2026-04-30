@@ -58,10 +58,16 @@ export const ytdlpClient = {
       let ext = data.ext || 'mp4';
 
       if (!directUrl && data.requested_downloads && data.requested_downloads.length > 0) {
-        // If it's a separated video+audio, requested_downloads will have 2 entries
-        directUrl = data.requested_downloads[0].url;
-        fileSize = data.requested_downloads.reduce((acc: number, f: any) => acc + (f.filesize || f.filesize_approx || 0), 0);
-        ext = data.requested_downloads[0].ext || ext;
+        const reqDownload = data.requested_downloads[0];
+        if (reqDownload.requested_formats && reqDownload.requested_formats.length > 0) {
+          directUrl = reqDownload.requested_formats[0].url;
+          fileSize = reqDownload.requested_formats.reduce((acc: number, f: any) => acc + (f.filesize || f.filesize_approx || 0), 0);
+          ext = reqDownload.ext || ext;
+        } else {
+          directUrl = reqDownload.url;
+          fileSize = reqDownload.filesize || reqDownload.filesize_approx || fileSize;
+          ext = reqDownload.ext || ext;
+        }
       }
 
       if (!directUrl) {
