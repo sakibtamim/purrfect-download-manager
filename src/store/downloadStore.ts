@@ -15,6 +15,16 @@ async function getStore() {
   return settingsStoreCache;
 }
 
+// Persisted download metadata cache — survives app restarts
+interface CachedMeta { totalLength: string; completedLength: string; }
+let metaStoreCache: Store | null = null;
+async function getMetaStore() {
+  if (!metaStoreCache) {
+    metaStoreCache = await load('download-meta.json');
+  }
+  return metaStoreCache;
+}
+
 export interface StagedDownload {
   url: string;
   headers: string[];
@@ -175,6 +185,26 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       const combinedActive = [...active, ...waiting];
       const completed = stopped.filter(d => d.status === 'complete');
       const failed = stopped.filter(d => d.status === 'error' || d.status === 'removed');
+
+      // --- Metadata cache: persist sizes so session-restored paused downloads show correct values ---
+      const metaStore = await getMetaStore();
+      const allDownloads = [...combinedActive, ...completed, ...failed];
+      for (const dl of allDownloads) {
+        const total = parseInt(dl.totalLength, 10);
+        const done = parseInt(dl.completedLength, 10);
+        if (total > 0) {
+          // Save known-good sizes to our cache
+          await metaStore.set(dl.gid, { totalLength: dl.totalLength, completedLength: dl.completedLength } as CachedMeta);
+        } else {
+          // aria2c returned 0 — fill in from our cache
+          const cached = await metaStore.get<CachedMeta>(dl.gid);
+          if (cached) {
+            dl.totalLength = cached.totalLength;
+            if (done === 0) dl.completedLength = cached.completedLength;
+          }
+        }
+      }
+      await metaStore.save();
 
       const prevCompleted = get().completed;
       const prevFailed = get().failed;
