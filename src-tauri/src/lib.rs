@@ -20,9 +20,11 @@ pub fn run() {
       let (mut rx, mut _child) = sidecar_command.spawn().expect("Failed to spawn aria2c");
       
       tauri::async_runtime::spawn(async move {
-        while let Some(_event) = rx.recv().await {
-            // Read output if necessary
+        let _child_keep_alive = _child;
+        while let Some(event) = rx.recv().await {
+            println!("aria2c event: {:?}", event);
         }
+        println!("aria2c sidecar has exited!");
       });
       
       Ok(())
