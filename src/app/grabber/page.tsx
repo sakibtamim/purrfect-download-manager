@@ -19,7 +19,7 @@ type GrabbedLink = {
 
 export default function GrabberPage() {
   const [activeTab, setActiveTab] = useState<'media' | 'site'>('media');
-  const { addDownload } = useDownloadStore();
+  const { addDownload, stageDownload } = useDownloadStore();
 
   // Media Downloader State
   const [mediaUrl, setMediaUrl] = useState("");
@@ -52,7 +52,17 @@ export default function GrabberPage() {
 
   const handleDownloadMedia = () => {
     if (mediaInfo) {
-      addDownload(mediaInfo.url, [], undefined);
+      const sanitizedTitle = mediaInfo.title.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+      const filename = `${sanitizedTitle}.${mediaInfo.ext}`;
+      
+      stageDownload({
+        url: mediaInfo.url,
+        headers: [],
+        filename: filename,
+        fileSize: mediaInfo.fileSize,
+        mediaFormats: mediaInfo.formats
+      });
+      
       setMediaInfo(null);
       setMediaUrl("");
     }

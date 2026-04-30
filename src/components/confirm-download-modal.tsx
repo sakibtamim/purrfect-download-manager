@@ -15,14 +15,16 @@ export function ConfirmDownloadModal() {
   const [saveDir, setSaveDir] = useState<string>("");
   const [displayFilename, setDisplayFilename] = useState<string>("Unknown");
   const [displaySize, setDisplaySize] = useState<string>("Unknown size");
-  const [securityStatus, setSecurityStatus] = useState<'scanning' | 'safe' | 'unsafe' | 'no-key'>('no-key');
+  const [securityStatus, setSecurityStatus] = useState<'scanning' | 'safe' | 'unsafe' | 'no-key' | 'error'>('no-key');
   const [threatDetails, setThreatDetails] = useState<string>('');
+  const [selectedFormatUrl, setSelectedFormatUrl] = useState<string>("");
 
   useEffect(() => {
     if (stagedDownload) {
       setSaveDir(""); 
       setSecurityStatus('no-key');
       setThreatDetails('');
+      setSelectedFormatUrl(stagedDownload.url);
 
       // First, set what we currently know
       let name = stagedDownload.filename || "";
@@ -85,7 +87,13 @@ export function ConfirmDownloadModal() {
             }
           })
         })
-        .then(res => res.json())
+        .then(async res => {
+          const data = await res.json();
+          if (!res.ok || data.error) {
+            throw new Error(data.error?.message || `API Error ${res.status}`);
+          }
+          return data;
+        })
         .then(data => {
           if (data.matches && data.matches.length > 0) {
             setSecurityStatus('unsafe');
@@ -96,11 +104,34 @@ export function ConfirmDownloadModal() {
         })
         .catch(e => {
           console.warn("Security scan failed:", e);
-          setSecurityStatus('safe'); // default to safe on network error
+          setSecurityStatus('error');
+          setThreatDetails(e.message || 'Scan failed');
         });
       }
     }
   }, [stagedDownload]);
+
+  const handleFormatChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const url = e.target.value;
+    setSelectedFormatUrl(url);
+    if (stagedDownload && stagedDownload.mediaFormats) {
+      const format = stagedDownload.mediaFormats.find(f => f.url === url);
+      if (format) {
+        let baseName = displayFilename;
+        const lastDot = baseName.lastIndexOf('.');
+        if (lastDot !== -1) {
+          baseName = baseName.substring(0, lastDot);
+        }
+        setDisplayFilename(`${baseName}.${format.ext}`);
+        
+        if (format.fileSize > 0) {
+          setDisplaySize(`${(format.fileSize / (1024 * 1024)).toFixed(2)} MB`);
+        } else {
+          setDisplaySize("Unknown size");
+        }
+      }
+    }
+  };
 
   const handleBrowse = async () => {
     try {
@@ -120,8 +151,8 @@ export function ConfirmDownloadModal() {
   const handleConfirm = () => {
     if (!stagedDownload) return;
     
-    // Add the download with the selected directory (if any)
-    addDownload(stagedDownload.url, stagedDownload.headers, saveDir || undefined);
+    // Add the download with the selected directory and explicitly pass the display filename
+    addDownload(selectedFormatUrl || stagedDownload.url, stagedDownload.headers, saveDir || undefined, displayFilename);
     
     // Clear staged state to close modal
     clearStagedDownload();
@@ -142,10 +173,27 @@ export function ConfirmDownloadModal() {
         <div className="grid gap-4 py-4">
           <div className="space-y-1">
             <Label className="text-zinc-500 text-xs uppercase">URL</Label>
-            <div className="text-sm font-medium break-all bg-zinc-900 p-2 rounded border border-zinc-800 max-h-24 overflow-y-auto">
-              {stagedDownload.url}
+            <div className="text-xs font-mono break-all bg-zinc-900 p-2 rounded border border-zinc-800 max-h-24 overflow-y-auto">
+              {selectedFormatUrl || stagedDownload.url}
             </div>
           </div>
+          
+          {stagedDownload.mediaFormats && stagedDownload.mediaFormats.length > 0 && (
+            <div className="space-y-1">
+              <Label className="text-zinc-500 text-xs uppercase">Quality / Resolution</Label>
+              <select 
+                value={selectedFormatUrl}
+                onChange={handleFormatChange}
+                className="w-full bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-md p-2 text-sm focus:ring-1 focus:ring-indigo-500 outline-none"
+              >
+                {stagedDownload.mediaFormats.map(format => (
+                  <option key={format.format_id} value={format.url}>
+                    {format.resolution} ({format.fileSize > 0 ? `${(format.fileSize / (1024 * 1024)).toFixed(1)} MB` : 'Unknown Size'}) - {format.ext.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
@@ -201,10 +249,20 @@ export function ConfirmDownloadModal() {
                   <span className="w-2 h-2 rounded-full bg-red-500"></span> {threatDetails || 'Malicious'}
                 </span>
               )}
+              {securityStatus === 'error' && (
+                <span className="text-sm text-yellow-100 bg-yellow-950/50 px-2 py-1 rounded-md border border-yellow-900 flex items-center gap-1 font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-yellow-500"></span> API Error
+                </span>
+              )}
             </div>
             {securityStatus === 'unsafe' && (
               <p className="text-xs text-red-400 mt-2">
                 This URL has been flagged as highly dangerous. Downloading has been blocked to protect your system.
+              </p>
+            )}
+            {securityStatus === 'error' && (
+              <p className="text-xs text-yellow-400 mt-2">
+                {threatDetails}
               </p>
             )}
           </div>

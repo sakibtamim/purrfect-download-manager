@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { useDownloadStore } from "@/store/downloadStore";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
@@ -15,8 +17,54 @@ export default function SettingsPage() {
     maxConcurrentDownloads, setMaxConcurrentDownloads,
     splitConnections, setSplitConnections,
     autoStart, setAutoStart,
-    isPlayfulMode, togglePlayfulMode
+    isPlayfulMode, togglePlayfulMode,
+    safeBrowsingApiKey, setSafeBrowsingApiKey
   } = useDownloadStore();
+
+  const [tempApiKey, setTempApiKey] = useState(safeBrowsingApiKey || "");
+  const [apiKeyStatus, setApiKeyStatus] = useState<'idle' | 'validating' | 'success' | 'error'>('idle');
+  const [apiErrorMessage, setApiErrorMessage] = useState("");
+
+  const handleValidateApiKey = async () => {
+    if (!tempApiKey.trim()) {
+      setSafeBrowsingApiKey("");
+      setApiKeyStatus('success');
+      return;
+    }
+    
+    setApiKeyStatus('validating');
+    setApiErrorMessage('');
+    
+    try {
+      const res = await tauriFetch(`https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${tempApiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client: { clientId: "purrfect-dl", clientVersion: "1.0.0" },
+          threatInfo: {
+            threatTypes: ["MALWARE"],
+            platformTypes: ["ANY_PLATFORM"],
+            threatEntryTypes: ["URL"],
+            threatEntries: [{ url: "http://example.com" }]
+          }
+        })
+      });
+      
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error?.message || `API Error ${res.status}`);
+      }
+      
+      setSafeBrowsingApiKey(tempApiKey);
+      setApiKeyStatus('success');
+      
+      // Reset success message after 3 seconds
+      setTimeout(() => setApiKeyStatus('idle'), 3000);
+    } catch (e: any) {
+      setApiKeyStatus('error');
+      setApiErrorMessage(e.message || 'Invalid API Key');
+    }
+  };
 
   const handleBrowseDefaultDir = async () => {
     try {
@@ -85,7 +133,7 @@ export default function SettingsPage() {
             </div>
             <Slider
               value={[maxConcurrentDownloads]}
-              onValueChange={(vals) => setMaxConcurrentDownloads(vals[0])}
+              onValueChange={(vals) => setMaxConcurrentDownloads(typeof vals === 'number' ? vals : vals[0])}
               max={16}
               min={1}
               step={1}
@@ -105,7 +153,7 @@ export default function SettingsPage() {
             </div>
             <Slider
               value={[splitConnections]}
-              onValueChange={(vals) => setSplitConnections(vals[0])}
+              onValueChange={(vals) => setSplitConnections(typeof vals === 'number' ? vals : vals[0])}
               max={16}
               min={1}
               step={1}
@@ -157,15 +205,37 @@ export default function SettingsPage() {
               Provide an API key to automatically scan URLs for malware and phishing before downloading. 
               Leave blank to disable security scanning.
             </p>
-            <div className="mt-2">
+            <div className="mt-2 flex gap-2">
               <Input 
                 type="password"
-                value={useDownloadStore(state => state.safeBrowsingApiKey) || ""}
-                onChange={(e) => useDownloadStore.getState().setSafeBrowsingApiKey(e.target.value)}
+                value={tempApiKey}
+                onChange={(e) => {
+                  setTempApiKey(e.target.value);
+                  setApiKeyStatus('idle');
+                }}
                 placeholder="AIzaSyB..."
                 className="bg-zinc-950 border-zinc-800 text-zinc-300 font-mono"
               />
+              <Button 
+                onClick={handleValidateApiKey}
+                disabled={apiKeyStatus === 'validating'}
+                className="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white"
+              >
+                {apiKeyStatus === 'validating' ? 'Validating...' : 'Save & Validate'}
+              </Button>
             </div>
+            {apiKeyStatus === 'error' && (
+              <p className="text-sm text-red-400 mt-2 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                {apiErrorMessage}
+              </p>
+            )}
+            {apiKeyStatus === 'success' && (
+              <p className="text-sm text-emerald-400 mt-2 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                {tempApiKey ? 'API Key successfully validated and saved!' : 'Security scanning disabled.'}
+              </p>
+            )}
           </div>
         </section>
 

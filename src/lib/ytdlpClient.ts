@@ -1,11 +1,21 @@
 import { Command } from '@tauri-apps/plugin-shell';
 
+export interface YtDlpFormat {
+  format_id: string;
+  ext: string;
+  resolution: string;
+  fileSize: number;
+  url: string;
+}
+
 export interface YtDlpVideoInfo {
   title: string;
   thumbnail: string;
   url: string;      // Direct stream URL
   fileSize: number;
   duration: number;
+  ext: string;
+  formats: YtDlpFormat[];
 }
 
 export const ytdlpClient = {
@@ -17,10 +27,11 @@ export const ytdlpClient = {
     
     // Build arguments. We use -J to dump JSON and not download the file itself here.
     const args = [
+      '-f', 'best',
       '-J',
       '--no-warnings',
       '--extractor-args',
-      'youtube:player_client=web', // Bypass YouTube bot detection
+      'youtube:player_client=default', // Let yt-dlp pick the best unblocked client (Android/iOS)
       videoUrl
     ];
 
@@ -43,14 +54,46 @@ export const ytdlpClient = {
       // yt-dlp JSON has 'url' or 'requested_downloads' array depending on format requested.
       let directUrl = data.url;
       let fileSize = data.filesize || data.filesize_approx || 0;
+      let ext = data.ext || 'mp4';
 
       if (!directUrl && data.requested_downloads && data.requested_downloads.length > 0) {
         directUrl = data.requested_downloads[0].url;
         fileSize = data.requested_downloads[0].filesize || fileSize;
+        ext = data.requested_downloads[0].ext || ext;
       }
 
       if (!directUrl) {
         throw new Error('Could not find a direct stream URL in the yt-dlp response.');
+      }
+
+      let availableFormats: YtDlpFormat[] = [];
+      if (data.formats && Array.isArray(data.formats)) {
+        availableFormats = data.formats
+          .filter((f: any) => f.vcodec !== 'none' && f.acodec !== 'none' && f.url)
+          .map((f: any) => ({
+            format_id: f.format_id || 'unknown',
+            ext: f.ext || 'mp4',
+            resolution: f.resolution || f.format_note || (f.width ? `${f.width}x${f.height}` : 'Unknown'),
+            fileSize: f.filesize || f.filesize_approx || 0,
+            url: f.url
+          }));
+          
+        // Deduplicate formats with the same resolution (keep the highest filesize)
+        const uniqueFormats = new Map<string, YtDlpFormat>();
+        for (const f of availableFormats) {
+          const existing = uniqueFormats.get(f.resolution);
+          if (!existing || f.fileSize > existing.fileSize) {
+            uniqueFormats.set(f.resolution, f);
+          }
+        }
+        availableFormats = Array.from(uniqueFormats.values());
+
+        // Sort by resolution descending (rough heuristic)
+        availableFormats.sort((a, b) => {
+          const heightA = parseInt(a.resolution.split('x')[1] || a.resolution.replace(/[^0-9]/g, '')) || 0;
+          const heightB = parseInt(b.resolution.split('x')[1] || b.resolution.replace(/[^0-9]/g, '')) || 0;
+          return heightB - heightA;
+        });
       }
 
       return {
@@ -59,6 +102,8 @@ export const ytdlpClient = {
         url: directUrl,
         fileSize,
         duration: data.duration || 0,
+        ext,
+        formats: availableFormats
       };
 
     } catch (error) {

@@ -1,16 +1,24 @@
 import { create } from 'zustand';
 import { aria2Client, Aria2Download } from '@/lib/aria2Client';
+import { YtDlpFormat } from '@/lib/ytdlpClient';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
-import { Store } from '@tauri-apps/plugin-store';
+import { Store, load } from '@tauri-apps/plugin-store';
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart';
 
-const settingsStore = new Store('settings.json');
+let settingsStoreCache: Store | null = null;
+async function getStore() {
+  if (!settingsStoreCache) {
+    settingsStoreCache = await load('settings.json');
+  }
+  return settingsStoreCache;
+}
 
 export interface StagedDownload {
   url: string;
   headers: string[];
   filename?: string;
   fileSize?: number;
+  mediaFormats?: YtDlpFormat[];
 }
 
 export interface DownloadState {
@@ -39,7 +47,7 @@ export interface DownloadState {
   fetchDownloads: () => Promise<void>;
   stageDownload: (download: StagedDownload) => void;
   clearStagedDownload: () => void;
-  addDownload: (url: string, headers?: string[], dir?: string) => Promise<void>;
+  addDownload: (url: string, headers?: string[], dir?: string, filename?: string) => Promise<void>;
   pauseDownload: (gid: string) => Promise<void>;
   resumeDownload: (gid: string) => Promise<void>;
   cancelDownload: (gid: string) => Promise<void>;
@@ -65,10 +73,11 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
 
   initSettings: async () => {
     // Load from Store
-    const maxConcurrent = await settingsStore.get<number>("maxConcurrentDownloads") || 5;
-    const split = await settingsStore.get<number>("splitConnections") || 1;
-    const dir = await settingsStore.get<string>("defaultDownloadDir") || "";
-    const apiKey = await settingsStore.get<string>("safeBrowsingApiKey") || "";
+    const store = await getStore();
+    const maxConcurrent = await store.get<number>("maxConcurrentDownloads") || 5;
+    const split = await store.get<number>("splitConnections") || 1;
+    const dir = await store.get<string>("defaultDownloadDir") || "";
+    const apiKey = await store.get<string>("safeBrowsingApiKey") || "";
     
     // Auto start
     let autoStartEnabled = false;
@@ -95,21 +104,24 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   },
 
   setDefaultDownloadDir: async (dir: string) => {
-    await settingsStore.set("defaultDownloadDir", dir);
-    await settingsStore.save();
+    const store = await getStore();
+    await store.set("defaultDownloadDir", dir);
+    await store.save();
     set({ defaultDownloadDir: dir });
   },
 
   setMaxConcurrentDownloads: async (max: number) => {
-    await settingsStore.set("maxConcurrentDownloads", max);
-    await settingsStore.save();
+    const store = await getStore();
+    await store.set("maxConcurrentDownloads", max);
+    await store.save();
     set({ maxConcurrentDownloads: max });
     await aria2Client.changeGlobalOption({ "max-concurrent-downloads": max.toString() });
   },
 
   setSplitConnections: async (split: number) => {
-    await settingsStore.set("splitConnections", split);
-    await settingsStore.save();
+    const store = await getStore();
+    await store.set("splitConnections", split);
+    await store.save();
     set({ splitConnections: split });
     await aria2Client.changeGlobalOption({ 
       "split": split.toString(),
@@ -131,8 +143,9 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   },
 
   setSafeBrowsingApiKey: async (key: string) => {
-    await settingsStore.set("safeBrowsingApiKey", key);
-    await settingsStore.save();
+    const store = await getStore();
+    await store.set("safeBrowsingApiKey", key);
+    await store.save();
     set({ safeBrowsingApiKey: key });
   },
 
@@ -191,7 +204,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     }
   },
 
-  addDownload: async (url: string, headers: string[] = [], dir?: string) => {
+  addDownload: async (url: string, headers: string[] = [], dir?: string, filename?: string) => {
     const options: Record<string, any> = {
       "check-certificate": "false"
     };
@@ -200,6 +213,9 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     }
     if (dir) {
       options["dir"] = dir;
+    }
+    if (filename) {
+      options["out"] = filename;
     }
     await aria2Client.addUri([url], options);
     await get().fetchDownloads();
