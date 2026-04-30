@@ -11,8 +11,13 @@ import { Play, Pause, X, FolderOpen, File, RefreshCw } from "lucide-react";
 export function DownloadCard({ download }: { download: Aria2Download }) {
   const { isPlayfulMode, pauseDownload, resumeDownload, cancelDownload, addDownload } = useDownloadStore();
 
-  const totalLength = parseInt(download.totalLength, 10);
-  const completedLength = parseInt(download.completedLength, 10);
+  const rawTotal = parseInt(download.totalLength, 10);
+  const rawCompleted = parseInt(download.completedLength, 10);
+  // Fallback to per-file lengths for session-restored paused downloads where top-level values are 0
+  const fileTotal = download.files[0] ? parseInt(download.files[0].length, 10) : 0;
+  const fileCompleted = download.files[0] ? parseInt(download.files[0].completedLength, 10) : 0;
+  const totalLength = rawTotal > 0 ? rawTotal : fileTotal;
+  const completedLength = rawCompleted > 0 ? rawCompleted : fileCompleted;
   const progress = totalLength > 0 ? (completedLength / totalLength) * 100 : 0;
   
   const speed = parseInt(download.downloadSpeed, 10);
