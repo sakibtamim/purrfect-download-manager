@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Download, CheckCircle2, AlertCircle, Settings, Cat } from "lucide-react";
+import { Download, CheckCircle2, AlertCircle, Settings, Cat, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDownloadStore } from "@/store/downloadStore";
 
@@ -12,6 +12,7 @@ export function Sidebar() {
   
   const navItems = [
     { name: "Downloads", href: "/", icon: Download },
+    { name: "Web Tools", href: "/grabber", icon: Globe },
     { name: "Completed", href: "/completed", icon: CheckCircle2 },
     { name: "Failed", href: "/failed", icon: AlertCircle },
     { name: "Settings", href: "/settings", icon: Settings },
