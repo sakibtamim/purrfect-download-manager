@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import { aria2Client, Aria2Download } from '@/lib/aria2Client';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
+import { Store } from '@tauri-apps/plugin-store';
+import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart';
+
+const settingsStore = new Store('settings.json');
 
 export interface StagedDownload {
   url: string;
@@ -16,6 +20,18 @@ export interface DownloadState {
   globalSpeed: string;
   isPlayfulMode: boolean;
   stagedDownload: StagedDownload | null;
+  
+  // Settings
+  defaultDownloadDir: string;
+  maxConcurrentDownloads: number;
+  splitConnections: number;
+  autoStart: boolean;
+
+  initSettings: () => Promise<void>;
+  setDefaultDownloadDir: (dir: string) => Promise<void>;
+  setMaxConcurrentDownloads: (max: number) => Promise<void>;
+  setSplitConnections: (split: number) => Promise<void>;
+  setAutoStart: (enabled: boolean) => Promise<void>;
   
   togglePlayfulMode: () => void;
   fetchDownloads: () => Promise<void>;
@@ -38,6 +54,76 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   globalSpeed: "0",
   isPlayfulMode: false,
   stagedDownload: null,
+
+  defaultDownloadDir: "",
+  maxConcurrentDownloads: 5,
+  splitConnections: 1,
+  autoStart: false,
+
+  initSettings: async () => {
+    // Load from Store
+    const maxConcurrent = await settingsStore.get<number>("maxConcurrentDownloads") || 5;
+    const split = await settingsStore.get<number>("splitConnections") || 1;
+    const dir = await settingsStore.get<string>("defaultDownloadDir") || "";
+    
+    // Auto start
+    let autoStartEnabled = false;
+    try {
+      autoStartEnabled = await isAutostartEnabled();
+    } catch(e) {}
+
+    set({
+      maxConcurrentDownloads: maxConcurrent,
+      splitConnections: split,
+      defaultDownloadDir: dir,
+      autoStart: autoStartEnabled
+    });
+
+    // Sync with aria2
+    try {
+      await aria2Client.changeGlobalOption({
+        "max-concurrent-downloads": maxConcurrent.toString(),
+        "split": split.toString(),
+        "max-connection-per-server": split.toString()
+      });
+    } catch(e) {}
+  },
+
+  setDefaultDownloadDir: async (dir: string) => {
+    await settingsStore.set("defaultDownloadDir", dir);
+    await settingsStore.save();
+    set({ defaultDownloadDir: dir });
+  },
+
+  setMaxConcurrentDownloads: async (max: number) => {
+    await settingsStore.set("maxConcurrentDownloads", max);
+    await settingsStore.save();
+    set({ maxConcurrentDownloads: max });
+    await aria2Client.changeGlobalOption({ "max-concurrent-downloads": max.toString() });
+  },
+
+  setSplitConnections: async (split: number) => {
+    await settingsStore.set("splitConnections", split);
+    await settingsStore.save();
+    set({ splitConnections: split });
+    await aria2Client.changeGlobalOption({ 
+      "split": split.toString(),
+      "max-connection-per-server": split.toString()
+    });
+  },
+
+  setAutoStart: async (enabled: boolean) => {
+    try {
+      if (enabled) {
+        await enableAutostart();
+      } else {
+        await disableAutostart();
+      }
+      set({ autoStart: enabled });
+    } catch(e) {
+      console.error("Failed to toggle autostart", e);
+    }
+  },
 
   togglePlayfulMode: () => set((state) => ({ isPlayfulMode: !state.isPlayfulMode })),
   stageDownload: (download) => set({ stagedDownload: download }),

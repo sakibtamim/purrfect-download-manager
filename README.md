@@ -2,7 +2,7 @@
 
 A modern, lightning-fast desktop download manager built with **Tauri v2**, **Next.js**, and powered by the **aria2** engine under the hood. 
 
-![Purrfect Download Manager Logo](public/window.svg)
+
 
 ## Features
 

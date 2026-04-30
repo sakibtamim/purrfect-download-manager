@@ -38,3 +38,44 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
     }
   });
 });
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "pdm-download",
+    title: "Download with Purrfect DL",
+    contexts: ["link", "image", "video", "audio"]
+  });
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === "pdm-download") {
+    const targetUrl = info.linkUrl || info.srcUrl || info.pageUrl;
+    if (!targetUrl) return;
+
+    let cookieString = "";
+    try {
+      const urlObj = new URL(targetUrl);
+      const cookies = await chrome.cookies.getAll({ domain: urlObj.hostname });
+      cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    } catch (e) {}
+
+    const payload = {
+      url: targetUrl,
+      referrer: tab?.url || "",
+      cookies: cookieString,
+      userAgent: navigator.userAgent,
+      filename: "",
+      fileSize: 0
+    };
+
+    try {
+      await fetch("http://localhost:6801/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+    } catch (e) {
+      console.error("Failed to connect to PDM API.", e);
+    }
+  }
+});

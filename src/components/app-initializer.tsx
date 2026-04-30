@@ -6,8 +6,12 @@ import { useDownloadStore } from "@/store/downloadStore";
 export function AppInitializer() {
   const fetchDownloads = useDownloadStore(state => state.fetchDownloads);
   const stageDownload = useDownloadStore(state => state.stageDownload);
+  const initSettings = useDownloadStore(state => state.initSettings);
 
   useEffect(() => {
+    // Initialize Settings
+    initSettings();
+
     // Initial fetch
     fetchDownloads();
 

@@ -1,4 +1,5 @@
 use serde_json::Value;
+use std::fs;
 use std::io::Read;
 use std::thread;
 use tauri::{
@@ -12,6 +13,8 @@ use tiny_http::{Response, Server};
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+    .plugin(tauri_plugin_autostart::Builder::new().build())
+    .plugin(tauri_plugin_store::Builder::new().build())
     .plugin(tauri_plugin_http::init())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_notification::init())
@@ -57,6 +60,18 @@ pub fn run() {
       let download_dir = app.handle().path().download_dir().unwrap_or_default();
       let dir_arg = format!("--dir={}", download_dir.to_string_lossy());
 
+      let app_local_data_dir = app.handle().path().app_local_data_dir().unwrap();
+      if !app_local_data_dir.exists() {
+          fs::create_dir_all(&app_local_data_dir).unwrap();
+      }
+      
+      let session_file = app_local_data_dir.join("session.txt");
+      if !session_file.exists() {
+          fs::File::create(&session_file).unwrap();
+      }
+      let session_arg = format!("--save-session={}", session_file.to_string_lossy());
+      let input_file_arg = format!("--input-file={}", session_file.to_string_lossy());
+
       let sidecar_command = app.shell().sidecar("aria2c").unwrap()
         .args([
             "--enable-rpc", 
@@ -64,6 +79,9 @@ pub fn run() {
             "--rpc-listen-port=6800", 
             "--rpc-allow-origin-all",
             "--check-certificate=false",
+            "--save-session-interval=10",
+            &session_arg,
+            &input_file_arg,
             &dir_arg,
             "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         ]);
