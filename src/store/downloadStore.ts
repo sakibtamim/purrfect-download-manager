@@ -199,9 +199,9 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
 
       if (newCompleted.length > 0 && prevCompleted.length > 0) {
         // Only notify for completed downloads that aren't parts of a pending mux
-        const isMuxPart = newCompleted.some(c => get().pendingMuxes.some(m => m.videoGid === c.gid || m.audioGid === c.gid));
-        if (!isMuxPart) {
-          notify("Download Complete", `${newCompleted.length} file(s) finished downloading.`);
+        const nonMuxCompleted = newCompleted.filter(c => !get().pendingMuxes.some(m => m.videoGid === c.gid || m.audioGid === c.gid));
+        if (nonMuxCompleted.length > 0) {
+          notify("Download Complete", `${nonMuxCompleted.length} file(s) finished downloading.`);
         }
       }
       if (newFailed.length > 0 && prevFailed.length > 0 && newFailed.some(f => f.status === 'error')) {
@@ -236,7 +236,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
                    '-i', vPath,
                    '-i', aPath,
                    '-c:v', 'copy',
-                   '-c:a', 'aac',
+                   '-c:a', 'copy',
                    finalPath
                 ]).execute().then(output => {
                    if (output.code === 0) {
@@ -286,8 +286,10 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     }
     
     if (audioUrl && filename) {
-      const ext = filename.split('.').pop() || 'mp4';
-      const base = filename.substring(0, filename.length - ext.length - 1);
+      const lastDotIndex = filename.lastIndexOf('.');
+      const hasExt = lastDotIndex !== -1;
+      const base = hasExt ? filename.substring(0, lastDotIndex) : filename;
+      const ext = hasExt ? filename.substring(lastDotIndex + 1) : 'mp4';
       
       const videoFilename = `${base}.video.${ext}`;
       const audioFilename = `${base}.audio.m4a`;
