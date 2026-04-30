@@ -11,10 +11,13 @@ export interface DownloadState {
   
   togglePlayfulMode: () => void;
   fetchDownloads: () => Promise<void>;
-  addDownload: (url: string) => Promise<void>;
+  addDownload: (url: string, headers?: string[]) => Promise<void>;
   pauseDownload: (gid: string) => Promise<void>;
   resumeDownload: (gid: string) => Promise<void>;
   cancelDownload: (gid: string) => Promise<void>;
+  pauseAllDownloads: () => Promise<void>;
+  resumeAllDownloads: () => Promise<void>;
+  clearCompletedDownloads: () => Promise<void>;
   setSpeedLimit: (bytesPerSecond: string) => Promise<void>;
 }
 
@@ -78,10 +81,14 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     }
   },
 
-  addDownload: async (url: string) => {
-    await aria2Client.addUri([url], {
+  addDownload: async (url: string, headers: string[] = []) => {
+    const options: Record<string, any> = {
       "check-certificate": "false"
-    });
+    };
+    if (headers.length > 0) {
+      options["header"] = headers;
+    }
+    await aria2Client.addUri([url], options);
     await get().fetchDownloads();
   },
 
@@ -97,6 +104,21 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
 
   cancelDownload: async (gid: string) => {
     await aria2Client.remove(gid);
+    await get().fetchDownloads();
+  },
+
+  pauseAllDownloads: async () => {
+    await aria2Client.pauseAll();
+    await get().fetchDownloads();
+  },
+
+  resumeAllDownloads: async () => {
+    await aria2Client.unpauseAll();
+    await get().fetchDownloads();
+  },
+
+  clearCompletedDownloads: async () => {
+    await aria2Client.purgeDownloadResult();
     await get().fetchDownloads();
   },
 

@@ -1,14 +1,13 @@
 "use client";
 
 import { useDownloadStore } from "@/store/downloadStore";
-import { Activity, DownloadCloud, Gauge } from "lucide-react";
+import { Activity, DownloadCloud, Gauge, Pause, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { Button } from "./ui/button";
 import { AddDownloadModal } from "./add-download-modal";
 
 export function DashboardHeader() {
-  const activeDownloads = useDownloadStore(state => state.active);
-  const globalSpeed = useDownloadStore(state => state.globalSpeed);
-  const setSpeedLimit = useDownloadStore(state => state.setSpeedLimit);
+  const { active, globalSpeed, setSpeedLimit, pauseAllDownloads, resumeAllDownloads, clearCompletedDownloads } = useDownloadStore();
   const [limitInput, setLimitInput] = useState("");
 
   const formatSpeed = (bytesPerSec: string) => {
@@ -29,8 +28,19 @@ export function DashboardHeader() {
           </div>
           <div>
             <p className="text-sm font-medium text-zinc-400">Active Downloads</p>
-            <p className="text-2xl font-bold text-zinc-100">{activeDownloads.length}</p>
+            <p className="text-2xl font-bold text-zinc-100">{active.length}</p>
           </div>
+        </div>
+        <div className="flex items-center gap-1 mt-1 lg:mt-0">
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-amber-400" title="Pause All" onClick={pauseAllDownloads}>
+            <Pause className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-emerald-400" title="Resume All" onClick={resumeAllDownloads}>
+            <Play className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-red-400" title="Clear Completed" onClick={clearCompletedDownloads}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
         </div>
         <div className="w-px h-10 bg-zinc-800 hidden md:block"></div>
         <div className="flex items-center gap-3">

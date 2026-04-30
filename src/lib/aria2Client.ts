@@ -58,8 +58,20 @@ class Aria2Client {
     return this.call<string>("unpause", [gid]);
   }
 
+  async pauseAll(): Promise<string> {
+    return this.call<string>("pauseAll");
+  }
+
+  async unpauseAll(): Promise<string> {
+    return this.call<string>("unpauseAll");
+  }
+
   async remove(gid: string): Promise<string> {
     return this.call<string>("remove", [gid]);
+  }
+
+  async purgeDownloadResult(): Promise<string> {
+    return this.call<string>("purgeDownloadResult");
   }
 
   async tellActive(keys?: string[]): Promise<Aria2Download[]> {

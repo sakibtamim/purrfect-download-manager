@@ -23,7 +23,11 @@ export function AppInitializer() {
         listen('browser-download', (event) => {
             const payload: any = event.payload;
             if (payload && payload.url) {
-                addDownload(payload.url);
+                const headers = [];
+                if (payload.cookies) headers.push(`Cookie: ${payload.cookies}`);
+                if (payload.referrer) headers.push(`Referer: ${payload.referrer}`);
+                if (payload.userAgent) headers.push(`User-Agent: ${payload.userAgent}`);
+                addDownload(payload.url, headers);
             }
         }).then(f => unlisten = f).catch(e => console.warn("Tauri event listen failed:", e));
       });
