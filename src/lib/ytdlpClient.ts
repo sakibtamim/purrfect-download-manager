@@ -6,6 +6,7 @@ export interface YtDlpFormat {
   resolution: string;
   fileSize: number;
   url: string;
+  audioUrl?: string;
 }
 
 export interface YtDlpVideoInfo {
@@ -27,7 +28,7 @@ export const ytdlpClient = {
     
     // Build arguments. We use -J to dump JSON and not download the file itself here.
     const args = [
-      '-f', 'best',
+      '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
       '-J',
       '--no-warnings',
       '--extractor-args',
@@ -57,8 +58,9 @@ export const ytdlpClient = {
       let ext = data.ext || 'mp4';
 
       if (!directUrl && data.requested_downloads && data.requested_downloads.length > 0) {
+        // If it's a separated video+audio, requested_downloads will have 2 entries
         directUrl = data.requested_downloads[0].url;
-        fileSize = data.requested_downloads[0].filesize || fileSize;
+        fileSize = data.requested_downloads.reduce((acc: number, f: any) => acc + (f.filesize || f.filesize_approx || 0), 0);
         ext = data.requested_downloads[0].ext || ext;
       }
 
@@ -68,15 +70,28 @@ export const ytdlpClient = {
 
       let availableFormats: YtDlpFormat[] = [];
       if (data.formats && Array.isArray(data.formats)) {
+        // Find best audio
+        const bestAudio = data.formats
+          .filter((f: any) => f.acodec !== 'none' && f.vcodec === 'none')
+          .sort((a: any, b: any) => (b.abr || 0) - (a.abr || 0))[0];
+
         availableFormats = data.formats
-          .filter((f: any) => f.vcodec !== 'none' && f.acodec !== 'none' && f.url)
-          .map((f: any) => ({
-            format_id: f.format_id || 'unknown',
-            ext: f.ext || 'mp4',
-            resolution: f.resolution || f.format_note || (f.width ? `${f.width}x${f.height}` : 'Unknown'),
-            fileSize: f.filesize || f.filesize_approx || 0,
-            url: f.url
-          }));
+          .filter((f: any) => f.vcodec !== 'none' && f.url)
+          .map((f: any) => {
+            const hasAudio = f.acodec !== 'none';
+            const audioExt = bestAudio?.ext || 'm4a';
+            // We force mp4 container for muxed results
+            const finalExt = !hasAudio ? 'mp4' : (f.ext || 'mp4');
+            
+            return {
+              format_id: f.format_id || 'unknown',
+              ext: finalExt,
+              resolution: f.resolution || f.format_note || (f.width ? `${f.width}x${f.height}` : 'Unknown'),
+              fileSize: (f.filesize || f.filesize_approx || 0) + (!hasAudio && bestAudio ? (bestAudio.filesize || bestAudio.filesize_approx || 0) : 0),
+              url: f.url,
+              audioUrl: !hasAudio && bestAudio ? bestAudio.url : undefined
+            };
+          });
           
         // Deduplicate formats with the same resolution (keep the highest filesize)
         const uniqueFormats = new Map<string, YtDlpFormat>();

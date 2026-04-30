@@ -71,7 +71,7 @@ export function ConfirmDownloadModal() {
       }
 
       // Perform Security Scan
-      const apiKey = useDownloadStore.getState().safeBrowsingApiKey || process.env.NEXT_PUBLIC_SAFE_BROWSING_API_KEY;
+      const apiKey = useDownloadStore.getState().safeBrowsingApiKey;
       if (apiKey) {
         setSecurityStatus('scanning');
         tauriFetch(`https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${apiKey}`, {
@@ -151,8 +151,11 @@ export function ConfirmDownloadModal() {
   const handleConfirm = () => {
     if (!stagedDownload) return;
     
+    const selectedFormat = stagedDownload.mediaFormats?.find(f => f.url === selectedFormatUrl);
+    const audioUrl = selectedFormat?.audioUrl;
+
     // Add the download with the selected directory and explicitly pass the display filename
-    addDownload(selectedFormatUrl || stagedDownload.url, stagedDownload.headers, saveDir || undefined, displayFilename);
+    addDownload(selectedFormatUrl || stagedDownload.url, stagedDownload.headers, saveDir || undefined, displayFilename, audioUrl);
     
     // Clear staged state to close modal
     clearStagedDownload();

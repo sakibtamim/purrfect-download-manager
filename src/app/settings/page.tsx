@@ -9,7 +9,7 @@ import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { FolderOpen, HardDrive, Rocket, Activity, Cat } from "lucide-react";
+import { FolderOpen, HardDrive, Rocket, Activity, Cat, Globe } from "lucide-react";
 
 export default function SettingsPage() {
   const {
@@ -159,6 +159,26 @@ export default function SettingsPage() {
               step={1}
               className="py-4"
             />
+          </div>
+        </section>
+
+        {/* Browser Integration */}
+        <section className="space-y-4 bg-zinc-900/40 border border-zinc-800 rounded-xl p-6">
+          <div className="flex items-center gap-2 mb-4 text-sky-400">
+            <Globe className="h-5 w-5" />
+            <h2 className="text-lg font-semibold text-zinc-100">Browser Integration</h2>
+          </div>
+          
+          <div className="space-y-2">
+            <Label className="text-zinc-300">Chrome / Edge Extension</Label>
+            <p className="text-sm text-zinc-500">
+              Install the companion extension to automatically intercept browser downloads and add a right-click "Download with Purrfect DL" context menu.
+            </p>
+            <div className="mt-4 bg-zinc-950 border border-zinc-800 rounded-md p-4 text-sm text-zinc-300 space-y-3">
+              <p>1. Open your browser and navigate to <code className="text-indigo-400 bg-indigo-950/50 px-1 py-0.5 rounded">chrome://extensions</code> (or <code className="text-indigo-400 bg-indigo-950/50 px-1 py-0.5 rounded">edge://extensions</code>).</p>
+              <p>2. Enable <strong className="text-zinc-100">Developer Mode</strong> in the top right corner.</p>
+              <p>3. Click <strong className="text-zinc-100">Load unpacked</strong> and select the <code className="text-indigo-400 bg-indigo-950/50 px-1 py-0.5 rounded">extension</code> folder located inside your PDM directory.</p>
+            </div>
           </div>
         </section>
 

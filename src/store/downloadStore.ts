@@ -4,6 +4,8 @@ import { YtDlpFormat } from '@/lib/ytdlpClient';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { Store, load } from '@tauri-apps/plugin-store';
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart';
+import { Command } from '@tauri-apps/plugin-shell';
+import { remove } from '@tauri-apps/plugin-fs';
 
 let settingsStoreCache: Store | null = null;
 async function getStore() {
@@ -21,6 +23,13 @@ export interface StagedDownload {
   mediaFormats?: YtDlpFormat[];
 }
 
+export interface PendingMux {
+  videoGid: string;
+  audioGid: string;
+  finalFilename: string;
+  status: 'waiting' | 'muxing' | 'error';
+}
+
 export interface DownloadState {
   active: Aria2Download[];
   completed: Aria2Download[];
@@ -28,6 +37,7 @@ export interface DownloadState {
   globalSpeed: string;
   isPlayfulMode: boolean;
   stagedDownload: StagedDownload | null;
+  pendingMuxes: PendingMux[];
   
   // Settings
   defaultDownloadDir: string;
@@ -47,7 +57,7 @@ export interface DownloadState {
   fetchDownloads: () => Promise<void>;
   stageDownload: (download: StagedDownload) => void;
   clearStagedDownload: () => void;
-  addDownload: (url: string, headers?: string[], dir?: string, filename?: string) => Promise<void>;
+  addDownload: (url: string, headers?: string[], dir?: string, filename?: string, audioUrl?: string) => Promise<void>;
   pauseDownload: (gid: string) => Promise<void>;
   resumeDownload: (gid: string) => Promise<void>;
   cancelDownload: (gid: string) => Promise<void>;
@@ -64,6 +74,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   globalSpeed: "0",
   isPlayfulMode: false,
   stagedDownload: null,
+  pendingMuxes: [],
 
   defaultDownloadDir: "",
   maxConcurrentDownloads: 5,
@@ -187,10 +198,69 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       };
 
       if (newCompleted.length > 0 && prevCompleted.length > 0) {
-        notify("Download Complete", `${newCompleted.length} file(s) finished downloading.`);
+        // Only notify for completed downloads that aren't parts of a pending mux
+        const isMuxPart = newCompleted.some(c => get().pendingMuxes.some(m => m.videoGid === c.gid || m.audioGid === c.gid));
+        if (!isMuxPart) {
+          notify("Download Complete", `${newCompleted.length} file(s) finished downloading.`);
+        }
       }
       if (newFailed.length > 0 && prevFailed.length > 0 && newFailed.some(f => f.status === 'error')) {
         notify("Download Failed", "A download has failed or encountered an error.");
+      }
+      
+      // Handle Muxing
+      const { pendingMuxes } = get();
+      if (pendingMuxes.length > 0) {
+        const updatedMuxes = [...pendingMuxes];
+        let stateChanged = false;
+        
+        for (let i = 0; i < updatedMuxes.length; i++) {
+          const mux = updatedMuxes[i];
+          if (mux.status === 'waiting') {
+            const vComplete = completed.find(c => c.gid === mux.videoGid);
+            const aComplete = completed.find(c => c.gid === mux.audioGid);
+            
+            if (vComplete && aComplete) {
+              mux.status = 'muxing';
+              stateChanged = true;
+              
+              const vPath = vComplete.files[0]?.path;
+              const aPath = aComplete.files[0]?.path;
+              
+              if (vPath && aPath) {
+                const finalPath = vPath.replace(/\.video\.[^.]+$/, '') + '.mp4';
+                
+                // Spawn FFmpeg
+                Command.sidecar('bin/ffmpeg', [
+                   '-y',
+                   '-i', vPath,
+                   '-i', aPath,
+                   '-c:v', 'copy',
+                   '-c:a', 'aac',
+                   finalPath
+                ]).execute().then(output => {
+                   if (output.code === 0) {
+                      notify("Video Processing Complete", `High-resolution video merged successfully.`);
+                      remove(vPath).catch(console.error);
+                      remove(aPath).catch(console.error);
+                      set(state => ({ pendingMuxes: state.pendingMuxes.filter(m => m !== mux) }));
+                   } else {
+                      notify("Video Processing Failed", "Failed to merge video and audio tracks.");
+                      mux.status = 'error';
+                      set({ pendingMuxes: [...get().pendingMuxes] });
+                   }
+                }).catch(e => {
+                   console.error("FFmpeg error:", e);
+                   mux.status = 'error';
+                   set({ pendingMuxes: [...get().pendingMuxes] });
+                });
+              }
+            }
+          }
+        }
+        if (stateChanged) {
+          set({ pendingMuxes: updatedMuxes });
+        }
       }
 
       set({ 
@@ -204,7 +274,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     }
   },
 
-  addDownload: async (url: string, headers: string[] = [], dir?: string, filename?: string) => {
+  addDownload: async (url: string, headers: string[] = [], dir?: string, filename?: string, audioUrl?: string) => {
     const options: Record<string, any> = {
       "check-certificate": "false"
     };
@@ -214,10 +284,32 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     if (dir) {
       options["dir"] = dir;
     }
-    if (filename) {
-      options["out"] = filename;
+    
+    if (audioUrl && filename) {
+      const ext = filename.split('.').pop() || 'mp4';
+      const base = filename.substring(0, filename.length - ext.length - 1);
+      
+      const videoFilename = `${base}.video.${ext}`;
+      const audioFilename = `${base}.audio.m4a`;
+      
+      const videoGid = await aria2Client.addUri([url], { ...options, out: videoFilename });
+      const audioGid = await aria2Client.addUri([audioUrl], { ...options, out: audioFilename });
+      
+      set(state => ({
+        pendingMuxes: [...state.pendingMuxes, {
+          videoGid,
+          audioGid,
+          finalFilename: filename,
+          status: 'waiting'
+        }]
+      }));
+    } else {
+      if (filename) {
+        options["out"] = filename;
+      }
+      await aria2Client.addUri([url], options);
     }
-    await aria2Client.addUri([url], options);
+    
     await get().fetchDownloads();
   },
 

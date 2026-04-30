@@ -8,13 +8,21 @@ if (!fs.existsSync(binDir)) {
   fs.mkdirSync(binDir, { recursive: true });
 }
 
-// Map of yt-dlp binaries
-const ytDlpTargets = [
+// Map of sidecar binaries
+const sidecarTargets = [
+  // yt-dlp
   { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe', name: 'yt-dlp-x86_64-pc-windows-msvc.exe' },
   { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos', name: 'yt-dlp-x86_64-apple-darwin' },
   { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos', name: 'yt-dlp-aarch64-apple-darwin' },
   { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux', name: 'yt-dlp-x86_64-unknown-linux-gnu' },
   { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64', name: 'yt-dlp-aarch64-unknown-linux-gnu' },
+  
+  // ffmpeg
+  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/win32-x64', name: 'ffmpeg-x86_64-pc-windows-msvc.exe' },
+  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/darwin-x64', name: 'ffmpeg-x86_64-apple-darwin' },
+  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/darwin-arm64', name: 'ffmpeg-aarch64-apple-darwin' },
+  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/linux-x64', name: 'ffmpeg-x86_64-unknown-linux-gnu' },
+  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/linux-arm64', name: 'ffmpeg-aarch64-unknown-linux-gnu' },
 ];
 
 function downloadFile(url, destPath) {
@@ -56,7 +64,7 @@ function downloadFile(url, destPath) {
 
 async function main() {
   console.log("Setting up Tauri sidecars...");
-  for (const target of ytDlpTargets) {
+  for (const target of sidecarTargets) {
     try {
       await downloadFile(target.url, path.join(binDir, target.name));
     } catch (e) {
