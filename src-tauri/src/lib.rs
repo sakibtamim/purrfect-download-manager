@@ -1,13 +1,19 @@
-use tauri_plugin_shell::ShellExt;
-use tauri::{Manager, Emitter, menu::{Menu, MenuItem}, tray::TrayIconBuilder, WindowEvent};
-use std::thread;
-use tiny_http::{Server, Response};
-use std::io::Read;
 use serde_json::Value;
+use std::io::Read;
+use std::thread;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    Emitter, Manager, WindowEvent,
+};
+use tauri_plugin_shell::ShellExt;
+use tiny_http::{Response, Server};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
+    tauri::Builder::default()
+    .plugin(tauri_plugin_http::init())
+    .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_notification::init())
     .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_fs::init())

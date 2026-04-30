@@ -5,7 +5,7 @@ import { useDownloadStore } from "@/store/downloadStore";
 
 export function AppInitializer() {
   const fetchDownloads = useDownloadStore(state => state.fetchDownloads);
-  const addDownload = useDownloadStore(state => state.addDownload);
+  const stageDownload = useDownloadStore(state => state.stageDownload);
 
   useEffect(() => {
     // Initial fetch
@@ -27,7 +27,13 @@ export function AppInitializer() {
                 if (payload.cookies) headers.push(`Cookie: ${payload.cookies}`);
                 if (payload.referrer) headers.push(`Referer: ${payload.referrer}`);
                 if (payload.userAgent) headers.push(`User-Agent: ${payload.userAgent}`);
-                addDownload(payload.url, headers);
+                
+                stageDownload({
+                  url: payload.url,
+                  headers,
+                  filename: payload.filename,
+                  fileSize: payload.fileSize
+                });
             }
         }).then(f => unlisten = f).catch(e => console.warn("Tauri event listen failed:", e));
       });
@@ -39,7 +45,7 @@ export function AppInitializer() {
       e.preventDefault();
       const url = e.dataTransfer?.getData('text/plain') || e.dataTransfer?.getData('text/uri-list');
       if (url && url.trim().startsWith('http')) {
-        addDownload(url.trim());
+        stageDownload({ url: url.trim(), headers: [] });
       }
     };
     
@@ -52,7 +58,7 @@ export function AppInitializer() {
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('drop', handleDrop);
     };
-  }, [fetchDownloads, addDownload]);
+  }, [fetchDownloads, stageDownload]);
 
   return null;
 }

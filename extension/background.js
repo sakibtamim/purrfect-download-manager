@@ -15,7 +15,9 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
       url: downloadItem.url,
       referrer: downloadItem.referrer || "",
       cookies: cookieString,
-      userAgent: navigator.userAgent
+      userAgent: navigator.userAgent,
+      filename: downloadItem.filename || "",
+      fileSize: downloadItem.fileSize || 0
     };
 
     try {

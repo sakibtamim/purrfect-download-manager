@@ -2,16 +2,26 @@ import { create } from 'zustand';
 import { aria2Client, Aria2Download } from '@/lib/aria2Client';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 
+export interface StagedDownload {
+  url: string;
+  headers: string[];
+  filename?: string;
+  fileSize?: number;
+}
+
 export interface DownloadState {
   active: Aria2Download[];
   completed: Aria2Download[];
   failed: Aria2Download[];
   globalSpeed: string;
   isPlayfulMode: boolean;
+  stagedDownload: StagedDownload | null;
   
   togglePlayfulMode: () => void;
   fetchDownloads: () => Promise<void>;
-  addDownload: (url: string, headers?: string[]) => Promise<void>;
+  stageDownload: (download: StagedDownload) => void;
+  clearStagedDownload: () => void;
+  addDownload: (url: string, headers?: string[], dir?: string) => Promise<void>;
   pauseDownload: (gid: string) => Promise<void>;
   resumeDownload: (gid: string) => Promise<void>;
   cancelDownload: (gid: string) => Promise<void>;
@@ -27,8 +37,11 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   failed: [],
   globalSpeed: "0",
   isPlayfulMode: false,
+  stagedDownload: null,
 
   togglePlayfulMode: () => set((state) => ({ isPlayfulMode: !state.isPlayfulMode })),
+  stageDownload: (download) => set({ stagedDownload: download }),
+  clearStagedDownload: () => set({ stagedDownload: null }),
 
   fetchDownloads: async () => {
     try {
@@ -81,12 +94,15 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     }
   },
 
-  addDownload: async (url: string, headers: string[] = []) => {
+  addDownload: async (url: string, headers: string[] = [], dir?: string) => {
     const options: Record<string, any> = {
       "check-certificate": "false"
     };
     if (headers.length > 0) {
       options["header"] = headers;
+    }
+    if (dir) {
+      options["dir"] = dir;
     }
     await aria2Client.addUri([url], options);
     await get().fetchDownloads();
