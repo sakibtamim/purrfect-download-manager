@@ -10,19 +10,29 @@ trigger: always_on
 - Do not introduce new high/critical vulnerabilities.
 - Prioritize security updates for core runtime dependencies.
 
-## 2. Firebase and Data Access
+## 2. Platform-Specific Concerns
 
-- Maintain strict per-user isolation in Firestore rules.
-- Keep Firestore schema constraints and allowed enums validated in rules.
-- Avoid broad client-side writes that bypass domain guards.
+- This project targets a desktop application with a Tauri backend; prioritize
+  the following concerns over cloud-specific rules unless Firebase is added to
+  the repo explicitly:
+  - Validate any filesystem access performed by Tauri sidecars; avoid broad
+    directory writes and enforce strict path sanitization.
+  - Treat spawned sidecar binaries (ffmpeg, yt-dlp, etc.) as untrusted inputs
+    for command arguments—sanitize and validate all external inputs.
 
 ## 3. Secrets and Environment
 
 - Never hardcode credentials, tokens, or secrets in source files.
-- Keep environment configuration in `.env.local` for local development.
-- Ensure required public Firebase variables are documented in `.env.example`.
+- Keep environment configuration in `.env.local` for local development and
+  document required variables in `.env.example` when relevant.
+- For desktop builds, ensure secrets injected into build artifacts are handled
+  per platform best practices (e.g., do not embed long-lived credentials in
+  distributed binaries).
 
 ## 4. Release Checks
 
-- Before deployment, run `pnpm predeploy:check`.
-- For security-relevant changes, include tests or validation steps that prove behavior is enforced.
+- Run `pnpm lint` and `pnpm build` as part of release validation. Add
+  platform-specific validation (Tauri build/test) when preparing release
+  artifacts.
+- For security-relevant changes, include tests or validation steps that prove
+  the behavior is enforced.

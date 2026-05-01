@@ -6,7 +6,8 @@ trigger: always_on
 
 ## 1. Safety First
 
-- Verify file paths with workspace tools (`list_dir`, `file_search`) before editing.
+-- Verify file paths with workspace tools (`list_dir`, `file_search`, `grep_search`) before editing.
+
 - Do not add or upgrade dependencies without explicit user approval.
 - When dependencies change, run `pnpm audit` and do not introduce high/critical vulnerabilities.
 - Keep commits focused by concern (code, config, docs).
@@ -20,7 +21,8 @@ trigger: always_on
 
 ## 3. Project Conventions
 
-- Keep Firebase data-access logic in `src/lib/firebase/`.
+-- Keep reusable app logic in `src/lib/` and state management in `src/store/`.
+
 - Keep reusable app logic in `src/lib/` and state management in `src/store/`.
 - Co-locate tests next to domain utilities where practical (for example `*.test.ts`).
 

@@ -44,9 +44,10 @@ Respect existing feature boundaries and prefer the shared `src/` modules over du
 
 ## MCP and Tooling
 
-- If MCP configuration changes are made, keep `mcp.json` as the source of truth.
-- Use `pnpm mcp:sync` after MCP config changes.
-- Use `pnpm mcp:inspect` to verify MCP server startup/connectivity.
+- This repository does not include an `mcp.json` by default. If your
+  environment adds MCP configuration, treat `mcp.json` as the MCP server's
+  source of truth and run the corresponding project-specific commands if they
+  exist. Do not assume `pnpm mcp:*` scripts are available in `package.json`.
 
 ## Working Style
 

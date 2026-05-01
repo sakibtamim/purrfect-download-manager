@@ -43,7 +43,13 @@ for (let i = 0; i < args.length; i++) {
     showHelp();
     process.exit(0);
   } else if (arg === "--file" || arg === "-f") {
-    outputFile = args[i + 1];
+    const next = args[i + 1];
+    if (!next || String(next).startsWith("-")) {
+      console.error("❌ Error: --file requires a path argument.");
+      showHelp();
+      process.exit(1);
+    }
+    outputFile = next;
     i++; // skip next arg
   } else if (arg === "--delta") {
     deltaMode = true;
@@ -110,17 +116,19 @@ function getCurrentUser() {
 function getLastAddressedTime(prNum, user) {
   if (!user) return null;
   try {
-    const pages = ghApiJson(
-      `repos/:owner/:repo/issues/${prNum}/comments?sort=created&direction=desc`,
-      { paginate: true, slurp: true },
-    );
+    const pages = ghApiJson(`repos/:owner/:repo/issues/${prNum}/comments`, {
+      paginate: true,
+      slurp: true,
+    });
     const comments = pages.flat();
 
-    const marker = comments.find(
-      (c) =>
-        c.user.login === user &&
-        (c.body.includes("Code Review Feedback Addressed") ||
-          c.body.includes("Code Review Addressed")),
+    // API may return comments oldest-first. Find the most recent marker by
+    // searching from the end. Allow several phrasing variants (case-insensitive).
+    const markerRegex =
+      /Code Review( Feedback)? Addressed|CR( Feedback)? Addressed/i;
+    const reversed = Array.isArray(comments) ? comments.slice().reverse() : [];
+    const marker = reversed.find(
+      (c) => c.user && c.user.login === user && markerRegex.test(c.body || ""),
     );
 
     return marker ? new Date(marker.created_at) : null;
