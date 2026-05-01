@@ -1,5 +1,57 @@
-<!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
+# Motion Mechanics Agent Guide
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
-<!-- END:nextjs-agent-rules -->
+This file defines baseline behavior for coding agents working in this repository.
+
+## First Read
+
+Start with these rule files before making changes:
+
+- `.agent/rules/guardrails.md`
+- `.agent/rules/coding-standards.md`
+- `.agent/rules/security-standards.md`
+- `.agent/rules/project-structure.md`
+- `.agent/rules/tech-stack.md`
+- `.agent/rules/issue-execution.md`
+
+If the task is issue-creation related, also read:
+
+- `.agent/rules/issue-creation-standards.md`
+
+If the task is code-review-feedback related, also read:
+
+- `.agent/rules/pr-code-review-address-guidelines.md`
+
+## Non-Negotiables
+
+- Never commit directly to `develop`.
+- Use focused, atomic commits.
+- Do not suppress build, lint, or test failures silently.
+- Do not edit lockfiles manually.
+- Keep documentation and rules in sync with behavioral or workflow changes.
+
+## Repo Shape
+
+This is a single Next.js + Tauri application.
+
+- `src/app`: App Router routes and layouts.
+- `src/components`: Shared UI and feature components.
+- `src/lib`: Shared helpers and service wrappers.
+- `src/store`: Zustand state stores.
+- `src-tauri`: Rust backend and Tauri configuration.
+- `scripts`: Local maintenance and GitHub automation scripts.
+
+Respect existing feature boundaries and prefer the shared `src/` modules over duplication.
+
+## MCP and Tooling
+
+- If MCP configuration changes are made, keep `mcp.json` as the source of truth.
+- Use `pnpm mcp:sync` after MCP config changes.
+- Use `pnpm mcp:inspect` to verify MCP server startup/connectivity.
+
+## Working Style
+
+- Prefer strict TypeScript-safe changes.
+- Keep changes minimal and local to the task scope.
+- Surface assumptions and risks clearly.
+- When behavior changes, update docs in the same change.
+- The main validation commands are `pnpm lint`, `pnpm build`, `pnpm dev`, `pnpm dev:app`, `pnpm setup`, and `pnpm clean`.
