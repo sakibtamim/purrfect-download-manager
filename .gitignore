@@ -43,3 +43,5 @@ next-env.d.ts
 
 # Tauri Sidecars
 src-tauri/bin/ffmpeg*
+src-tauri/bin/aria2c*
+src-tauri/bin/yt-dlp*
