@@ -55,12 +55,23 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
 
   const getStatusColor = () => {
     switch (download.status) {
-      case "active": return "bg-indigo-500/10 text-indigo-400 border-indigo-500/20";
-      case "paused": return "bg-amber-500/10 text-amber-400 border-amber-500/20";
-      case "complete": return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+      case "active": return "bg-primary/10 text-primary border-primary/20";
+      case "paused": return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20";
+      case "complete": return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20";
       case "error": 
-      case "removed": return "bg-red-500/10 text-red-400 border-red-500/20";
-      default: return "bg-zinc-800 text-zinc-400 border-zinc-700";
+      case "removed": return "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20";
+      default: return "bg-muted text-muted-foreground border-border";
+    }
+  };
+
+  const getLeftBorderColor = () => {
+    switch (download.status) {
+      case "active": return "border-l-primary";
+      case "paused": return "border-l-amber-500";
+      case "complete": return "border-l-emerald-500";
+      case "error":
+      case "removed": return "border-l-red-500";
+      default: return "border-l-muted-foreground";
     }
   };
 
@@ -69,47 +80,47 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
   const fileName = filePath.includes('/') ? filePath.split('/').pop() : filePath.split('\\').pop() || "Unknown File";
 
   return (
-    <Card className="bg-zinc-950 border-zinc-800 hover:border-zinc-700 transition-all overflow-hidden group">
+    <Card className={`bg-card border border-border hover:border-primary/20 transition-all duration-200 overflow-hidden group border-l-[3px] ${getLeftBorderColor()}`}>
       <CardContent className="p-5">
         <div className="flex flex-col gap-4">
           <div className="flex justify-between items-start gap-4">
             <div className="flex items-start gap-3 overflow-hidden">
-              <div className="p-2 bg-zinc-900 rounded-lg mt-1 shrink-0">
-                <File className="h-5 w-5 text-zinc-400" />
+              <div className="p-2 bg-muted rounded-lg mt-1 shrink-0">
+                <File className="h-5 w-5 text-muted-foreground" />
               </div>
               <div className="min-w-0">
-                <h3 className="text-base font-medium text-zinc-100 truncate" title={fileName}>
+                <h3 className="text-base font-medium text-foreground truncate" title={fileName}>
                   {fileName}
                 </h3>
                 <div className="flex items-center gap-2 mt-1">
                   <Badge variant="outline" className={`text-xs ${getStatusColor()} ${isPlayfulMode && download.status === "paused" ? "animate-breathe" : ""}`}>
                     {getStatusText()}
                   </Badge>
-                  <span className="text-xs text-zinc-500">
+                  <span className="text-xs text-muted-foreground">
                     {formatBytes(completedLength)} / {formatBytes(totalLength)}
                   </span>
                 </div>
               </div>
             </div>
             
-            <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
               {download.status === "active" && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-amber-400 hover:bg-amber-400/10" onClick={() => pauseDownload(download.gid)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-500/10" onClick={() => pauseDownload(download.gid)}>
                   <Pause className="h-4 w-4" />
                 </Button>
               )}
               {download.status === "paused" && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-emerald-400 hover:bg-emerald-400/10" onClick={() => resumeDownload(download.gid)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-500/10" onClick={() => resumeDownload(download.gid)}>
                   <Play className="h-4 w-4" />
                 </Button>
               )}
               {(download.status === "active" || download.status === "paused" || download.status === "waiting") && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-red-400 hover:bg-red-400/10" onClick={() => cancelDownload(download.gid)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10" onClick={() => cancelDownload(download.gid)}>
                   <X className="h-4 w-4" />
                 </Button>
               )}
               {download.status === "complete" && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-indigo-400 hover:bg-indigo-400/10" title="Open Folder">
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10" title="Open Folder">
                   <FolderOpen className="h-4 w-4" />
                 </Button>
               )}
@@ -117,7 +128,7 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                 <Button 
                   variant="ghost" 
                   size="icon" 
-                  className="h-8 w-8 text-zinc-400 hover:text-emerald-400 hover:bg-emerald-400/10" 
+                  className="h-8 w-8 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-500/10" 
                   title="Retry Download"
                   onClick={() => {
                     const uri = download.files[0]?.uris[0]?.uri;
@@ -135,11 +146,11 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
 
           {(download.status === "active" || download.status === "paused" || download.status === "waiting") && (
             <div className="space-y-1.5">
-              <div className="flex justify-between text-xs text-zinc-500">
+              <div className="flex justify-between text-xs text-muted-foreground">
                 <span>{download.status === "active" ? `${formatBytes(speed)}/s` : '--'}</span>
                 <span>{progress.toFixed(1)}%</span>
               </div>
-              <Progress value={progress} className="h-1.5 bg-zinc-900" />
+              <Progress value={progress} className="h-1.5 bg-muted" />
             </div>
           )}
         </div>

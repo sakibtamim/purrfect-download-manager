@@ -18,21 +18,26 @@ export function ConfirmDownloadModal() {
   const [securityStatus, setSecurityStatus] = useState<'scanning' | 'safe' | 'unsafe' | 'no-key' | 'error'>('no-key');
   const [threatDetails, setThreatDetails] = useState<string>('');
   const [selectedFormatUrl, setSelectedFormatUrl] = useState<string>("");
+  const [prevStagedDownload, setPrevStagedDownload] = useState<unknown>(null);
 
-  useEffect(() => {
+  // Synchronous state updates during render to avoid cascading updates in effect
+  if (stagedDownload !== prevStagedDownload) {
+    setPrevStagedDownload(stagedDownload);
     if (stagedDownload) {
       setSaveDir(""); 
-      setSecurityStatus('no-key');
+      
+      const apiKey = useDownloadStore.getState().safeBrowsingApiKey;
+      setSecurityStatus(apiKey ? 'scanning' : 'no-key');
+      
       setThreatDetails('');
       setSelectedFormatUrl(stagedDownload.url);
 
-      // First, set what we currently know
       let name = stagedDownload.filename || "";
       if (name) name = name.split(/[/\\]/).pop() || name;
       else if (stagedDownload.url) {
         try {
           name = new URL(stagedDownload.url).pathname.split('/').pop() || "Unknown";
-        } catch (e) { name = "Unknown"; }
+        } catch { name = "Unknown"; }
       }
       setDisplayFilename(name || "Unknown");
 
@@ -40,6 +45,13 @@ export function ConfirmDownloadModal() {
         setDisplaySize(`${(stagedDownload.fileSize / (1024 * 1024)).toFixed(2)} MB`);
       } else {
         setDisplaySize("Unknown size");
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (stagedDownload) {
+      if (!stagedDownload.fileSize || stagedDownload.fileSize <= 0) {
         // Trigger background HEAD request to get real size and name
         tauriFetch(stagedDownload.url, { method: "HEAD" })
           .then(res => {
@@ -73,7 +85,6 @@ export function ConfirmDownloadModal() {
       // Perform Security Scan
       const apiKey = useDownloadStore.getState().safeBrowsingApiKey;
       if (apiKey) {
-        setSecurityStatus('scanning');
         tauriFetch(`https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${apiKey}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -165,29 +176,29 @@ export function ConfirmDownloadModal() {
 
   return (
     <Dialog open={!!stagedDownload} onOpenChange={(open) => !open && clearStagedDownload()}>
-      <DialogContent className="sm:max-w-[500px] bg-zinc-950 border-zinc-800 text-zinc-100">
+      <DialogContent className="sm:max-w-125 bg-card border-border text-foreground">
         <DialogHeader>
           <DialogTitle>Confirm Download</DialogTitle>
-          <DialogDescription className="text-zinc-400">
+          <DialogDescription className="text-muted-foreground">
             A new download has been intercepted. Where would you like to save it?
           </DialogDescription>
         </DialogHeader>
         
         <div className="grid gap-4 py-4">
           <div className="space-y-1">
-            <Label className="text-zinc-500 text-xs uppercase">URL</Label>
-            <div className="text-xs font-mono break-all bg-zinc-900 p-2 rounded border border-zinc-800 max-h-24 overflow-y-auto">
+            <Label className="text-muted-foreground text-xs uppercase">URL</Label>
+            <div className="text-xs font-mono break-all bg-background p-2 rounded border border-border max-h-24 overflow-y-auto">
               {selectedFormatUrl || stagedDownload.url}
             </div>
           </div>
           
           {stagedDownload.mediaFormats && stagedDownload.mediaFormats.length > 0 && (
             <div className="space-y-1">
-              <Label className="text-zinc-500 text-xs uppercase">Quality / Resolution</Label>
+              <Label className="text-muted-foreground text-xs uppercase">Quality / Resolution</Label>
               <select 
                 value={selectedFormatUrl}
                 onChange={handleFormatChange}
-                className="w-full bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-md p-2 text-sm focus:ring-1 focus:ring-indigo-500 outline-none"
+                className="w-full bg-background border border-border text-foreground rounded-md p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
               >
                 {stagedDownload.mediaFormats.map(format => (
                   <option key={format.format_id} value={format.url}>
@@ -200,13 +211,13 @@ export function ConfirmDownloadModal() {
           
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <Label className="text-zinc-500 text-xs uppercase">Filename</Label>
+              <Label className="text-muted-foreground text-xs uppercase">Filename</Label>
               <div className="text-sm font-medium break-all" title={displayFilename}>
                 {displayFilename}
               </div>
             </div>
             <div className="space-y-1">
-              <Label className="text-zinc-500 text-xs uppercase">Size</Label>
+              <Label className="text-muted-foreground text-xs uppercase">Size</Label>
               <div className="text-sm font-medium">
                 {displaySize}
               </div>
@@ -214,57 +225,57 @@ export function ConfirmDownloadModal() {
           </div>
 
           <div className="space-y-2">
-            <Label className="text-zinc-500 text-xs uppercase">Save Location</Label>
+            <Label className="text-muted-foreground text-xs uppercase">Save Location</Label>
             <div className="flex gap-2">
               <Input 
                 value={saveDir} 
                 onChange={(e) => setSaveDir(e.target.value)}
                 placeholder="Default Downloads Folder" 
-                className="bg-zinc-900 border-zinc-800 text-zinc-100"
+                className="bg-background border-border text-foreground"
               />
-              <Button variant="outline" onClick={handleBrowse} className="shrink-0 border-zinc-700 hover:bg-zinc-800 text-zinc-100">
+              <Button variant="outline" onClick={handleBrowse} className="shrink-0">
                 <FolderOpen className="w-4 h-4 mr-2" />
                 Browse
               </Button>
             </div>
           </div>
 
-          <div className="space-y-1 border-t border-zinc-800/50 pt-4 mt-2">
-            <Label className="text-zinc-500 text-xs uppercase">Security Status</Label>
+          <div className="space-y-1 border-t border-border pt-4 mt-2">
+            <Label className="text-muted-foreground text-xs uppercase">Security Status</Label>
             <div className="flex items-center gap-2 mt-1">
               {securityStatus === 'no-key' && (
-                <span className="text-sm text-zinc-400 bg-zinc-900 px-2 py-1 rounded-md border border-zinc-800">
+                <span className="text-sm text-muted-foreground bg-muted px-2 py-1 rounded-md border border-border">
                   Scanning Disabled
                 </span>
               )}
               {securityStatus === 'scanning' && (
-                <span className="text-sm text-zinc-100 bg-zinc-800 px-2 py-1 rounded-md border border-zinc-700 animate-pulse">
+                <span className="text-sm text-foreground bg-muted px-2 py-1 rounded-md border border-border animate-pulse">
                   Scanning...
                 </span>
               )}
               {securityStatus === 'safe' && (
-                <span className="text-sm text-emerald-100 bg-emerald-950/50 px-2 py-1 rounded-md border border-emerald-900 flex items-center gap-1">
+                <span className="text-sm text-emerald-700 dark:text-emerald-100 bg-emerald-100 dark:bg-emerald-950/50 px-2 py-1 rounded-md border border-emerald-200 dark:border-emerald-900 flex items-center gap-1">
                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Safe
                 </span>
               )}
               {securityStatus === 'unsafe' && (
-                <span className="text-sm text-red-100 bg-red-950/50 px-2 py-1 rounded-md border border-red-900 flex items-center gap-1 font-semibold">
+                <span className="text-sm text-red-700 dark:text-red-100 bg-red-100 dark:bg-red-950/50 px-2 py-1 rounded-md border border-red-200 dark:border-red-900 flex items-center gap-1 font-semibold">
                   <span className="w-2 h-2 rounded-full bg-red-500"></span> {threatDetails || 'Malicious'}
                 </span>
               )}
               {securityStatus === 'error' && (
-                <span className="text-sm text-yellow-100 bg-yellow-950/50 px-2 py-1 rounded-md border border-yellow-900 flex items-center gap-1 font-semibold">
+                <span className="text-sm text-yellow-700 dark:text-yellow-100 bg-yellow-100 dark:bg-yellow-950/50 px-2 py-1 rounded-md border border-yellow-200 dark:border-yellow-900 flex items-center gap-1 font-semibold">
                   <span className="w-2 h-2 rounded-full bg-yellow-500"></span> API Error
                 </span>
               )}
             </div>
             {securityStatus === 'unsafe' && (
-              <p className="text-xs text-red-400 mt-2">
+              <p className="text-xs text-red-600 dark:text-red-400 mt-2">
                 This URL has been flagged as highly dangerous. Downloading has been blocked to protect your system.
               </p>
             )}
             {securityStatus === 'error' && (
-              <p className="text-xs text-yellow-400 mt-2">
+              <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">
                 {threatDetails}
               </p>
             )}
@@ -272,7 +283,7 @@ export function ConfirmDownloadModal() {
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={clearStagedDownload} className="text-zinc-400 hover:text-zinc-100">
+          <Button variant="ghost" onClick={clearStagedDownload} className="text-muted-foreground hover:text-foreground">
             Cancel
           </Button>
           <Button 
@@ -280,7 +291,7 @@ export function ConfirmDownloadModal() {
             disabled={securityStatus === 'unsafe'}
             className={securityStatus === 'unsafe' 
               ? "bg-red-900/50 text-red-500 cursor-not-allowed" 
-              : "bg-indigo-600 hover:bg-indigo-700 text-white"
+              : ""
             }
           >
             Start Download

@@ -25,18 +25,18 @@ export function AppInitializer() {
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
       import('@tauri-apps/api/event').then(({ listen }) => {
         listen('browser-download', (event) => {
-            const payload: any = event.payload;
-            if (payload && payload.url) {
+            const payload = event.payload as Record<string, unknown>;
+            if (payload && typeof payload.url === 'string') {
                 const headers = [];
-                if (payload.cookies) headers.push(`Cookie: ${payload.cookies}`);
-                if (payload.referrer) headers.push(`Referer: ${payload.referrer}`);
-                if (payload.userAgent) headers.push(`User-Agent: ${payload.userAgent}`);
+                if (typeof payload.cookies === 'string') headers.push(`Cookie: ${payload.cookies}`);
+                if (typeof payload.referrer === 'string') headers.push(`Referer: ${payload.referrer}`);
+                if (typeof payload.userAgent === 'string') headers.push(`User-Agent: ${payload.userAgent}`);
                 
                 stageDownload({
                   url: payload.url,
                   headers,
-                  filename: payload.filename,
-                  fileSize: payload.fileSize
+                  filename: typeof payload.filename === 'string' ? payload.filename : undefined,
+                  fileSize: typeof payload.fileSize === 'number' ? payload.fileSize : undefined
                 });
             }
         }).then(f => unlisten = f).catch(e => console.warn("Tauri event listen failed:", e));
@@ -62,7 +62,7 @@ export function AppInitializer() {
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('drop', handleDrop);
     };
-  }, [fetchDownloads, stageDownload]);
+  }, [fetchDownloads, stageDownload, initSettings]);
 
   return null;
 }

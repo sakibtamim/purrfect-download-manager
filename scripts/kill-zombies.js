@@ -34,7 +34,7 @@ try {
     const args = unixProcesses.join(' ');
     execSync(`killall -9 ${args}`, { stdio: 'ignore' });
   }
-} catch (e) {
+} catch {
   // Ignore errors
 }
 

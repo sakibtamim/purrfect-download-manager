@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import { useState } from "react";
 import { useDownloadStore } from "@/store/downloadStore";
@@ -43,8 +44,8 @@ export default function GrabberPage() {
     try {
       const info = await ytdlpClient.extractVideoInfo(mediaUrl);
       setMediaInfo(info);
-    } catch (e: any) {
-      setMediaError(e.message || "Failed to extract media. Make sure yt-dlp sidecar is installed.");
+    } catch (e: unknown) {
+      setMediaError(e instanceof Error ? e.message : "Failed to extract media. Make sure yt-dlp sidecar is installed.");
     } finally {
       setIsExtracting(false);
     }
@@ -92,18 +93,18 @@ export default function GrabberPage() {
           try {
             const url = new URL(img.src, baseUrl).href;
             linksMap.set(url, { url, type: 'image', text: img.alt || "Image", selected: true });
-          } catch (e) {}
+          } catch { /* ignore */ }
         }
       });
 
       // Extract Videos
       doc.querySelectorAll("video, source").forEach(vid => {
-        const src = (vid as any).src;
+        const src = (vid as HTMLVideoElement | HTMLSourceElement).src;
         if (src) {
           try {
             const url = new URL(src, baseUrl).href;
             linksMap.set(url, { url, type: 'video', text: "Video Source", selected: true });
-          } catch (e) {}
+          } catch { /* ignore */ }
         }
       });
 
@@ -116,13 +117,13 @@ export default function GrabberPage() {
             if (!url.includes('#')) {
               linksMap.set(url, { url, type: 'link', text: a.textContent?.trim() || "Link", selected: false });
             }
-          } catch (e) {}
+          } catch { /* ignore */ }
         }
       });
 
       setGrabbedLinks(Array.from(linksMap.values()));
-    } catch (e: any) {
-      setSiteError(e.message || "Failed to scan site. Check the URL.");
+    } catch (e: unknown) {
+      setSiteError(e instanceof Error ? e.message : "Failed to scan site. Check the URL.");
     } finally {
       setIsScanning(false);
     }
@@ -158,20 +159,20 @@ export default function GrabberPage() {
     <div className="flex-1 p-8 pt-6 min-h-screen">
       <div className="flex items-center justify-between space-y-2 mb-8">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-zinc-100 flex items-center gap-3">
-            <Globe className="w-8 h-8 text-indigo-500" />
+          <h2 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
+            <Globe className="w-8 h-8 text-primary" />
             Web Tools
           </h2>
-          <p className="text-zinc-400 mt-1">Batch download from websites or extract media from streaming platforms.</p>
+          <p className="text-muted-foreground mt-1">Batch download from websites or extract media from streaming platforms.</p>
         </div>
       </div>
 
       {/* TABS */}
-      <div className="flex space-x-1 bg-zinc-900/50 p-1 rounded-lg w-fit mb-6 border border-zinc-800">
+      <div className="flex space-x-1 bg-muted/50 p-1 rounded-lg w-fit mb-6 border border-border">
         <button
           onClick={() => setActiveTab('media')}
           className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-            activeTab === 'media' ? 'bg-zinc-800 text-zinc-100 shadow' : 'text-zinc-400 hover:text-zinc-200'
+            activeTab === 'media' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           <PlayCircle className="w-4 h-4" /> Media Downloader
@@ -179,7 +180,7 @@ export default function GrabberPage() {
         <button
           onClick={() => setActiveTab('site')}
           className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-            activeTab === 'site' ? 'bg-zinc-800 text-zinc-100 shadow' : 'text-zinc-400 hover:text-zinc-200'
+            activeTab === 'site' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           <Globe className="w-4 h-4" /> Site Grabber
@@ -189,9 +190,9 @@ export default function GrabberPage() {
       {/* MEDIA DOWNLOADER TAB */}
       {activeTab === 'media' && (
         <div className="space-y-6 max-w-3xl">
-          <Card className="bg-zinc-900/40 border-zinc-800 p-6">
-            <h3 className="text-lg font-medium text-zinc-100 mb-2">Native Media Downloader</h3>
-            <p className="text-sm text-zinc-400 mb-6">
+          <Card className="bg-card/60 border-border p-6">
+            <h3 className="text-lg font-medium text-foreground mb-2">Native Media Downloader</h3>
+            <p className="text-sm text-muted-foreground mb-6">
               Paste a URL from YouTube, Twitter, TikTok, or other supported platforms. 
               Powered securely by yt-dlp to bypass bot detection.
             </p>
@@ -201,12 +202,12 @@ export default function GrabberPage() {
                 placeholder="https://www.youtube.com/watch?v=..."
                 value={mediaUrl}
                 onChange={(e) => setMediaUrl(e.target.value)}
-                className="bg-zinc-950 border-zinc-800 text-zinc-100 h-12"
+                className="bg-background border-border text-foreground h-12"
               />
               <Button 
                 onClick={handleExtractMedia} 
                 disabled={isExtracting || !mediaUrl}
-                className="h-12 px-6 bg-indigo-600 hover:bg-indigo-700 text-white"
+                className="h-12 px-6"
               >
                 {isExtracting ? <Activity className="w-4 h-4 animate-spin mr-2" /> : <SearchIcon className="w-4 h-4 mr-2" />}
                 Extract
@@ -214,43 +215,43 @@ export default function GrabberPage() {
             </div>
             
             {mediaError && (
-              <p className="text-red-400 mt-4 text-sm bg-red-950/30 p-3 rounded border border-red-900">
+              <p className="text-red-600 dark:text-red-400 mt-4 text-sm bg-red-50 dark:bg-red-950/30 p-3 rounded border border-red-200 dark:border-red-900">
                 {mediaError}
               </p>
             )}
           </Card>
 
           {mediaInfo && (
-            <Card className="bg-zinc-900/60 border-indigo-900/50 p-6 overflow-hidden relative">
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-purple-500"></div>
+            <Card className="bg-card/80 border-primary/20 p-6 overflow-hidden relative">
+              <div className="absolute top-0 left-0 w-full h-1 bg-linear-to-r from-primary to-violet-500"></div>
               <div className="flex gap-6">
                 {mediaInfo.thumbnail ? (
-                  <img src={mediaInfo.thumbnail} alt="Thumbnail" className="w-48 h-32 object-cover rounded-md border border-zinc-800 shadow-xl" />
+                  <img src={mediaInfo.thumbnail} alt="Thumbnail" className="w-48 h-32 object-cover rounded-md border border-border shadow-xl" />
                 ) : (
-                  <div className="w-48 h-32 bg-zinc-800 rounded-md flex items-center justify-center">
-                    <FileVideo className="w-8 h-8 text-zinc-600" />
+                  <div className="w-48 h-32 bg-muted rounded-md flex items-center justify-center">
+                    <FileVideo className="w-8 h-8 text-muted-foreground" />
                   </div>
                 )}
                 
                 <div className="flex flex-col flex-1 py-1">
-                  <h4 className="text-lg font-semibold text-zinc-100 line-clamp-2 leading-tight mb-2">
+                  <h4 className="text-lg font-semibold text-foreground line-clamp-2 leading-tight mb-2">
                     {mediaInfo.title}
                   </h4>
                   <div className="flex items-center gap-3 mb-auto">
                     {mediaInfo.fileSize > 0 && (
-                      <Badge variant="outline" className="text-indigo-400 border-indigo-900/50">
+                      <Badge variant="outline" className="text-primary border-primary/30">
                         {(mediaInfo.fileSize / (1024 * 1024)).toFixed(1)} MB
                       </Badge>
                     )}
                     {mediaInfo.duration > 0 && (
-                      <Badge variant="outline" className="text-zinc-400 border-zinc-800">
+                      <Badge variant="outline" className="text-muted-foreground border-border">
                         {Math.floor(mediaInfo.duration / 60)}:{String(mediaInfo.duration % 60).padStart(2, '0')}
                       </Badge>
                     )}
                   </div>
                   
                   <div className="mt-4 flex items-center gap-3">
-                    <Button onClick={handleDownloadMedia} className="bg-indigo-600 hover:bg-indigo-500 text-white w-full">
+                    <Button onClick={handleDownloadMedia} className="w-full">
                       <Download className="w-4 h-4 mr-2" />
                       Add to Download Queue
                     </Button>
@@ -265,20 +266,20 @@ export default function GrabberPage() {
       {/* SITE GRABBER TAB */}
       {activeTab === 'site' && (
         <div className="space-y-6">
-          <Card className="bg-zinc-900/40 border-zinc-800 p-6 flex items-end gap-3">
+          <Card className="bg-card/60 border-border p-6 flex items-end gap-3">
             <div className="flex-1 space-y-2">
-              <label className="text-sm font-medium text-zinc-300">Target Website URL</label>
+              <label className="text-sm font-medium text-foreground/80">Target Website URL</label>
               <Input
                 placeholder="https://example.com/gallery"
                 value={siteUrl}
                 onChange={(e) => setSiteUrl(e.target.value)}
-                className="bg-zinc-950 border-zinc-800 text-zinc-100 h-10"
+                className="bg-background border-border text-foreground h-10"
               />
             </div>
             <Button 
               onClick={handleScanSite} 
               disabled={isScanning || !siteUrl}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white h-10 px-8 shrink-0"
+              className="h-10 px-8 shrink-0"
             >
               {isScanning ? <Activity className="w-4 h-4 animate-spin mr-2" /> : <SearchIcon className="w-4 h-4 mr-2" />}
               Scan Page
@@ -286,39 +287,39 @@ export default function GrabberPage() {
           </Card>
 
           {siteError && (
-            <p className="text-red-400 mt-4 text-sm bg-red-950/30 p-3 rounded border border-red-900">
+            <p className="text-red-600 dark:text-red-400 mt-4 text-sm bg-red-50 dark:bg-red-950/30 p-3 rounded border border-red-200 dark:border-red-900">
               {siteError}
             </p>
           )}
 
           {grabbedLinks.length > 0 && (
-            <Card className="bg-zinc-900/40 border-zinc-800 flex flex-col h-[600px] overflow-hidden">
-              <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/80">
+            <Card className="bg-card/60 border-border flex flex-col h-150 overflow-hidden">
+              <div className="p-4 border-b border-border flex items-center justify-between bg-muted/50">
                 <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="bg-zinc-800 text-zinc-300 hover:bg-zinc-700">
+                  <Badge variant="secondary">
                     {grabbedLinks.length} Files Found
                   </Badge>
-                  <Badge variant="outline" className="border-indigo-900/50 text-indigo-400">
+                  <Badge variant="outline" className="border-primary/30 text-primary">
                     {grabbedLinks.filter(l => l.selected).length} Selected
                   </Badge>
                 </div>
                 
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => selectAll('image')} className="h-8 border-zinc-700 text-zinc-300">
+                  <Button variant="outline" size="sm" onClick={() => selectAll('image')} className="h-8">
                     All Images
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => selectAll('video')} className="h-8 border-zinc-700 text-zinc-300">
+                  <Button variant="outline" size="sm" onClick={() => selectAll('video')} className="h-8">
                     All Videos
                   </Button>
-                  <Button variant="outline" size="sm" onClick={deselectAll} className="h-8 border-zinc-700 text-zinc-300">
+                  <Button variant="outline" size="sm" onClick={deselectAll} className="h-8">
                     Clear
                   </Button>
-                  <div className="w-px h-6 bg-zinc-800 mx-2"></div>
+                  <div className="w-px h-6 bg-border mx-2"></div>
                   <Button 
                     size="sm" 
                     onClick={handleDownloadSelected} 
                     disabled={grabbedLinks.filter(l => l.selected).length === 0}
-                    className="h-8 bg-indigo-600 hover:bg-indigo-700 text-white"
+                    className="h-8"
                   >
                     <Download className="w-4 h-4 mr-2" />
                     Download Selected
@@ -328,12 +329,12 @@ export default function GrabberPage() {
 
               <div className="flex-1 overflow-y-auto p-0">
                 <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-zinc-500 uppercase bg-zinc-900/90 sticky top-0 border-b border-zinc-800">
+                  <thead className="text-xs text-muted-foreground uppercase bg-muted/80 sticky top-0 border-b border-border">
                     <tr>
                       <th className="px-4 py-3 w-12">
                         <input 
                           type="checkbox" 
-                          className="rounded border-zinc-700 bg-zinc-900 text-indigo-600"
+                          className="rounded border-border bg-background text-primary accent-primary"
                           checked={grabbedLinks.length > 0 && grabbedLinks.every(l => l.selected)}
                           onChange={() => {
                             const allSelected = grabbedLinks.every(l => l.selected);
@@ -350,26 +351,26 @@ export default function GrabberPage() {
                     {grabbedLinks.map((link, idx) => (
                       <tr 
                         key={idx} 
-                        className={`border-b border-zinc-800/50 transition-colors ${link.selected ? 'bg-indigo-900/10' : 'hover:bg-zinc-800/50'}`}
+                        className={`border-b border-border/50 transition-colors ${link.selected ? 'bg-primary/5' : 'hover:bg-muted/50'}`}
                         onClick={() => toggleLinkSelection(idx)}
                       >
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           <input 
                             type="checkbox" 
-                            className="rounded border-zinc-700 bg-zinc-900 text-indigo-600 focus:ring-offset-zinc-900"
+                            className="rounded border-border bg-background text-primary accent-primary"
                             checked={link.selected}
                             onChange={() => toggleLinkSelection(idx)}
                           />
                         </td>
                         <td className="px-4 py-3">
-                          {link.type === 'image' && <Badge variant="outline" className="text-amber-400 border-amber-900/50 bg-amber-950/20"><ImageIcon className="w-3 h-3 mr-1"/> IMG</Badge>}
-                          {link.type === 'video' && <Badge variant="outline" className="text-fuchsia-400 border-fuchsia-900/50 bg-fuchsia-950/20"><FileVideo className="w-3 h-3 mr-1"/> VID</Badge>}
-                          {link.type === 'link' && <Badge variant="outline" className="text-sky-400 border-sky-900/50 bg-sky-950/20"><LinkIcon className="w-3 h-3 mr-1"/> LNK</Badge>}
+                          {link.type === 'image' && <Badge variant="outline" className="text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20"><ImageIcon className="w-3 h-3 mr-1"/> IMG</Badge>}
+                          {link.type === 'video' && <Badge variant="outline" className="text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-300 dark:border-fuchsia-900/50 bg-fuchsia-50 dark:bg-fuchsia-950/20"><FileVideo className="w-3 h-3 mr-1"/> VID</Badge>}
+                          {link.type === 'link' && <Badge variant="outline" className="text-sky-600 dark:text-sky-400 border-sky-300 dark:border-sky-900/50 bg-sky-50 dark:bg-sky-950/20"><LinkIcon className="w-3 h-3 mr-1"/> LNK</Badge>}
                         </td>
-                        <td className="px-4 py-3 text-zinc-300 truncate max-w-[200px]" title={link.text}>
+                        <td className="px-4 py-3 text-foreground/80 truncate max-w-50" title={link.text}>
                           {link.text || 'N/A'}
                         </td>
-                        <td className="px-4 py-3 text-zinc-500 font-mono text-xs truncate max-w-[400px]" title={link.url}>
+                        <td className="px-4 py-3 text-muted-foreground font-mono text-xs truncate max-w-100" title={link.url}>
                           {link.url}
                         </td>
                       </tr>
@@ -386,7 +387,7 @@ export default function GrabberPage() {
 }
 
 // Quick inline icon so I don't have to import it at the top
-function SearchIcon(props: any) {
+function SearchIcon(props: React.ComponentProps<"svg">) {
   return (
     <svg
       {...props}
