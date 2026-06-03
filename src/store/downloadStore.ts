@@ -7,13 +7,18 @@ import { enable as enableAutostart, disable as disableAutostart, isEnabled as is
 import { Command } from '@tauri-apps/plugin-shell';
 import { remove } from '@tauri-apps/plugin-fs';
 
+const mockStore = new Map<string, unknown>();
 let settingsStoreCache: Store | null = null;
 async function getStore() {
   if (!settingsStoreCache) {
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
       settingsStoreCache = await load('settings.json');
     } else {
-      settingsStoreCache = { get: async <T>() => null as T | null, set: async () => {}, save: async () => {} } as unknown as Store;
+      settingsStoreCache = {
+        get: async <T>(key: string) => (mockStore.get(key) ?? null) as T | null,
+        set: async (key: string, value: unknown) => { mockStore.set(key, value); },
+        save: async () => {}
+      } as unknown as Store;
     }
   }
   return settingsStoreCache;
@@ -21,13 +26,18 @@ async function getStore() {
 
 // Persisted download metadata cache — survives app restarts
 interface CachedMeta { totalLength: string; completedLength: string; }
+const mockMetaStore = new Map<string, unknown>();
 let metaStoreCache: Store | null = null;
 async function getMetaStore() {
   if (!metaStoreCache) {
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
       metaStoreCache = await load('download-meta.json');
     } else {
-      metaStoreCache = { get: async <T>() => null as T | null, set: async () => {}, save: async () => {} } as unknown as Store;
+      metaStoreCache = {
+        get: async <T>(key: string) => (mockMetaStore.get(key) ?? null) as T | null,
+        set: async (key: string, value: unknown) => { mockMetaStore.set(key, value); },
+        save: async () => {}
+      } as unknown as Store;
     }
   }
   return metaStoreCache;
@@ -309,7 +319,13 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       });
     } catch (error) {
       const err = error as Error;
-      if (err?.message === "Failed to fetch" || err?.name === "TypeError") {
+      const isFetchError =
+        err?.message?.includes("Failed to fetch") ||
+        err?.message?.includes("fetch failed") ||
+        err?.message?.includes("NetworkError") ||
+        err?.message?.includes("Load failed");
+
+      if (isFetchError) {
         // aria2 backend might not be running yet; suppress interval spam
       } else {
         console.error("Failed to fetch aria2 status", error);

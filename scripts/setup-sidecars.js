@@ -121,7 +121,22 @@ function processTarget(target) {
 
 async function main() {
   console.log("Setting up Tauri sidecars...");
+  const platform = process.platform;
+  const arch = process.arch;
+
+  let targetTriple = '';
+  if (platform === 'win32') {
+    targetTriple = 'x86_64-pc-windows-msvc';
+  } else if (platform === 'darwin') {
+    targetTriple = arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
+  } else if (platform === 'linux') {
+    targetTriple = arch === 'arm64' ? 'aarch64-unknown-linux-gnu' : 'x86_64-unknown-linux-gnu';
+  }
+
   for (const target of sidecarTargets) {
+    if (targetTriple && !target.name.includes(targetTriple)) {
+      continue;
+    }
     try {
       await processTarget(target);
     } catch (e) {
