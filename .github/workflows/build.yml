@@ -1,10 +1,9 @@
-name: 'Tauri Build'
+name: "Tauri Build"
 
 on:
   push:
     branches:
-      - develop
-      - main
+      - deploy
   pull_request:
 
 jobs:
@@ -13,12 +12,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest'
-            args: ''
-          - platform: 'ubuntu-22.04'
-            args: ''
-          - platform: 'windows-latest'
-            args: ''
+          - platform: "macos-latest"
+            args: ""
+          - platform: "ubuntu-22.04"
+            args: ""
+          - platform: "windows-latest"
+            args: ""
 
     runs-on: ${{ matrix.platform }}
     steps:
