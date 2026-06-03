@@ -10,7 +10,11 @@ import { remove } from '@tauri-apps/plugin-fs';
 let settingsStoreCache: Store | null = null;
 async function getStore() {
   if (!settingsStoreCache) {
-    settingsStoreCache = await load('settings.json');
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      settingsStoreCache = await load('settings.json');
+    } else {
+      settingsStoreCache = { get: async <T>() => null as T | null, set: async () => {}, save: async () => {} } as unknown as Store;
+    }
   }
   return settingsStoreCache;
 }
@@ -20,7 +24,11 @@ interface CachedMeta { totalLength: string; completedLength: string; }
 let metaStoreCache: Store | null = null;
 async function getMetaStore() {
   if (!metaStoreCache) {
-    metaStoreCache = await load('download-meta.json');
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      metaStoreCache = await load('download-meta.json');
+    } else {
+      metaStoreCache = { get: async <T>() => null as T | null, set: async () => {}, save: async () => {} } as unknown as Store;
+    }
   }
   return metaStoreCache;
 }
@@ -104,7 +112,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     let autoStartEnabled = false;
     try {
       autoStartEnabled = await isAutostartEnabled();
-    } catch(e) {}
+    } catch {}
 
     set({
       maxConcurrentDownloads: maxConcurrent,
@@ -121,7 +129,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         "split": split.toString(),
         "max-connection-per-server": split.toString()
       });
-    } catch(e) {}
+    } catch {}
   },
 
   setDefaultDownloadDir: async (dir: string) => {
@@ -300,12 +308,17 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         globalSpeed: stats.downloadSpeed 
       });
     } catch (error) {
-      console.error("Failed to fetch aria2 status", error);
+      const err = error as Error;
+      if (err?.message === "Failed to fetch" || err?.name === "TypeError") {
+        // aria2 backend might not be running yet; suppress interval spam
+      } else {
+        console.error("Failed to fetch aria2 status", error);
+      }
     }
   },
 
   addDownload: async (url: string, headers: string[] = [], dir?: string, filename?: string, audioUrl?: string) => {
-    const options: Record<string, any> = {
+    const options: Record<string, string | string[]> = {
       "check-certificate": "false"
     };
     if (headers.length > 0) {

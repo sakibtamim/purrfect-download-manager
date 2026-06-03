@@ -19,7 +19,7 @@ class Aria2Client {
   private rpcUrl = "http://localhost:6800/jsonrpc";
   private idCount = 0;
 
-  private async call<T>(method: string, params: any[] = []): Promise<T> {
+  private async call<T>(method: string, params: unknown[] = []): Promise<T> {
     const id = `pdm-${++this.idCount}`;
     const response = await fetch(this.rpcUrl, {
       method: "POST",
@@ -46,7 +46,7 @@ class Aria2Client {
     return data.result as T;
   }
 
-  async addUri(uris: string[], options?: Record<string, string>): Promise<string> {
+  async addUri(uris: string[], options?: Record<string, string | string[]>): Promise<string> {
     return this.call<string>("addUri", [uris, options || {}]);
   }
 
