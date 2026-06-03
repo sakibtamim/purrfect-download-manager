@@ -27,6 +27,18 @@ const sidecarTargets = [
 
   // aria2c
   { 
+    url: 'https://github.com/q741451/aria2c-macos-standalone-binary/releases/download/v1.0.0/aria2c-macos-x86_64.tar.gz', 
+    name: 'aria2c-x86_64-apple-darwin',
+    archive: true,
+    extractPath: 'aria2c'
+  },
+  { 
+    url: 'https://github.com/q741451/aria2c-macos-standalone-binary/releases/download/v1.0.0/aria2c-macos-arm64.tar.gz', 
+    name: 'aria2c-aarch64-apple-darwin',
+    archive: true,
+    extractPath: 'aria2c'
+  },
+  { 
     url: 'https://github.com/P3TERX/Aria2-Pro-Core/releases/download/1.36.0_2021.08.22/aria2-1.36.0-static-linux-amd64.tar.gz', 
     name: 'aria2c-x86_64-unknown-linux-gnu',
     archive: true,
