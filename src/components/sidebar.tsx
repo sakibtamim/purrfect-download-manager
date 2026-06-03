@@ -19,10 +19,12 @@ export function Sidebar() {
   ];
 
   return (
-    <div className="flex h-full w-64 flex-col bg-zinc-950 border-r border-zinc-800 text-zinc-100">
-      <div className="flex items-center gap-2 p-6 border-b border-zinc-800/50">
-        <Cat className="h-6 w-6 text-indigo-400" />
-        <span className="font-semibold tracking-tight text-lg">Purrfect DL</span>
+    <div className="flex h-full w-64 flex-col bg-sidebar/80 glass border-r border-sidebar-border text-sidebar-foreground">
+      <div className="flex items-center gap-2.5 p-6 border-b border-sidebar-border">
+        <div className="p-1.5 bg-primary/10 rounded-lg">
+          <Cat className="h-5 w-5 text-primary" />
+        </div>
+        <span className="font-semibold tracking-tight text-lg text-foreground">Purrfect DL</span>
       </div>
       
       <nav className="flex-1 overflow-y-auto space-y-6 p-4">
@@ -34,21 +36,24 @@ export function Sidebar() {
                 key={item.name}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
                   isActive
-                    ? "bg-indigo-500/10 text-indigo-400"
-                    : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100"
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground"
                 )}
               >
-                <item.icon className={cn("h-4 w-4", isActive ? "text-indigo-400" : "text-zinc-400")} />
+                <item.icon className={cn("h-4 w-4 transition-colors", isActive ? "text-primary" : "")} />
                 {item.name}
+                {isActive && (
+                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary animate-in zoom-in duration-200" />
+                )}
               </Link>
             );
           })}
         </div>
 
         <div>
-          <h4 className="px-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">Categories</h4>
+          <h4 className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60 mb-2">Categories</h4>
           <div className="space-y-1">
             {["Software", "Media", "Documents", "Archives"].map((cat) => {
               const href = `/category/${cat.toLowerCase()}`;
@@ -58,13 +63,16 @@ export function Sidebar() {
                   key={cat}
                   href={href}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all",
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
                     isActive
-                      ? "bg-zinc-800 text-zinc-100"
-                      : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                   )}
                 >
-                  <div className={cn("w-1.5 h-1.5 rounded-full", isActive ? "bg-indigo-400" : "bg-zinc-700")} />
+                  <div className={cn(
+                    "w-1.5 h-1.5 rounded-full transition-colors",
+                    isActive ? "bg-primary" : "bg-muted-foreground/30"
+                  )} />
                   {cat}
                 </Link>
               );
@@ -73,10 +81,10 @@ export function Sidebar() {
         </div>
       </nav>
 
-      <div className="p-4 border-t border-zinc-800/50">
-        <div className="flex flex-col items-center justify-center space-y-2 rounded-xl bg-zinc-900/50 p-4 text-center">
-          <Cat className="h-8 w-8 text-zinc-600 mb-1 opacity-50" strokeWidth={1.5} />
-          <p className="text-xs text-zinc-500 font-medium">
+      <div className="p-4 border-t border-sidebar-border">
+        <div className="flex flex-col items-center justify-center space-y-2 rounded-xl bg-muted/50 p-4 text-center">
+          <Cat className="h-8 w-8 text-muted-foreground/40 mb-1" strokeWidth={1.5} />
+          <p className="text-xs text-muted-foreground font-medium">
             {isPlayfulMode ? "Ready to catch bytes 🐾" : "System ready"}
           </p>
         </div>

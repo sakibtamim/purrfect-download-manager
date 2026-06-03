@@ -19,11 +19,26 @@ export interface YtDlpVideoInfo {
   formats: YtDlpFormat[];
 }
 
+interface RawFormat {
+  url?: string;
+  filesize?: number;
+  filesize_approx?: number;
+  ext?: string;
+  acodec?: string;
+  vcodec?: string;
+  abr?: number;
+  format_id?: string;
+  resolution?: string;
+  format_note?: string;
+  width?: number;
+  height?: number;
+}
+
 export const ytdlpClient = {
   /**
    * Extracts direct video stream URLs and metadata from a given URL using yt-dlp.
    */
-  async extractVideoInfo(videoUrl: string, cookies?: string): Promise<YtDlpVideoInfo> {
+  async extractVideoInfo(videoUrl: string): Promise<YtDlpVideoInfo> {
     console.log(`[yt-dlp] Extracting info for ${videoUrl}...`);
     
     // Build arguments. We use -J to dump JSON and not download the file itself here.
@@ -61,7 +76,7 @@ export const ytdlpClient = {
         const reqDownload = data.requested_downloads[0];
         if (reqDownload.requested_formats && reqDownload.requested_formats.length > 0) {
           directUrl = reqDownload.requested_formats[0].url;
-          fileSize = reqDownload.requested_formats.reduce((acc: number, f: any) => acc + (f.filesize || f.filesize_approx || 0), 0);
+          fileSize = reqDownload.requested_formats.reduce((acc: number, f: RawFormat) => acc + (f.filesize || f.filesize_approx || 0), 0);
           ext = reqDownload.ext || ext;
         } else {
           directUrl = reqDownload.url;
@@ -78,14 +93,13 @@ export const ytdlpClient = {
       if (data.formats && Array.isArray(data.formats)) {
         // Find best audio
         const bestAudio = data.formats
-          .filter((f: any) => f.acodec !== 'none' && f.vcodec === 'none')
-          .sort((a: any, b: any) => (b.abr || 0) - (a.abr || 0))[0];
+          .filter((f: RawFormat) => f.acodec !== 'none' && f.vcodec === 'none')
+          .sort((a: RawFormat, b: RawFormat) => (b.abr || 0) - (a.abr || 0))[0];
 
         availableFormats = data.formats
-          .filter((f: any) => f.vcodec !== 'none' && f.url)
-          .map((f: any) => {
+          .filter((f: RawFormat) => f.vcodec !== 'none' && f.url)
+          .map((f: RawFormat) => {
             const hasAudio = f.acodec !== 'none';
-            const audioExt = bestAudio?.ext || 'm4a';
             // We force mp4 container for muxed results
             const finalExt = !hasAudio ? 'mp4' : (f.ext || 'mp4');
             
@@ -94,7 +108,7 @@ export const ytdlpClient = {
               ext: finalExt,
               resolution: f.resolution || f.format_note || (f.width ? `${f.width}x${f.height}` : 'Unknown'),
               fileSize: (f.filesize || f.filesize_approx || 0) + (!hasAudio && bestAudio ? (bestAudio.filesize || bestAudio.filesize_approx || 0) : 0),
-              url: f.url,
+              url: f.url!,
               audioUrl: !hasAudio && bestAudio ? bestAudio.url : undefined
             };
           });

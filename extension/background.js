@@ -33,7 +33,7 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
       if (!response.ok) {
         console.error("PDM is not running or rejected the request.", response.statusText);
       }
-    } catch (e) {
+    } catch {
       console.error("Failed to connect to PDM API on port 6801.", e);
     }
   });
@@ -57,7 +57,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       const urlObj = new URL(targetUrl);
       const cookies = await chrome.cookies.getAll({ domain: urlObj.hostname });
       cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-    } catch (e) {}
+    } catch {}
 
     const payload = {
       url: targetUrl,
@@ -74,7 +74,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-    } catch (e) {
+    } catch {
       console.error("Failed to connect to PDM API.", e);
     }
   }

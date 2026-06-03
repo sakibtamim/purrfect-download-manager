@@ -1,5 +1,4 @@
 import { CategoryClient } from "./category-client";
-import { FileCategory } from "@/lib/utils";
 
 // This is required for static export with dynamic routes
 export function generateStaticParams() {

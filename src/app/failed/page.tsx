@@ -11,19 +11,19 @@ export default function Failed() {
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Failed Downloads</h1>
-        <p className="text-sm text-zinc-400 mt-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Failed Downloads</h1>
+        <p className="text-sm text-muted-foreground mt-1">
           Files that failed to download or were cancelled.
         </p>
       </div>
 
       {failedDownloads.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center border-2 border-dashed border-zinc-800/50 rounded-2xl bg-zinc-900/10">
-          <div className="p-4 bg-zinc-900 rounded-full mb-4">
-            <AlertCircle className="h-10 w-10 text-zinc-500" strokeWidth={1.5} />
+        <div className="flex flex-col items-center justify-center py-24 text-center border-2 border-dashed border-border rounded-2xl bg-muted/30">
+          <div className="p-4 bg-muted rounded-full mb-4">
+            <AlertCircle className="h-10 w-10 text-muted-foreground" strokeWidth={1.5} />
           </div>
-          <h3 className="text-lg font-medium text-zinc-200">No failed downloads</h3>
-          <p className="text-sm text-zinc-500 mt-1 max-w-xs mx-auto">
+          <h3 className="text-lg font-medium text-foreground">No failed downloads</h3>
+          <p className="text-sm text-muted-foreground mt-1 max-w-xs mx-auto">
             {isPlayfulMode 
               ? "All mice caught successfully! No escapes." 
               : "No failed or cancelled downloads found."}

@@ -11,19 +11,19 @@ export default function Home() {
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Active Downloads</h1>
-        <p className="text-sm text-zinc-400 mt-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Active Downloads</h1>
+        <p className="text-sm text-muted-foreground mt-1">
           Currently downloading or waiting files.
         </p>
       </div>
 
       {activeDownloads.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center border-2 border-dashed border-zinc-800/50 rounded-2xl bg-zinc-900/10">
-          <div className="p-4 bg-zinc-900 rounded-full mb-4">
-            <Cat className="h-10 w-10 text-zinc-500" strokeWidth={1.5} />
+        <div className="flex flex-col items-center justify-center py-24 text-center border-2 border-dashed border-border rounded-2xl bg-muted/30">
+          <div className="p-4 bg-muted rounded-full mb-4">
+            <Cat className="h-10 w-10 text-muted-foreground" strokeWidth={1.5} />
           </div>
-          <h3 className="text-lg font-medium text-zinc-200">No active downloads</h3>
-          <p className="text-sm text-zinc-500 mt-1 max-w-xs mx-auto">
+          <h3 className="text-lg font-medium text-foreground">No active downloads</h3>
+          <p className="text-sm text-muted-foreground mt-1 max-w-xs mx-auto">
             {isPlayfulMode 
               ? "Your cat is resting. Add a URL to start the hunt!" 
               : "Click the 'New Download' button to add a file."}

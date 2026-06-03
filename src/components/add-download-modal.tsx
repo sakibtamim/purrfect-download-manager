@@ -35,14 +35,14 @@ export function AddDownloadModal() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2" />}>
+      <DialogTrigger render={<Button className="gap-2" />}>
         <Plus className="h-4 w-4" />
         New Download
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px] bg-zinc-950 border-zinc-800 text-zinc-100">
+      <DialogContent className="sm:max-w-106.25 bg-card border-border text-foreground">
         <DialogHeader>
           <DialogTitle>Add New Download</DialogTitle>
-          <DialogDescription className="text-zinc-400">
+          <DialogDescription className="text-muted-foreground">
             Paste the URL of the file you want to download.
           </DialogDescription>
         </DialogHeader>
@@ -55,17 +55,17 @@ export function AddDownloadModal() {
                 placeholder="https://example.com/file.zip"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                className="bg-zinc-900 border-zinc-800 focus-visible:ring-indigo-500"
+                className="bg-background border-border focus-visible:ring-primary"
                 required
                 autoFocus
               />
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)} className="border-zinc-800 hover:bg-zinc-800 hover:text-zinc-100">
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white">
+            <Button type="submit">
               Start Download
             </Button>
           </DialogFooter>
