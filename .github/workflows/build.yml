@@ -53,3 +53,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: ${{ matrix.args }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-build-${{ matrix.platform }}
+          path: src-tauri/target/release/bundle/**
