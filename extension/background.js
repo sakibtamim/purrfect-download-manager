@@ -2,6 +2,10 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
   // If we already sent it, or it's not interceptable, ignore.
   if (downloadItem.state !== "in_progress") return;
 
+  // Check if interception is enabled
+  const data = await chrome.storage.local.get("pdm_enabled");
+  if (data.pdm_enabled === false) return;
+
   // We immediately pause and cancel the browser's native download
   chrome.downloads.cancel(downloadItem.id, async () => {
     
@@ -31,18 +35,27 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
       });
       
       if (!response.ok) {
-        console.error("PDM is not running or rejected the request.", response.statusText);
+        throw new Error("PDM rejected request.");
       }
-    } catch {
+    } catch (e) {
       console.error("Failed to connect to PDM API on port 6801.", e);
+      chrome.notifications.create({
+        type: "basic",
+        iconUrl: "icons/icon128.png",
+        title: "Purrfect Download Manager",
+        message: "Failed to send download to PDM. Make sure the app is running!"
+      });
     }
   });
 });
 
 chrome.runtime.onInstalled.addListener(() => {
+  // Default to enabled on install
+  chrome.storage.local.set({ pdm_enabled: true });
+
   chrome.contextMenus.create({
     id: "pdm-download",
-    title: "Download with Purrfect DL",
+    title: "Download with Purrfect Download Manager",
     contexts: ["link", "image", "video", "audio"]
   });
 });
@@ -57,7 +70,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       const urlObj = new URL(targetUrl);
       const cookies = await chrome.cookies.getAll({ domain: urlObj.hostname });
       cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-    } catch {}
+    } catch (e) {}
 
     const payload = {
       url: targetUrl,
@@ -69,13 +82,22 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     };
 
     try {
-      await fetch("http://localhost:6801/download", {
+      const response = await fetch("http://localhost:6801/download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-    } catch {
+      if (!response.ok) {
+        throw new Error("PDM rejected request.");
+      }
+    } catch (e) {
       console.error("Failed to connect to PDM API.", e);
+      chrome.notifications.create({
+        type: "basic",
+        iconUrl: "icons/icon128.png",
+        title: "Purrfect Download Manager",
+        message: "Failed to send download to PDM. Make sure the app is running!"
+      });
     }
   }
 });

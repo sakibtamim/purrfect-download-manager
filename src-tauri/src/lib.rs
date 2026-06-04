@@ -75,6 +75,7 @@ pub fn run() {
                     "quit" => app.exit(0),
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.unminimize();
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
@@ -82,6 +83,7 @@ pub fn run() {
                     "new-download" => {
                         let _ = app.emit("tray-new-download", ());
                         if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.unminimize();
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
@@ -122,6 +124,7 @@ pub fn run() {
                     if is_visible {
                         let _ = window.hide();
                     } else {
+                        let _ = window.unminimize();
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
@@ -181,6 +184,16 @@ pub fn run() {
                       let _ = app_handle.emit("browser-download", json);
                   }
                   
+                  let _ = request.respond(Response::from_string("OK"));
+              } else if request.method().as_str() == "GET" && request.url() == "/health" {
+                  let _ = request.respond(Response::from_string("OK"));
+              } else if request.method().as_str() == "GET" && request.url() == "/show" {
+                  use tauri::Manager;
+                  if let Some(window) = app_handle.get_webview_window("main") {
+                      let _ = window.unminimize();
+                      let _ = window.show();
+                      let _ = window.set_focus();
+                  }
                   let _ = request.respond(Response::from_string("OK"));
               } else {
                   let _ = request.respond(Response::from_string("Not Found").with_status_code(404));
