@@ -10,6 +10,9 @@ const winProcesses = [
   'aria2c.exe',
   'yt-dlp.exe',
   'ffmpeg.exe',
+  'pdm-aria2c.exe',
+  'pdm-yt-dlp.exe',
+  'pdm-ffmpeg.exe',
   'app.exe',
   'pdm.exe',
   'pdm-temp.exe'
@@ -18,7 +21,10 @@ const winProcesses = [
 const unixProcesses = [
   'aria2c', 
   'yt-dlp', 
-  'ffmpeg', 
+  'ffmpeg',
+  'pdm-aria2c',
+  'pdm-yt-dlp',
+  'pdm-ffmpeg',
   'app',
   'pdm'
 ];
