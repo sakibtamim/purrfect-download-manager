@@ -12,41 +12,41 @@ if (!fs.existsSync(binDir)) {
 // Map of sidecar binaries
 const sidecarTargets = [
   // yt-dlp
-  { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe', name: 'yt-dlp-x86_64-pc-windows-msvc.exe' },
-  { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos', name: 'yt-dlp-x86_64-apple-darwin' },
-  { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos', name: 'yt-dlp-aarch64-apple-darwin' },
-  { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux', name: 'yt-dlp-x86_64-unknown-linux-gnu' },
-  { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64', name: 'yt-dlp-aarch64-unknown-linux-gnu' },
+  { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe', name: 'pdm-yt-dlp-x86_64-pc-windows-msvc.exe' },
+  { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos', name: 'pdm-yt-dlp-x86_64-apple-darwin' },
+  { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos', name: 'pdm-yt-dlp-aarch64-apple-darwin' },
+  { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux', name: 'pdm-yt-dlp-x86_64-unknown-linux-gnu' },
+  { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64', name: 'pdm-yt-dlp-aarch64-unknown-linux-gnu' },
   
   // ffmpeg
-  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/win32-x64', name: 'ffmpeg-x86_64-pc-windows-msvc.exe' },
-  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/darwin-x64', name: 'ffmpeg-x86_64-apple-darwin' },
-  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/darwin-arm64', name: 'ffmpeg-aarch64-apple-darwin' },
-  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/linux-x64', name: 'ffmpeg-x86_64-unknown-linux-gnu' },
-  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/linux-arm64', name: 'ffmpeg-aarch64-unknown-linux-gnu' },
+  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/win32-x64', name: 'pdm-ffmpeg-x86_64-pc-windows-msvc.exe' },
+  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/darwin-x64', name: 'pdm-ffmpeg-x86_64-apple-darwin' },
+  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/darwin-arm64', name: 'pdm-ffmpeg-aarch64-apple-darwin' },
+  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/linux-x64', name: 'pdm-ffmpeg-x86_64-unknown-linux-gnu' },
+  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/linux-arm64', name: 'pdm-ffmpeg-aarch64-unknown-linux-gnu' },
 
   // aria2c
   { 
     url: 'https://github.com/q741451/aria2c-macos-standalone-binary/releases/download/v1.0.0/aria2c-macos-x86_64.tar.gz', 
-    name: 'aria2c-x86_64-apple-darwin',
+    name: 'pdm-aria2c-x86_64-apple-darwin',
     archive: true,
     extractPath: 'aria2c'
   },
   { 
     url: 'https://github.com/q741451/aria2c-macos-standalone-binary/releases/download/v1.0.0/aria2c-macos-arm64.tar.gz', 
-    name: 'aria2c-aarch64-apple-darwin',
+    name: 'pdm-aria2c-aarch64-apple-darwin',
     archive: true,
     extractPath: 'aria2c'
   },
   { 
     url: 'https://github.com/P3TERX/Aria2-Pro-Core/releases/download/1.36.0_2021.08.22/aria2-1.36.0-static-linux-amd64.tar.gz', 
-    name: 'aria2c-x86_64-unknown-linux-gnu',
+    name: 'pdm-aria2c-x86_64-unknown-linux-gnu',
     archive: true,
     extractPath: 'aria2c'
   },
   { 
     url: 'https://github.com/P3TERX/Aria2-Pro-Core/releases/download/1.36.0_2021.08.22/aria2-1.36.0-static-linux-arm64.tar.gz', 
-    name: 'aria2c-aarch64-unknown-linux-gnu',
+    name: 'pdm-aria2c-aarch64-unknown-linux-gnu',
     archive: true,
     extractPath: 'aria2c'
   }

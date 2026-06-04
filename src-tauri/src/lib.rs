@@ -137,7 +137,7 @@ pub fn run() {
       let session_arg = format!("--save-session={}", session_file.to_string_lossy());
       let input_file_arg = format!("--input-file={}", session_file.to_string_lossy());
 
-      let sidecar_command = app.shell().sidecar("aria2c").unwrap()
+      let sidecar_command = app.shell().sidecar("pdm-aria2c").unwrap()
         .args([
             "--enable-rpc", 
             "--rpc-listen-all=false", 
