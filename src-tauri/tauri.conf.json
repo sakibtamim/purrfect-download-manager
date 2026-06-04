@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Purrfect Download Manager",
-        "width": 800,
-        "height": 600,
+        "width": 1280,
+        "height": 720,
         "resizable": true,
         "fullscreen": false
       }
@@ -26,7 +26,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["bin/aria2c", "bin/yt-dlp", "bin/ffmpeg"],
+    "externalBin": ["bin/pdm-aria2c", "bin/pdm-yt-dlp", "bin/pdm-ffmpeg"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

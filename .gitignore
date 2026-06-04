@@ -45,3 +45,4 @@ next-env.d.ts
 src-tauri/bin/ffmpeg*
 src-tauri/bin/aria2c*
 src-tauri/bin/yt-dlp*
+src-tauri/bin/pdm-*

@@ -57,7 +57,7 @@ export const ytdlpClient = {
     // So we'll rely on the player_client arg which solves 90% of the issues.
 
     try {
-      const command = Command.sidecar('bin/yt-dlp', args);
+      const command = Command.sidecar('bin/pdm-yt-dlp', args);
       const output = await command.execute();
 
       if (output.code !== 0) {

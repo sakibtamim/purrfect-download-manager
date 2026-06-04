@@ -279,7 +279,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
                 const finalPath = vPath.replace(/\.video\.[^.]+$/, '') + '.mp4';
                 
                 // Spawn FFmpeg
-                Command.sidecar('bin/ffmpeg', [
+                Command.sidecar('bin/pdm-ffmpeg', [
                    '-y',
                    '-i', vPath,
                    '-i', aPath,

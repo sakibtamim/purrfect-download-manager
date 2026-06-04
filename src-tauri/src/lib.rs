@@ -3,10 +3,11 @@ use std::fs;
 use std::io::Read;
 use std::thread;
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, CheckMenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
     Emitter, Manager, WindowEvent,
 };
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_shell::ShellExt;
 use tiny_http::{Response, Server};
 
@@ -36,22 +37,94 @@ pub fn run() {
         )?;
       }
       
-      let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-      let menu = Menu::with_items(app, &[&quit_i])?;
+      let show_i = MenuItem::with_id(app, "show", "Open Dashboard", true, None::<&str>)?;
+      let new_download_i = MenuItem::with_id(app, "new-download", "New Download", true, None::<&str>)?;
+      let pause_all_i = MenuItem::with_id(app, "pause-all", "Pause All", true, None::<&str>)?;
+      let resume_all_i = MenuItem::with_id(app, "resume-all", "Resume All", true, None::<&str>)?;
+      let open_downloads_i = MenuItem::with_id(app, "open-downloads", "Open Downloads Folder", true, None::<&str>)?;
+      
+      let autostart_manager = app.autolaunch();
+      let is_autostart = autostart_manager.is_enabled().unwrap_or(false);
+      let start_on_boot_i = CheckMenuItem::with_id(app, "start-on-boot", "Start on Boot", true, is_autostart, None::<&str>)?;
+      
+      let quit_i = MenuItem::with_id(app, "quit", "Exit", true, None::<&str>)?;
+      
+      let separator = PredefinedMenuItem::separator(app)?;
+      
+      let menu = Menu::with_items(app, &[
+          &show_i, 
+          &separator, 
+          &new_download_i, 
+          &separator, 
+          &pause_all_i, 
+          &resume_all_i, 
+          &separator, 
+          &open_downloads_i, 
+          &start_on_boot_i, 
+          &separator, 
+          &quit_i
+      ])?;
       
       let _tray = TrayIconBuilder::new()
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
-        .on_menu_event(|app, event| {
-            if event.id.as_ref() == "quit" {
-                app.exit(0);
+        .on_menu_event({
+            let start_on_boot_i = start_on_boot_i.clone();
+            move |app, event| {
+                match event.id.as_ref() {
+                    "quit" => app.exit(0),
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "new-download" => {
+                        let _ = app.emit("tray-new-download", ());
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "pause-all" => { let _ = app.emit("tray-pause-all", ()); }
+                    "resume-all" => { let _ = app.emit("tray-resume-all", ()); }
+                    "open-downloads" => {
+                        if let Ok(download_dir) = app.path().download_dir() {
+                            #[allow(deprecated)]
+                            let _ = app.shell().open(download_dir.to_string_lossy().to_string(), None);
+                        }
+                    }
+                    "start-on-boot" => {
+                        let autostart_manager = app.autolaunch();
+                        let current = autostart_manager.is_enabled().unwrap_or(false);
+                        let success = if current {
+                            autostart_manager.disable().is_ok()
+                        } else {
+                            autostart_manager.enable().is_ok()
+                        };
+                        if success {
+                            let _ = start_on_boot_i.set_checked(!current);
+                        }
+                    }
+                    _ => {}
+                }
             }
         })
         .on_tray_icon_event(|tray, event| {
-            if let tauri::tray::TrayIconEvent::Click { .. } = event {
+            if let tauri::tray::TrayIconEvent::Click {
+                button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
+                ..
+            } = event
+            {
                 if let Some(window) = tray.app_handle().get_webview_window("main") {
-                    window.show().unwrap();
-                    window.set_focus().unwrap();
+                    let is_visible = window.is_visible().unwrap_or(false);
+                    if is_visible {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
                 }
             }
         })
@@ -72,7 +145,7 @@ pub fn run() {
       let session_arg = format!("--save-session={}", session_file.to_string_lossy());
       let input_file_arg = format!("--input-file={}", session_file.to_string_lossy());
 
-      let sidecar_command = app.shell().sidecar("aria2c").unwrap()
+      let sidecar_command = app.shell().sidecar("pdm-aria2c").unwrap()
         .args([
             "--enable-rpc", 
             "--rpc-listen-all=false", 
@@ -91,8 +164,8 @@ pub fn run() {
       
       tauri::async_runtime::spawn(async move {
         let _child_keep_alive = _child;
-        while let Some(event) = rx.recv().await {
-            // println!("aria2c event: {:?}", event);
+        while let Some(_event) = rx.recv().await {
+            // println!("aria2c event: {:?}", _event);
         }
       });
       

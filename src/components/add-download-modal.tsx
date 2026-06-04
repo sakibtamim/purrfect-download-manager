@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus } from "lucide-react";
 import { useDownloadStore } from "@/store/downloadStore";
 import {
@@ -19,6 +19,31 @@ export function AddDownloadModal() {
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState("");
   const addDownload = useDownloadStore(state => state.addDownload);
+
+  useEffect(() => {
+    let active = true;
+    let unlistenFn: (() => void) | undefined;
+
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      import('@tauri-apps/api/event').then(({ listen }) => {
+        if (!active) return;
+        listen('tray-new-download', () => {
+          setOpen(true);
+        }).then(f => {
+          if (active) {
+            unlistenFn = f;
+          } else {
+            f();
+          }
+        }).catch(console.warn);
+      });
+    }
+
+    return () => {
+      active = false;
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
