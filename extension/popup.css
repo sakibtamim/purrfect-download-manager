@@ -146,7 +146,6 @@ input:checked + .slider:before {
 }
 
 #open-app-btn {
-  width: 10px;
   width: 100%;
   background-color: #fafafa;
   color: #09090b;

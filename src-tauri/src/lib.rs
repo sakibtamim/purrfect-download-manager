@@ -176,6 +176,15 @@ pub fn run() {
       thread::spawn(move || {
           let server = Server::http("127.0.0.1:6801").unwrap();
           for mut request in server.incoming_requests() {
+              // Security: Validate Origin header to prevent malicious websites from hitting the local API
+              let origin = request.headers().iter().find(|h| h.field.as_str().eq_ignore_ascii_case("Origin")).map(|h| h.value.as_str());
+              let is_valid_origin = origin.map(|o| o.starts_with("chrome-extension://") || o.starts_with("moz-extension://")).unwrap_or(false);
+              
+              if !is_valid_origin {
+                  let _ = request.respond(Response::from_string("Forbidden").with_status_code(403));
+                  continue;
+              }
+
               if request.method().as_str() == "POST" && request.url() == "/download" {
                   let mut content = String::new();
                   request.as_reader().read_to_string(&mut content).unwrap_or_default();
@@ -188,7 +197,6 @@ pub fn run() {
               } else if request.method().as_str() == "GET" && request.url() == "/health" {
                   let _ = request.respond(Response::from_string("OK"));
               } else if request.method().as_str() == "GET" && request.url() == "/show" {
-                  use tauri::Manager;
                   if let Some(window) = app_handle.get_webview_window("main") {
                       let _ = window.unminimize();
                       let _ = window.show();

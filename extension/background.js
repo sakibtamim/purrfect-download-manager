@@ -1,10 +1,20 @@
+// Cache state to avoid async delay on every download
+let pdmEnabled = true;
+chrome.storage.local.get("pdm_enabled").then(data => {
+  if (data.pdm_enabled !== undefined) pdmEnabled = data.pdm_enabled;
+});
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (namespace === 'local' && changes.pdm_enabled) {
+    pdmEnabled = changes.pdm_enabled.newValue;
+  }
+});
+
 chrome.downloads.onCreated.addListener(async (downloadItem) => {
   // If we already sent it, or it's not interceptable, ignore.
   if (downloadItem.state !== "in_progress") return;
 
   // Check if interception is enabled
-  const data = await chrome.storage.local.get("pdm_enabled");
-  if (data.pdm_enabled === false) return;
+  if (!pdmEnabled) return;
 
   // We immediately pause and cancel the browser's native download
   chrome.downloads.cancel(downloadItem.id, async () => {
@@ -49,9 +59,11 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
   });
 });
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
   // Default to enabled on install
-  chrome.storage.local.set({ pdm_enabled: true });
+  if (details.reason === "install") {
+    chrome.storage.local.set({ pdm_enabled: true });
+  }
 
   chrome.contextMenus.create({
     id: "pdm-download",
@@ -70,7 +82,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       const urlObj = new URL(targetUrl);
       const cookies = await chrome.cookies.getAll({ domain: urlObj.hostname });
       cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-    } catch (e) {}
+    } catch {}
 
     const payload = {
       url: targetUrl,

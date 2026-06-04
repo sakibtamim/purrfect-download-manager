@@ -18,7 +18,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   openAppBtn.addEventListener("click", async () => {
     try {
       await fetch("http://localhost:6801/show", { method: "GET" });
-    } catch (e) {
+    } catch {
       // Ignore if it's not running
     }
     window.close();
@@ -26,16 +26,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Check connection to PDM
   async function checkHealth() {
+    let timeoutId;
     try {
       // AbortController to timeout quickly if not running
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 1000);
+      timeoutId = setTimeout(() => controller.abort(), 1000);
 
       const res = await fetch("http://localhost:6801/health", { 
         method: "GET",
         signal: controller.signal
       });
-      clearTimeout(timeoutId);
 
       if (res.ok) {
         statusDot.className = "status-indicator online";
@@ -48,6 +48,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       statusDot.className = "status-indicator offline";
       statusText.innerText = "PDM is Offline";
       statusText.style.color = "#ef4444";
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 
