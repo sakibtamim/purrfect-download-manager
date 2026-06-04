@@ -15,7 +15,8 @@ const winProcesses = [
   'pdm-ffmpeg.exe',
   'app.exe',
   'pdm.exe',
-  'pdm-temp.exe'
+  'pdm-temp.exe',
+  'PurrfectDownloadManager.exe'
 ];
 
 const unixProcesses = [
@@ -26,7 +27,8 @@ const unixProcesses = [
   'pdm-yt-dlp',
   'pdm-ffmpeg',
   'app',
-  'pdm'
+  'pdm',
+  'PurrfectDownloadManager'
 ];
 
 console.log("Terminating lingering background processes...");
