@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - deploy
-  pull_request:
 
 jobs:
   build-tauri:
