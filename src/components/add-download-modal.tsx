@@ -21,15 +21,28 @@ export function AddDownloadModal() {
   const addDownload = useDownloadStore(state => state.addDownload);
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    let active = true;
+    let unlistenFn: (() => void) | undefined;
+
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
       import('@tauri-apps/api/event').then(({ listen }) => {
+        if (!active) return;
         listen('tray-new-download', () => {
           setOpen(true);
-        }).then(f => unlisten = f).catch(console.warn);
+        }).then(f => {
+          if (active) {
+            unlistenFn = f;
+          } else {
+            f();
+          }
+        }).catch(console.warn);
       });
     }
-    return () => { if (unlisten) unlisten(); };
+
+    return () => {
+      active = false;
+      if (unlistenFn) unlistenFn();
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {

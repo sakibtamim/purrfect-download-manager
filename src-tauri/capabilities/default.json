@@ -20,12 +20,12 @@
       "identifier": "shell:allow-execute",
       "allow": [
         {
-          "name": "bin/yt-dlp",
+          "name": "bin/pdm-yt-dlp",
           "sidecar": true,
           "args": true
         },
         {
-          "name": "bin/ffmpeg",
+          "name": "bin/pdm-ffmpeg",
           "sidecar": true,
           "args": true
         }

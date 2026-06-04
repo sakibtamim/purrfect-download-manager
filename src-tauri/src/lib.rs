@@ -1,5 +1,6 @@
 use serde_json::Value;
 use std::fs;
+use std::io::Read;
 use std::thread;
 use tauri::{
     menu::{Menu, MenuItem, CheckMenuItem, PredefinedMenuItem},
@@ -67,39 +68,46 @@ pub fn run() {
       let _tray = TrayIconBuilder::new()
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
-        .on_menu_event(|app, event| {
-            match event.id.as_ref() {
-                "quit" => app.exit(0),
-                "show" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        window.show().unwrap();
-                        window.set_focus().unwrap();
+        .on_menu_event({
+            let start_on_boot_i = start_on_boot_i.clone();
+            move |app, event| {
+                match event.id.as_ref() {
+                    "quit" => app.exit(0),
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
                     }
-                }
-                "new-download" => {
-                    let _ = app.emit("tray-new-download", ());
-                    if let Some(window) = app.get_webview_window("main") {
-                        window.show().unwrap();
-                        window.set_focus().unwrap();
+                    "new-download" => {
+                        let _ = app.emit("tray-new-download", ());
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
                     }
-                }
-                "pause-all" => { let _ = app.emit("tray-pause-all", ()); }
-                "resume-all" => { let _ = app.emit("tray-resume-all", ()); }
-                "open-downloads" => {
-                    let download_dir = app.path().download_dir().unwrap_or_default();
-                    #[allow(deprecated)]
-                    let _ = app.shell().open(download_dir.to_string_lossy().to_string(), None);
-                }
-                "start-on-boot" => {
-                    let autostart_manager = app.autolaunch();
-                    let current = autostart_manager.is_enabled().unwrap_or(false);
-                    if current {
-                        let _ = autostart_manager.disable();
-                    } else {
-                        let _ = autostart_manager.enable();
+                    "pause-all" => { let _ = app.emit("tray-pause-all", ()); }
+                    "resume-all" => { let _ = app.emit("tray-resume-all", ()); }
+                    "open-downloads" => {
+                        if let Ok(download_dir) = app.path().download_dir() {
+                            #[allow(deprecated)]
+                            let _ = app.shell().open(download_dir.to_string_lossy().to_string(), None);
+                        }
                     }
+                    "start-on-boot" => {
+                        let autostart_manager = app.autolaunch();
+                        let current = autostart_manager.is_enabled().unwrap_or(false);
+                        let success = if current {
+                            autostart_manager.disable().is_ok()
+                        } else {
+                            autostart_manager.enable().is_ok()
+                        };
+                        if success {
+                            let _ = start_on_boot_i.set_checked(!current);
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         })
         .on_tray_icon_event(|tray, event| {
@@ -112,10 +120,10 @@ pub fn run() {
                 if let Some(window) = tray.app_handle().get_webview_window("main") {
                     let is_visible = window.is_visible().unwrap_or(false);
                     if is_visible {
-                        window.hide().unwrap();
+                        let _ = window.hide();
                     } else {
-                        window.show().unwrap();
-                        window.set_focus().unwrap();
+                        let _ = window.show();
+                        let _ = window.set_focus();
                     }
                 }
             }

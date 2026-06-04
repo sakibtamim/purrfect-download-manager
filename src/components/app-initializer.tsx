@@ -11,6 +11,26 @@ export function AppInitializer() {
   const resumeAllDownloads = useDownloadStore(state => state.resumeAllDownloads);
 
   useEffect(() => {
+    let active = true;
+    const unlistens: (() => void)[] = [];
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      import('@tauri-apps/api/event').then(({ listen }) => {
+        if (!active) return;
+        listen('tray-pause-all', () => pauseAllDownloads()).then(f => {
+          if (active) unlistens.push(f); else f();
+        }).catch(console.warn);
+        listen('tray-resume-all', () => resumeAllDownloads()).then(f => {
+          if (active) unlistens.push(f); else f();
+        }).catch(console.warn);
+      });
+    }
+    return () => {
+      active = false;
+      unlistens.forEach(f => f());
+    };
+  }, [pauseAllDownloads, resumeAllDownloads]);
+
+  useEffect(() => {
     // Initialize Settings
     initSettings();
 
@@ -42,9 +62,6 @@ export function AppInitializer() {
                 });
             }
         }).then(f => unlisten = f).catch(e => console.warn("Tauri event listen failed:", e));
-        
-        listen('tray-pause-all', () => pauseAllDownloads()).catch(console.warn);
-        listen('tray-resume-all', () => resumeAllDownloads()).catch(console.warn);
       });
     }
 
