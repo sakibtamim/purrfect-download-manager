@@ -7,6 +7,8 @@ export function AppInitializer() {
   const fetchDownloads = useDownloadStore(state => state.fetchDownloads);
   const stageDownload = useDownloadStore(state => state.stageDownload);
   const initSettings = useDownloadStore(state => state.initSettings);
+  const pauseAllDownloads = useDownloadStore(state => state.pauseAllDownloads);
+  const resumeAllDownloads = useDownloadStore(state => state.resumeAllDownloads);
 
   useEffect(() => {
     // Initialize Settings
@@ -40,6 +42,9 @@ export function AppInitializer() {
                 });
             }
         }).then(f => unlisten = f).catch(e => console.warn("Tauri event listen failed:", e));
+        
+        listen('tray-pause-all', () => pauseAllDownloads()).catch(console.warn);
+        listen('tray-resume-all', () => resumeAllDownloads()).catch(console.warn);
       });
     }
 
@@ -62,7 +67,7 @@ export function AppInitializer() {
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('drop', handleDrop);
     };
-  }, [fetchDownloads, stageDownload, initSettings]);
+  }, [fetchDownloads, stageDownload, initSettings, pauseAllDownloads, resumeAllDownloads]);
 
   return null;
 }
