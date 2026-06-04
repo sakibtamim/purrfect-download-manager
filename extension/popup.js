@@ -16,40 +16,51 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Handle open app button
   openAppBtn.addEventListener("click", async () => {
-    try {
-      await fetch("http://localhost:6801/show", { method: "GET" });
-    } catch {
-      // Ignore if it's not running
+    for (let port = 6801; port <= 6810; port++) {
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/show`, { method: "GET" });
+        if (res.ok) break;
+      } catch {
+        // Ignore if it's not running
+      }
     }
     window.close();
   });
 
   // Check connection to PDM
   async function checkHealth() {
-    let timeoutId;
-    try {
-      // AbortController to timeout quickly if not running
-      const controller = new AbortController();
-      timeoutId = setTimeout(() => controller.abort(), 1000);
+    let isConnected = false;
+    for (let port = 6801; port <= 6810; port++) {
+      let timeoutId;
+      try {
+        // AbortController to timeout quickly if not running
+        const controller = new AbortController();
+        timeoutId = setTimeout(() => controller.abort(), 200);
 
-      const res = await fetch("http://localhost:6801/health", { 
-        method: "GET",
-        signal: controller.signal
-      });
+        const res = await fetch(`http://127.0.0.1:${port}/health`, { 
+          method: "GET",
+          signal: controller.signal
+        });
 
-      if (res.ok) {
-        statusDot.className = "status-indicator online";
-        statusText.innerText = "Connected to PDM";
-        statusText.style.color = "#22c55e";
-      } else {
-        throw new Error("Bad status");
+        if (res.ok) {
+          isConnected = true;
+          break;
+        }
+      } catch {
+        // continue to next port
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
       }
-    } catch (err) {
+    }
+
+    if (isConnected) {
+      statusDot.className = "status-indicator online";
+      statusText.innerText = "Connected to PDM";
+      statusText.style.color = "#22c55e";
+    } else {
       statusDot.className = "status-indicator offline";
       statusText.innerText = "PDM is Offline";
       statusText.style.color = "#ef4444";
-    } finally {
-      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 

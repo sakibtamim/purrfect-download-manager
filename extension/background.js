@@ -9,6 +9,24 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
   }
 });
 
+async function sendToPDM(endpoint, payload) {
+  for (let port = 6801; port <= 6810; port++) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (response.ok) {
+        return true;
+      }
+    } catch {
+      // Ignore and try the next port
+    }
+  }
+  return false;
+}
+
 chrome.downloads.onCreated.addListener(async (downloadItem) => {
   // If we already sent it, or it's not interceptable, ignore.
   if (downloadItem.state !== "in_progress") return;
@@ -34,21 +52,9 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
       fileSize: downloadItem.fileSize || 0
     };
 
-    try {
-      // Send the payload to PDM's hidden local API
-      const response = await fetch("http://localhost:6801/download", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
-      });
-      
-      if (!response.ok) {
-        throw new Error("PDM rejected request.");
-      }
-    } catch (e) {
-      console.error("Failed to connect to PDM API on port 6801.", e);
+    const success = await sendToPDM("/download", payload);
+    if (!success) {
+      console.error("Failed to connect to PDM API on any port (6801-6810).");
       chrome.notifications.create({
         type: "basic",
         iconUrl: "icons/icon128.png",
@@ -93,17 +99,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       fileSize: 0
     };
 
-    try {
-      const response = await fetch("http://localhost:6801/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (!response.ok) {
-        throw new Error("PDM rejected request.");
-      }
-    } catch (e) {
-      console.error("Failed to connect to PDM API.", e);
+    const success = await sendToPDM("/download", payload);
+    if (!success) {
+      console.error("Failed to connect to PDM API on any port (6801-6810).");
       chrome.notifications.create({
         type: "basic",
         iconUrl: "icons/icon128.png",
