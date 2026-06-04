@@ -28,6 +28,11 @@
           "name": "bin/pdm-ffmpeg",
           "sidecar": true,
           "args": true
+        },
+        {
+          "name": "bin/pdm-aria2c",
+          "sidecar": true,
+          "args": true
         }
       ]
     }
