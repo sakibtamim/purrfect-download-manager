@@ -27,6 +27,12 @@ const sidecarTargets = [
 
   // aria2c
   { 
+    url: 'https://github.com/aria2/aria2/releases/download/release-1.36.0/aria2-1.36.0-win-64bit-build1.zip', 
+    name: 'pdm-aria2c-x86_64-pc-windows-msvc.exe',
+    archive: true,
+    extractPath: 'aria2-1.36.0-win-64bit-build1/aria2c.exe'
+  },
+  { 
     url: 'https://github.com/q741451/aria2c-macos-standalone-binary/releases/download/v1.0.0/aria2c-macos-x86_64.tar.gz', 
     name: 'pdm-aria2c-x86_64-apple-darwin',
     archive: true,
@@ -106,10 +112,22 @@ function processTarget(target) {
     try {
       if (target.url.endsWith('.tar.gz')) {
         execSync(`tar -xzf "${path.basename(tempArchive)}" "${target.extractPath}"`, { cwd: binDir });
+      } else if (target.url.endsWith('.zip')) {
+        if (process.platform === 'win32') {
+          execSync(`powershell -Command "Expand-Archive -Path '${path.basename(tempArchive)}' -DestinationPath '.' -Force"`, { cwd: binDir });
+        } else {
+          execSync(`unzip -o "${path.basename(tempArchive)}" "${target.extractPath}"`, { cwd: binDir });
+        }
       }
       const extractedFile = path.join(binDir, target.extractPath);
       fs.renameSync(extractedFile, destPath);
       fs.unlinkSync(tempArchive);
+      
+      const parentDir = path.dirname(extractedFile);
+      if (parentDir !== binDir && fs.existsSync(parentDir)) {
+        fs.rmSync(parentDir, { recursive: true, force: true });
+      }
+      
       if (!destPath.endsWith('.exe')) fs.chmodSync(destPath, 0o755);
       console.log(`[DONE] ${target.name}`);
     } catch (e) {
