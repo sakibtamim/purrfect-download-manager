@@ -75,6 +75,7 @@ pub fn run() {
                     "quit" => app.exit(0),
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.unminimize();
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
@@ -82,6 +83,7 @@ pub fn run() {
                     "new-download" => {
                         let _ = app.emit("tray-new-download", ());
                         if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.unminimize();
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
@@ -122,6 +124,7 @@ pub fn run() {
                     if is_visible {
                         let _ = window.hide();
                     } else {
+                        let _ = window.unminimize();
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
@@ -171,8 +174,46 @@ pub fn run() {
       
       let app_handle = app.handle().clone();
       thread::spawn(move || {
-          let server = Server::http("127.0.0.1:6801").unwrap();
+          let mut server_opt = None;
+          for port in 6801..=6810 {
+              if let Ok(s) = Server::http(format!("127.0.0.1:{}", port)) {
+                  server_opt = Some(s);
+                  break;
+              }
+          }
+          
+          let server = match server_opt {
+              Some(s) => s,
+              None => {
+                  eprintln!("Failed to bind to any port in range 6801-6810");
+                  return;
+              }
+          };
+
           for mut request in server.incoming_requests() {
+              // Handle harmless read-only endpoints without Origin check
+              if request.method().as_str() == "GET" && request.url() == "/health" {
+                  let _ = request.respond(Response::from_string("OK"));
+                  continue;
+              } else if request.method().as_str() == "GET" && request.url() == "/show" {
+                  if let Some(window) = app_handle.get_webview_window("main") {
+                      let _ = window.unminimize();
+                      let _ = window.show();
+                      let _ = window.set_focus();
+                  }
+                  let _ = request.respond(Response::from_string("OK"));
+                  continue;
+              }
+
+              // Security: Validate Origin header for sensitive endpoints
+              let origin = request.headers().iter().find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("Origin")).map(|h| h.value.as_str());
+              let is_valid_origin = origin.map(|o| o.starts_with("chrome-extension://") || o.starts_with("moz-extension://")).unwrap_or(false);
+              
+              if !is_valid_origin {
+                  let _ = request.respond(Response::from_string("Forbidden").with_status_code(403));
+                  continue;
+              }
+
               if request.method().as_str() == "POST" && request.url() == "/download" {
                   let mut content = String::new();
                   request.as_reader().read_to_string(&mut content).unwrap_or_default();
