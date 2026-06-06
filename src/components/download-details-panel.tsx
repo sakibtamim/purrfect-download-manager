@@ -1,7 +1,8 @@
 "use client";
 
 import { useDownloadStore } from "@/store/downloadStore";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { aria2Client } from "@/lib/aria2Client";
 import { X, FileBox, FileArchive, FileImage, FileAudio, FileVideo, FileText, FileCode, FolderOpen, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -12,6 +13,24 @@ export function DownloadDetailsPanel() {
   const [activeTab, setActiveTab] = useState<'general' | 'progress'>('general');
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteLocalFile, setDeleteLocalFile] = useState(false);
+  const [checksumOpt, setChecksumOpt] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (selectedDownloadId) {
+      aria2Client.getOption(selectedDownloadId).then(options => {
+        if (isMounted) setChecksumOpt(options.checksum || null);
+      }).catch(err => {
+         console.warn("Failed to get option", err);
+         if (isMounted) setChecksumOpt(null);
+      });
+    } else {
+      Promise.resolve().then(() => {
+        if (isMounted) setChecksumOpt(null);
+      });
+    }
+    return () => { isMounted = false; };
+  }, [selectedDownloadId]);
 
   if (!selectedDownloadId) return null;
 
@@ -145,6 +164,28 @@ export function DownloadDetailsPanel() {
                   <span className="text-primary text-xs font-bold uppercase tracking-wider shrink-0 w-8">URL</span>
                   <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate block" title={url}>{url}</a>
                 </div>
+                {checksumOpt && (() => {
+                  const parts = checksumOpt.split('=');
+                  const algo = parts[0]?.toUpperCase() || 'HASH';
+                  const digest = parts.slice(1).join('=') || checksumOpt;
+                  
+                  return (
+                    <div className="flex items-start gap-2 mt-2 bg-muted/30 p-2 rounded-md border border-border min-w-0">
+                      <span className="text-primary text-xs font-bold uppercase tracking-wider shrink-0 w-8 mt-0.5">HASH</span>
+                      <span className="text-muted-foreground font-mono text-xs break-all flex-1 min-w-0" title={digest}>
+                        <span className="font-semibold text-foreground mr-1">{algo}:</span>
+                        {digest}
+                      </span>
+                      {download.status === 'error' && download.errorMessage?.toLowerCase().includes('checksum') ? (
+                        <span className="ml-2 text-xs bg-red-500/10 text-red-500 px-2 py-0.5 rounded-full border border-red-500/20 whitespace-nowrap">Mismatch ❌</span>
+                      ) : download.status === 'complete' ? (
+                        <span className="ml-2 text-xs bg-green-500/10 text-green-500 px-2 py-0.5 rounded-full border border-green-500/20 whitespace-nowrap">Verified ✅</span>
+                      ) : download.status === 'active' ? (
+                        <span className="ml-2 text-xs bg-blue-500/10 text-blue-500 px-2 py-0.5 rounded-full border border-blue-500/20 whitespace-nowrap">Verifying... ⏳</span>
+                      ) : null}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
