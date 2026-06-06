@@ -208,8 +208,11 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         await appWindow.unminimize();
         await appWindow.show();
         await appWindow.setAlwaysOnTop(true);
-        await appWindow.setFocus();
-        await appWindow.setAlwaysOnTop(false);
+        try {
+          await appWindow.setFocus();
+        } finally {
+          await appWindow.setAlwaysOnTop(false);
+        }
       }
     } catch (e) {
       console.warn("Failed to focus window", e);
@@ -438,7 +441,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
           if (dispHeader) {
             const match = dispHeader.match(/filename="?([^"]+)"?/i);
             if (match && match[1]) {
-              finalFilename = match[1];
+              finalFilename = match[1].split(/[\/\\]/).pop() || undefined;
             }
           }
           if (!finalFilename) {

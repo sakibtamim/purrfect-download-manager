@@ -76,7 +76,7 @@ export function ConfirmDownloadModal() {
             if (dispHeader) {
               const match = dispHeader.match(/filename="?([^"]+)"?/i);
               if (match && match[1]) {
-                setRawFilename(match[1]);
+                setRawFilename(match[1].split(/[\/\\]/).pop() || "Unknown");
               }
             }
           })

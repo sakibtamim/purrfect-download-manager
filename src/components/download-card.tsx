@@ -111,7 +111,15 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
 
   return (
     <Card 
+      role="button"
+      tabIndex={0}
       onClick={() => setSelectedDownload(isSelected ? null : download.gid)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setSelectedDownload(isSelected ? null : download.gid);
+        }
+      }}
       className={`bg-card border hover:border-primary/50 transition-all duration-200 overflow-hidden group border-l-[3px] ${getLeftBorderColor()} cursor-pointer ${isSelected ? 'border-primary ring-1 ring-primary' : 'border-border'}`}
     >
       <CardContent className="p-5">
@@ -164,7 +172,7 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                     if (filePath) {
                       try {
                         const normalizedPath = filePath.replace(/\//g, '\\');
-                        await Command.create('explorer', ['/select,', normalizedPath]).execute();
+                        await Command.create('explorer', [`/select,${normalizedPath}`]).execute();
                       } catch (err) {
                         console.error("Explorer failed:", err);
                         if (download.dir) open(download.dir).catch(console.error);

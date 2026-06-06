@@ -125,12 +125,12 @@ export function DownloadDetailsPanel() {
               </div>
               
               <div className="space-y-2 text-sm">
-                <div className="flex gap-2 items-center group cursor-pointer" onClick={async () => {
+                <button type="button" className="flex gap-2 items-center group cursor-pointer w-full text-left" onClick={async () => {
                   const fp = download.files[0]?.path;
                   if (fp) {
                     try {
                       const normalizedPath = fp.replace(/\//g, '\\');
-                      await Command.create('explorer', ['/select,', normalizedPath]).execute();
+                      await Command.create('explorer', [`/select,${normalizedPath}`]).execute();
                     } catch (err) {
                       if (download.dir) open(download.dir).catch(console.error);
                     }
@@ -140,10 +140,10 @@ export function DownloadDetailsPanel() {
                 }}>
                   <FolderOpen className="h-4 w-4 text-muted-foreground group-hover:text-primary shrink-0 transition-colors" />
                   <span className="text-muted-foreground group-hover:text-primary transition-colors truncate" title={filePath}>{filePath}</span>
-                </div>
+                </button>
                 <div className="flex gap-2 items-center">
                   <span className="text-primary text-xs font-bold uppercase tracking-wider shrink-0 w-8">URL</span>
-                  <a href={url} target="_blank" rel="noreferrer" className="text-primary hover:underline truncate block" title={url}>{url}</a>
+                  <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate block" title={url}>{url}</a>
                 </div>
               </div>
             </div>
