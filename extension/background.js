@@ -34,7 +34,7 @@ function storeHash(url, checksum) {
         sniffedHashes.set("__filename__" + filename, entry);
       }
     }
-  } catch (_) { /* invalid URL, skip */ }
+  } catch { /* invalid URL, skip */ }
 
   // Automatically clean up old hashes after 10 minutes
   setTimeout(() => {
@@ -65,7 +65,7 @@ function lookupHash(downloadUrl, finalUrl, filename, referrer) {
       const parsed = new URL(finalUrl);
       hash = sniffedHashes.get(parsed.origin + parsed.pathname);
       if (hash) return hash;
-    } catch (_) { /* ignore */ }
+    } catch { /* ignore */ }
   }
 
   // 4. Try by filename (most forgiving - handles full redirects to CDNs)
