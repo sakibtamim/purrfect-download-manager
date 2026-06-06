@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 export function AddDownloadModal() {
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState("");
+  const [checksum, setChecksum] = useState("");
   const addDownload = useDownloadStore(state => state.addDownload);
 
   useEffect(() => {
@@ -50,8 +51,9 @@ export function AddDownloadModal() {
     if (!url) return;
     
     try {
-      await addDownload(url);
+      await addDownload(url, [], undefined, undefined, undefined, checksum);
       setUrl("");
+      setChecksum("");
       setOpen(false);
     } catch (error) {
       console.error("Failed to add download", error);
@@ -83,6 +85,16 @@ export function AddDownloadModal() {
                 className="bg-background border-border focus-visible:ring-primary"
                 required
                 autoFocus
+              />
+            </div>
+            <div className="grid gap-2">
+              <Input
+                id="checksum"
+                type="text"
+                placeholder="Expected Checksum (Optional)"
+                value={checksum}
+                onChange={(e) => setChecksum(e.target.value)}
+                className="bg-background border-border focus-visible:ring-primary font-mono text-sm"
               />
             </div>
           </div>

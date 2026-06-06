@@ -9,6 +9,22 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
   }
 });
 
+// Cache for dynamically sniffed hashes from content script
+const sniffedHashes = new Map();
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === "HASH_FOUND" && message.url && message.hash) {
+    sniffedHashes.set(message.url, message.hash);
+    
+    // Automatically clean up old hashes after 5 minutes to prevent memory leaks
+    setTimeout(() => {
+      if (sniffedHashes.get(message.url) === message.hash) {
+        sniffedHashes.delete(message.url);
+      }
+    }, 5 * 60 * 1000);
+  }
+});
+
 async function sendToPDM(endpoint, payload) {
   for (let port = 6801; port <= 6810; port++) {
     try {
@@ -50,13 +66,16 @@ chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
     
     const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
+    let matchedHash = sniffedHashes.get(downloadItem.url) || sniffedHashes.get(downloadItem.finalUrl);
+
     const payload = {
       url: downloadItem.url,
       referrer: downloadItem.referrer || "",
       cookies: cookieString,
       userAgent: navigator.userAgent,
       filename: downloadItem.filename ? downloadItem.filename.split(/[/\\]/).pop() : "",
-      fileSize: downloadItem.fileSize || 0
+      fileSize: downloadItem.fileSize || 0,
+      checksum: matchedHash || undefined
     };
 
     const success = await sendToPDM("/download", payload);
@@ -99,13 +118,16 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
     } catch {}
 
+    let matchedHash = sniffedHashes.get(targetUrl);
+
     const payload = {
       url: targetUrl,
       referrer: tab?.url || "",
       cookies: cookieString,
       userAgent: navigator.userAgent,
       filename: "",
-      fileSize: 0
+      fileSize: 0,
+      checksum: matchedHash || undefined
     };
 
     const success = await sendToPDM("/download", payload);

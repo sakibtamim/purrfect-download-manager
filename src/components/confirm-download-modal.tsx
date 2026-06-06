@@ -19,6 +19,7 @@ export function ConfirmDownloadModal() {
   const [securityStatus, setSecurityStatus] = useState<'scanning' | 'safe' | 'unsafe' | 'no-key' | 'error'>('no-key');
   const [threatDetails, setThreatDetails] = useState<string>('');
   const [selectedFormatUrl, setSelectedFormatUrl] = useState<string>("");
+  const [checksum, setChecksum] = useState<string>("");
   const [prevStagedDownload, setPrevStagedDownload] = useState<unknown>(null);
 
   // Synchronous state updates during render to avoid cascading updates in effect
@@ -26,6 +27,7 @@ export function ConfirmDownloadModal() {
     setPrevStagedDownload(stagedDownload);
     if (stagedDownload) {
       setSaveDir(""); 
+      setChecksum(stagedDownload.checksum || "");
       
       const apiKey = useDownloadStore.getState().safeBrowsingApiKey;
       setSecurityStatus(apiKey ? 'scanning' : 'no-key');
@@ -173,17 +175,21 @@ export function ConfirmDownloadModal() {
     }
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!stagedDownload) return;
     
     const selectedFormat = stagedDownload.mediaFormats?.find(f => f.url === selectedFormatUrl);
+    const urlToDownload = selectedFormatUrl || stagedDownload.url;
+    const finalDir = saveDir || "";
     const audioUrl = selectedFormat?.audioUrl;
 
-    // Add the download with the selected directory and explicitly pass the display filename
-    addDownload(selectedFormatUrl || stagedDownload.url, stagedDownload.headers, saveDir || undefined, displayFilename, audioUrl);
-    
-    // Clear staged state to close modal
-    clearStagedDownload();
+    if (selectedFormat) {
+        const headers = stagedDownload.headers || [];
+        await addDownload(urlToDownload, headers, finalDir, displayFilename, audioUrl, checksum);
+      } else {
+        await addDownload(urlToDownload, stagedDownload.headers || [], finalDir, displayFilename, undefined, checksum);
+      }
+      clearStagedDownload();
   };
 
   if (!stagedDownload) return null;
@@ -252,6 +258,16 @@ export function ConfirmDownloadModal() {
                 Browse
               </Button>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-muted-foreground text-xs uppercase">Checksum (Hash) <span className="text-muted-foreground/60 lowercase font-normal ml-1">(Optional)</span></Label>
+            <Input 
+              value={checksum} 
+              onChange={(e) => setChecksum(e.target.value)}
+              placeholder="e.g. md5, sha1, sha256..." 
+              className="bg-background border-border text-foreground font-mono text-sm"
+            />
           </div>
 
           <div className="space-y-1 border-t border-border pt-4 mt-2">
