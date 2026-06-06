@@ -51,6 +51,12 @@
         { "path": "**" }
       ]
     },
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [
+        { "path": "**" }
+      ]
+    },
     "shell:allow-open"
   ]
 }

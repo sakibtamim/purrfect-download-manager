@@ -8,6 +8,7 @@ import { Command } from '@tauri-apps/plugin-shell';
 import { remove, exists } from '@tauri-apps/plugin-fs';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { join } from '@tauri-apps/api/path';
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 
 const mockStore = new Map<string, unknown>();
 let settingsStoreCache: Store | null = null;
@@ -98,6 +99,7 @@ export interface DownloadState {
   resumeAllDownloads: () => Promise<void>;
   clearCompletedDownloads: () => Promise<void>;
   setSpeedLimit: (bytesPerSecond: string) => Promise<void>;
+  getUniqueFilename: (name: string, dir?: string) => Promise<string>;
 }
 
 export const useDownloadStore = create<DownloadState>((set, get) => ({
@@ -396,26 +398,6 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       }
     }
 
-    async function getUniqueFilename(name: string): Promise<string> {
-      if (!targetDir || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return name;
-      let uniqueName = name;
-      let counter = 1;
-      
-      const lastDotIndex = name.lastIndexOf('.');
-      const hasExt = lastDotIndex !== -1 && lastDotIndex > 0;
-      const base = hasExt ? name.substring(0, lastDotIndex) : name;
-      const ext = hasExt ? name.substring(lastDotIndex) : '';
-
-      try {
-        while (await exists(await join(targetDir, uniqueName))) {
-          uniqueName = `${base} (${counter})${ext}`;
-          counter++;
-        }
-      } catch (e) {
-        console.warn("Failed to check file existence", e);
-      }
-      return uniqueName;
-    }
 
     if (audioUrl && filename) {
       const lastDotIndex = filename.lastIndexOf('.');
@@ -428,9 +410,9 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       let finalFilename = filename;
       
       if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-        videoFilename = await getUniqueFilename(videoFilename);
-        audioFilename = await getUniqueFilename(audioFilename);
-        finalFilename = await getUniqueFilename(filename);
+        videoFilename = await get().getUniqueFilename(videoFilename, targetDir);
+        audioFilename = await get().getUniqueFilename(audioFilename, targetDir);
+        finalFilename = await get().getUniqueFilename(filename, targetDir);
       }
       
       const videoGid = await aria2Client.addUri([url], { ...options, out: videoFilename });
@@ -446,9 +428,34 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       }));
     } else {
       let finalFilename = filename;
+      
+      // If no filename was provided, try to resolve one via HEAD request or URL parsing
+      // so we can apply our `getUniqueFilename` logic and avoid aria2c's default `.1` suffix
+      if (!finalFilename && typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+        try {
+          const res = await tauriFetch(url, { method: "HEAD" });
+          const dispHeader = res.headers.get("content-disposition");
+          if (dispHeader) {
+            const match = dispHeader.match(/filename="?([^"]+)"?/i);
+            if (match && match[1]) {
+              finalFilename = match[1];
+            }
+          }
+          if (!finalFilename) {
+             const pathname = new URL(res.url || url).pathname;
+             finalFilename = pathname.split('/').pop() || undefined;
+          }
+        } catch (e) {
+           console.warn("Failed to fetch HEAD for filename", e);
+           try {
+             finalFilename = new URL(url).pathname.split('/').pop() || undefined;
+           } catch {}
+        }
+      }
+
       if (finalFilename) {
         if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-          finalFilename = await getUniqueFilename(finalFilename);
+          finalFilename = await get().getUniqueFilename(finalFilename, targetDir);
         }
         options["out"] = finalFilename;
       }
@@ -523,5 +530,42 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
 
   setSpeedLimit: async (bytesPerSecond: string) => {
     await aria2Client.changeGlobalOption({ "max-overall-download-limit": bytesPerSecond });
+  },
+
+  getUniqueFilename: async (name: string, dir?: string): Promise<string> => {
+    let targetDir = dir || get().defaultDownloadDir;
+    if (!targetDir) {
+      try {
+        const globalOpts = await aria2Client.getGlobalOption();
+        targetDir = globalOpts["dir"] || "";
+      } catch (e) {
+        console.warn("Failed to get aria2c global dir", e);
+      }
+    }
+
+    if (!targetDir || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return name;
+    let uniqueName = name;
+    let counter = 1;
+    
+    const lastDotIndex = name.lastIndexOf('.');
+    const hasExt = lastDotIndex !== -1 && lastDotIndex > 0;
+    let base = hasExt ? name.substring(0, lastDotIndex) : name;
+    const ext = hasExt ? name.substring(lastDotIndex) : '';
+
+    const match = base.match(/ \((\d+)\)$/);
+    if (match) {
+      base = base.substring(0, base.length - match[0].length);
+      counter = parseInt(match[1], 10) + 1;
+    }
+
+    try {
+      while (await exists(await join(targetDir, uniqueName))) {
+        uniqueName = `${base} (${counter})${ext}`;
+        counter++;
+      }
+    } catch (e) {
+      console.warn("Failed to check file existence", e);
+    }
+    return uniqueName;
   }
 }));
