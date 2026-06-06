@@ -8,7 +8,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FolderOpen } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { FolderOpen, CheckCircle2 } from "lucide-react";
+import { type ChecksumAlgorithm, type DetectedChecksum, validateChecksum } from "@/lib/utils";
 
 export function ConfirmDownloadModal() {
   const { stagedDownload, clearStagedDownload, addDownload } = useDownloadStore();
@@ -19,7 +21,9 @@ export function ConfirmDownloadModal() {
   const [securityStatus, setSecurityStatus] = useState<'scanning' | 'safe' | 'unsafe' | 'no-key' | 'error'>('no-key');
   const [threatDetails, setThreatDetails] = useState<string>('');
   const [selectedFormatUrl, setSelectedFormatUrl] = useState<string>("");
-  const [checksum, setChecksum] = useState<string>("");
+  const [checksumDigest, setChecksumDigest] = useState<string>("");
+  const [checksumAlgorithm, setChecksumAlgorithm] = useState<ChecksumAlgorithm>("sha256");
+  const [checksumSource, setChecksumSource] = useState<string>("");
   const [prevStagedDownload, setPrevStagedDownload] = useState<unknown>(null);
 
   // Synchronous state updates during render to avoid cascading updates in effect
@@ -27,7 +31,20 @@ export function ConfirmDownloadModal() {
     setPrevStagedDownload(stagedDownload);
     if (stagedDownload) {
       setSaveDir(""); 
-      setChecksum(stagedDownload.checksum || "");
+      if (stagedDownload.checksum && typeof stagedDownload.checksum === 'object') {
+        const c = stagedDownload.checksum as DetectedChecksum;
+        setChecksumDigest(c.digest || "");
+        setChecksumAlgorithm(c.algorithm || "sha256");
+        setChecksumSource(c.source || "");
+      } else if (typeof stagedDownload.checksum === 'string') {
+        setChecksumDigest(stagedDownload.checksum);
+        setChecksumAlgorithm("sha256");
+        setChecksumSource("");
+      } else {
+        setChecksumDigest("");
+        setChecksumAlgorithm("sha256");
+        setChecksumSource("");
+      }
       
       const apiKey = useDownloadStore.getState().safeBrowsingApiKey;
       setSecurityStatus(apiKey ? 'scanning' : 'no-key');
@@ -183,11 +200,25 @@ export function ConfirmDownloadModal() {
     const finalDir = saveDir || "";
     const audioUrl = selectedFormat?.audioUrl;
 
+    if (checksumDigest) {
+      const c: DetectedChecksum = {
+        algorithm: checksumAlgorithm,
+        digest: checksumDigest,
+        source: (checksumSource || "manual") as "manual"
+      };
+      if (!validateChecksum(c)) {
+        window.alert(`Invalid ${checksumAlgorithm.toUpperCase()} checksum\nPlease check the length and format of your hash.`);
+        return;
+      }
+    }
+    
+    const finalChecksum = checksumDigest ? { algorithm: checksumAlgorithm, digest: checksumDigest, source: checksumSource || "manual" } as DetectedChecksum : undefined;
+
     if (selectedFormat) {
         const headers = stagedDownload.headers || [];
-        await addDownload(urlToDownload, headers, finalDir, displayFilename, audioUrl, checksum);
+        await addDownload(urlToDownload, headers, finalDir, displayFilename, audioUrl, finalChecksum);
       } else {
-        await addDownload(urlToDownload, stagedDownload.headers || [], finalDir, displayFilename, undefined, checksum);
+        await addDownload(urlToDownload, stagedDownload.headers || [], finalDir, displayFilename, undefined, finalChecksum);
       }
       clearStagedDownload();
   };
@@ -261,13 +292,40 @@ export function ConfirmDownloadModal() {
           </div>
 
           <div className="space-y-2">
-            <Label className="text-muted-foreground text-xs uppercase">Checksum (Hash) <span className="text-muted-foreground/60 lowercase font-normal ml-1">(Optional)</span></Label>
-            <Input 
-              value={checksum} 
-              onChange={(e) => setChecksum(e.target.value)}
-              placeholder="e.g. md5, sha1, sha256..." 
-              className="bg-background border-border text-foreground font-mono text-sm"
-            />
+            <Label className="text-muted-foreground text-xs uppercase flex items-center">
+              Checksum (Hash) <span className="text-muted-foreground/60 lowercase font-normal mx-1">(Optional)</span>
+              {checksumSource && checksumSource !== "manual" && (
+                <Badge variant="outline" className="ml-auto text-green-500 bg-green-500/10 text-[10px] py-0 h-4">
+                  <CheckCircle2 className="w-3 h-3 mr-1" /> Auto-Detected
+                </Badge>
+              )}
+            </Label>
+            <div className="flex gap-2">
+              <select 
+                value={checksumAlgorithm}
+                onChange={e => {
+                   setChecksumAlgorithm(e.target.value as ChecksumAlgorithm);
+                   setChecksumSource("manual");
+                }}
+                className="bg-background border border-border text-foreground text-sm rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="md5">MD5</option>
+                <option value="sha1">SHA-1</option>
+                <option value="sha224">SHA-224</option>
+                <option value="sha256">SHA-256</option>
+                <option value="sha384">SHA-384</option>
+                <option value="sha512">SHA-512</option>
+              </select>
+              <Input 
+                value={checksumDigest} 
+                onChange={(e) => {
+                  setChecksumDigest(e.target.value);
+                  setChecksumSource("manual");
+                }}
+                placeholder="e.g. abc123..." 
+                className="bg-background border-border text-foreground font-mono text-sm flex-1"
+              />
+            </div>
           </div>
 
           <div className="space-y-1 border-t border-border pt-4 mt-2">

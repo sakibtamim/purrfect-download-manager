@@ -14,11 +14,13 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { type ChecksumAlgorithm, type DetectedChecksum, validateChecksum } from "@/lib/utils";
 
 export function AddDownloadModal() {
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState("");
-  const [checksum, setChecksum] = useState("");
+  const [checksumDigest, setChecksumDigest] = useState("");
+  const [checksumAlgorithm, setChecksumAlgorithm] = useState<ChecksumAlgorithm>("sha256");
   const addDownload = useDownloadStore(state => state.addDownload);
 
   useEffect(() => {
@@ -51,9 +53,24 @@ export function AddDownloadModal() {
     if (!url) return;
     
     try {
-      await addDownload(url, [], undefined, undefined, undefined, checksum);
+      if (checksumDigest) {
+        const c: DetectedChecksum = {
+          algorithm: checksumAlgorithm,
+          digest: checksumDigest,
+          source: "manual"
+        };
+        if (!validateChecksum(c)) {
+          window.alert(`Invalid ${checksumAlgorithm.toUpperCase()} checksum\nPlease check the length and format of your hash.`);
+          return;
+        }
+        await addDownload(url, [], undefined, undefined, undefined, c);
+      } else {
+        await addDownload(url, [], undefined, undefined, undefined, undefined);
+      }
+      
       setUrl("");
-      setChecksum("");
+      setChecksumDigest("");
+      setChecksumAlgorithm("sha256");
       setOpen(false);
     } catch (error) {
       console.error("Failed to add download", error);
@@ -87,14 +104,26 @@ export function AddDownloadModal() {
                 autoFocus
               />
             </div>
-            <div className="grid gap-2">
+            <div className="flex gap-2">
+              <select 
+                value={checksumAlgorithm}
+                onChange={e => setChecksumAlgorithm(e.target.value as ChecksumAlgorithm)}
+                className="bg-background border border-border text-foreground text-sm rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="md5">MD5</option>
+                <option value="sha1">SHA-1</option>
+                <option value="sha224">SHA-224</option>
+                <option value="sha256">SHA-256</option>
+                <option value="sha384">SHA-384</option>
+                <option value="sha512">SHA-512</option>
+              </select>
               <Input
                 id="checksum"
                 type="text"
                 placeholder="Expected Checksum (Optional)"
-                value={checksum}
-                onChange={(e) => setChecksum(e.target.value)}
-                className="bg-background border-border focus-visible:ring-primary font-mono text-sm"
+                value={checksumDigest}
+                onChange={(e) => setChecksumDigest(e.target.value)}
+                className="bg-background border-border focus-visible:ring-primary font-mono text-sm flex-1"
               />
             </div>
           </div>
