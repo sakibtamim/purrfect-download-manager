@@ -15,8 +15,8 @@ A modern, lightning-fast desktop download manager built with **Tauri v2**, **Nex
 ### Web Tools & Media Extraction
 
 - **The Site Grabber:** Paste a target website URL into the Web Tools tab. PDM rips the HTML directly bypassing CORS, extracts every single image, video, and document link, and allows you to bulk download them all in a single click.
-- **Native YouTube Downloader:** Paste a YouTube, Twitter, or TikTok link into the Web Tools tab. PDM runs `yt-dlp` in the background (configured with anti-bot evasion variables) to extract the absolute direct `.mp4` stream and pushes it to `aria2c` for high-speed queue downloading.
-- **True 4K Unlocked:** Standard downloaders cap out at 720p on YouTube. PDM intelligently detects high-res, separated video and audio tracks, downloads them concurrently via `aria2c`, and silently spins up a bundled `ffmpeg` process to perfectly mux them into pristine 1080p, 1440p, or 4K `.mp4` files.
+- **Native YouTube Downloader:** Paste a YouTube, Twitter, or TikTok link into the Web Tools tab. PDM runs `pdm-yt-dlp` in the background (configured with anti-bot evasion variables) to extract the absolute direct `.mp4` stream and pushes it to `pdm-aria2c` for high-speed queue downloading.
+- **True 4K Unlocked:** Standard downloaders cap out at 720p on YouTube. PDM intelligently detects high-res, separated video and audio tracks, downloads them concurrently via `pdm-aria2c`, and silently spins up a bundled `pdm-ffmpeg` process to perfectly mux them into pristine 1080p, 1440p, or 4K `.mp4` files.
 - **Browser Interceptor Extension:** Ships with a Chromium extension that intercepts all browser downloads and seamlessly pipes the metadata (URL, Filename, Size, Headers, and Cookies) directly into the PDM queue.
 - **Context Menus:** Right-click any link, image, or video in your browser and select "Download with Purrfect DL" to queue it instantly.
 
@@ -42,7 +42,7 @@ A modern, lightning-fast desktop download manager built with **Tauri v2**, **Nex
 
 - **Frontend:** Next.js 16 (React 19), Tailwind CSS v4, Zustand (State Management), Lucide Icons, shadcn/ui.
 - **Backend:** Tauri v2 (Rust).
-- **Core Engines:** `aria2c`, `yt-dlp`, and `ffmpeg` running as decoupled sidecar processes.
+- **Core Engines:** `pdm-aria2c`, `pdm-yt-dlp`, and `pdm-ffmpeg` running as decoupled sidecar processes.
 - **Package Manager:** `pnpm`
 
 ## Contributor Workflow
@@ -67,7 +67,7 @@ Make sure you have [Node.js](https://nodejs.org/) (with `pnpm`), and [Rust](http
    pnpm install
    ```
 
-2. Download all platform-specific binaries for the sidecars (`aria2c`, `yt-dlp`, and `ffmpeg`):
+2. Download all platform-specific binaries for the sidecars (`pdm-aria2c`, `pdm-yt-dlp`, and `pdm-ffmpeg`):
 
    ```bash
    pnpm run setup
