@@ -8,6 +8,7 @@ import {
   AlertCircle,
   Settings,
   Globe,
+  List,
 } from "lucide-react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
@@ -18,10 +19,11 @@ export function Sidebar() {
   const isPlayfulMode = useDownloadStore((state) => state.isPlayfulMode);
 
   const navItems = [
-    { name: "Downloads", href: "/", icon: Download },
-    { name: "Web Tools", href: "/grabber", icon: Globe },
+    { name: "All", href: "/all", icon: List },
+    { name: "Active", href: "/", icon: Download },
     { name: "Completed", href: "/completed", icon: CheckCircle2 },
     { name: "Failed", href: "/failed", icon: AlertCircle },
+    { name: "Web Tools", href: "/grabber", icon: Globe },
     { name: "Settings", href: "/settings", icon: Settings },
   ];
 

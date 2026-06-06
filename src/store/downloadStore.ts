@@ -66,6 +66,7 @@ export interface DownloadState {
   isPlayfulMode: boolean;
   stagedDownload: StagedDownload | null;
   pendingMuxes: PendingMux[];
+  selectedDownloadId: string | null;
   
   // Settings
   defaultDownloadDir: string;
@@ -82,6 +83,7 @@ export interface DownloadState {
   setSafeBrowsingApiKey: (key: string) => Promise<void>;
   
   togglePlayfulMode: () => void;
+  setSelectedDownload: (gid: string | null) => void;
   fetchDownloads: () => Promise<void>;
   stageDownload: (download: StagedDownload) => void;
   clearStagedDownload: () => void;
@@ -103,6 +105,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   isPlayfulMode: false,
   stagedDownload: null,
   pendingMuxes: [],
+  selectedDownloadId: null,
 
   defaultDownloadDir: "",
   maxConcurrentDownloads: 5,
@@ -189,6 +192,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   },
 
   togglePlayfulMode: () => set((state) => ({ isPlayfulMode: !state.isPlayfulMode })),
+  setSelectedDownload: (gid) => set({ selectedDownloadId: gid }),
   stageDownload: (download) => set({ stagedDownload: download }),
   clearStagedDownload: () => set({ stagedDownload: null }),
 

@@ -6,6 +6,7 @@ import { DashboardHeader } from "@/components/dashboard-header";
 import { AppInitializer } from "@/components/app-initializer";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ConfirmDownloadModal } from "@/components/confirm-download-modal";
+import { DownloadDetailsPanel } from "@/components/download-details-panel";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -28,9 +29,10 @@ export default function RootLayout({
         <Sidebar />
         <main className="flex-1 flex flex-col h-full">
           <DashboardHeader />
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-6 relative">
             {children}
           </div>
+          <DownloadDetailsPanel />
         </main>
       </body>
     </html>

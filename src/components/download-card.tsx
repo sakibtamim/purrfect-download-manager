@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Play, Pause, X, FolderOpen, File, RefreshCw } from "lucide-react";
 
 export function DownloadCard({ download }: { download: Aria2Download }) {
-  const { isPlayfulMode, pauseDownload, resumeDownload, cancelDownload, addDownload } = useDownloadStore();
+  const { isPlayfulMode, pauseDownload, resumeDownload, cancelDownload, addDownload, selectedDownloadId, setSelectedDownload } = useDownloadStore();
 
   const rawTotal = parseInt(download.totalLength, 10);
   const rawCompleted = parseInt(download.completedLength, 10);
@@ -79,8 +79,13 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
   const filePath = download.files[0]?.path || "Unknown File";
   const fileName = filePath.includes('/') ? filePath.split('/').pop() : filePath.split('\\').pop() || "Unknown File";
 
+  const isSelected = selectedDownloadId === download.gid;
+
   return (
-    <Card className={`bg-card border border-border hover:border-primary/20 transition-all duration-200 overflow-hidden group border-l-[3px] ${getLeftBorderColor()}`}>
+    <Card 
+      onClick={() => setSelectedDownload(isSelected ? null : download.gid)}
+      className={`bg-card border hover:border-primary/50 transition-all duration-200 overflow-hidden group border-l-[3px] ${getLeftBorderColor()} cursor-pointer ${isSelected ? 'border-primary ring-1 ring-primary' : 'border-border'}`}
+    >
       <CardContent className="p-5">
         <div className="flex flex-col gap-4">
           <div className="flex justify-between items-start gap-4">
@@ -105,22 +110,22 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
             
             <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
               {download.status === "active" && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-500/10" onClick={() => pauseDownload(download.gid)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-500/10" onClick={(e) => { e.stopPropagation(); pauseDownload(download.gid); }}>
                   <Pause className="h-4 w-4" />
                 </Button>
               )}
               {download.status === "paused" && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-500/10" onClick={() => resumeDownload(download.gid)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-500/10" onClick={(e) => { e.stopPropagation(); resumeDownload(download.gid); }}>
                   <Play className="h-4 w-4" />
                 </Button>
               )}
               {(download.status === "active" || download.status === "paused" || download.status === "waiting") && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10" onClick={() => cancelDownload(download.gid)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10" onClick={(e) => { e.stopPropagation(); cancelDownload(download.gid); }}>
                   <X className="h-4 w-4" />
                 </Button>
               )}
               {download.status === "complete" && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10" title="Open Folder">
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10" title="Open Folder" onClick={(e) => e.stopPropagation()}>
                   <FolderOpen className="h-4 w-4" />
                 </Button>
               )}
@@ -130,7 +135,8 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                   size="icon" 
                   className="h-8 w-8 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-500/10" 
                   title="Retry Download"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     const uri = download.files[0]?.uris[0]?.uri;
                     if (uri) {
                       addDownload(uri);
