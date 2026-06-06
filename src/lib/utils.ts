@@ -18,22 +18,49 @@ export function getFileCategory(fileName: string): FileCategory {
   return 'other';
 }
 
-export function formatChecksum(hash: string): string | undefined {
-  if (!hash) return undefined;
-  if (hash.includes('=')) return hash; // Already formatted e.g. sha-256=xxx
+export type ChecksumAlgorithm = "md5" | "sha1" | "sha224" | "sha256" | "sha384" | "sha512";
+
+export interface DetectedChecksum {
+  algorithm: ChecksumAlgorithm;
+  digest: string;
+  source: "labeled" | "raw-length" | "manual" | "checksum-file";
+}
+
+const EXPECTED_LENGTHS: Record<ChecksumAlgorithm, number> = {
+  md5: 32, sha1: 40, sha224: 56, sha256: 64, sha384: 96, sha512: 128
+};
+
+export function validateChecksum(c: DetectedChecksum): boolean {
+  if (!c || !c.algorithm || !c.digest) return false;
+  const expectedLen = EXPECTED_LENGTHS[c.algorithm];
+  if (!expectedLen) return false;
+  if (c.digest.length !== expectedLen) return false;
+  if (!/^[a-fA-F0-9]+$/.test(c.digest)) return false;
+  return true;
+}
+
+export function formatChecksum(c: DetectedChecksum | string | undefined): string | undefined {
+  if (!c) return undefined;
   
-  const cleanHash = hash.replace(/[\s:-]/g, '').toLowerCase();
-  
-  switch (cleanHash.length) {
-    case 32: return `md5=${cleanHash}`;
-    case 40: return `sha-1=${cleanHash}`;
-    case 56: return `sha-224=${cleanHash}`;
-    case 64: return `sha-256=${cleanHash}`;
-    case 96: return `sha-384=${cleanHash}`;
-    case 128: return `sha-512=${cleanHash}`;
-    case 8: return `crc32=${cleanHash}`; // Fallback for adler32/crc32, though less common
-    default:
-      // If we don't know, default to sha-256 just in case, though aria2 might reject
-      return `sha-256=${cleanHash}`;
+  if (typeof c === 'string') {
+    // Fallback for legacy raw strings
+    if (c.includes('=')) return c;
+    const cleanHash = c.replace(/[\s:-]/g, '').toLowerCase();
+    switch (cleanHash.length) {
+      case 32: return `md5=${cleanHash}`;
+      case 40: return `sha-1=${cleanHash}`;
+      case 56: return `sha-224=${cleanHash}`;
+      case 64: return `sha-256=${cleanHash}`;
+      case 96: return `sha-384=${cleanHash}`;
+      case 128: return `sha-512=${cleanHash}`;
+      default: return `sha-256=${cleanHash}`;
+    }
   }
+
+  // New structured format
+  if (!validateChecksum(c)) return undefined;
+  
+  // aria2c expects "sha-256" not "sha256"
+  const algoFormat = c.algorithm.replace("sha", "sha-");
+  return `${algoFormat}=${c.digest.toLowerCase()}`;
 }
