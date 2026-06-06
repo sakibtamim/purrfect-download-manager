@@ -40,6 +40,16 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const formatAddedAt = (timestamp?: number) => {
+    if (!timestamp) return "";
+    const date = new Date(timestamp);
+    const today = new Date();
+    if (date.toDateString() === today.toDateString()) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return date.toLocaleDateString();
+  };
+
   const getStatusText = () => {
     if (isPlayfulMode) {
       switch (download.status) {
@@ -140,6 +150,14 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                   <span className="text-xs text-muted-foreground">
                     {formatBytes(completedLength)} / {formatBytes(totalLength)}
                   </span>
+                  {download.addedAt && (
+                    <>
+                      <span className="text-xs text-muted-foreground/40">•</span>
+                      <span className="text-xs text-muted-foreground" title={new Date(download.addedAt).toLocaleString()}>
+                        {formatAddedAt(download.addedAt)}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

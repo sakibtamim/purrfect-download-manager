@@ -9,11 +9,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { open, Command } from "@tauri-apps/plugin-shell";
 
 export function DownloadDetailsPanel() {
-  const { selectedDownloadId, setSelectedDownload, active, completed, failed, deleteDownload } = useDownloadStore();
-  const [activeTab, setActiveTab] = useState<'general' | 'progress'>('general');
+  const { selectedDownloadId, setSelectedDownload, active, completed, failed, deleteDownload, isPlayfulMode } = useDownloadStore();
+  const [activeTab, setActiveTab] = useState<'general' | 'progress' | 'connections'>('general');
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteLocalFile, setDeleteLocalFile] = useState(false);
   const [checksumOpt, setChecksumOpt] = useState<string | null>(null);
+
+  const download = [...active, ...completed, ...failed].find(d => d.gid === selectedDownloadId);
+
+  const showConnections = download && (download.status === 'active' || download.status === 'waiting' || download.status === 'paused');
+  const currentTab = (activeTab === 'connections' && !showConnections) ? 'general' : activeTab;
 
   useEffect(() => {
     let isMounted = true;
@@ -33,8 +38,6 @@ export function DownloadDetailsPanel() {
   }, [selectedDownloadId]);
 
   if (!selectedDownloadId) return null;
-
-  const download = [...active, ...completed, ...failed].find(d => d.gid === selectedDownloadId);
   
   if (!download) {
     return null;
@@ -79,6 +82,40 @@ export function DownloadDetailsPanel() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const formatAddedAt = (timestamp?: number) => {
+    if (!timestamp) return "";
+    const date = new Date(timestamp);
+    const today = new Date();
+    if (date.toDateString() === today.toDateString()) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return date.toLocaleString();
+  };
+
+  const getStatusText = (status: string) => {
+    if (isPlayfulMode) {
+      switch (status) {
+        case "active": return "Your cat is on the hunt 🐾";
+        case "paused": return "Cat is sleeping 💤";
+        case "complete": return "Caught it! 😻";
+        case "error": return "Oops, slipped away 😿";
+        case "removed": return "Lost interest 🐈";
+        case "waiting": return "Waiting to pounce 🐈‍⬛";
+        default: return "Observing...";
+      }
+    } else {
+      switch (status) {
+        case "active": return "Downloading";
+        case "paused": return "Paused";
+        case "complete": return "Completed";
+        case "error": return "Failed";
+        case "removed": return "Cancelled";
+        case "waiting": return "Waiting";
+        default: return "Unknown";
+      }
+    }
+  };
+
   const speed = parseInt(download.downloadSpeed, 10);
   const progress = totalLength > 0 ? (completedLength / totalLength) * 100 : 0;
 
@@ -106,17 +143,25 @@ export function DownloadDetailsPanel() {
       <div className="flex items-center justify-between px-4 border-b border-border">
         <div className="flex gap-4">
           <button 
-            className={`py-3 px-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'general' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+            className={`py-3 px-2 text-sm font-medium border-b-2 transition-colors ${currentTab === 'general' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
             onClick={() => setActiveTab('general')}
           >
             General
           </button>
           <button 
-            className={`py-3 px-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'progress' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+            className={`py-3 px-2 text-sm font-medium border-b-2 transition-colors ${currentTab === 'progress' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
             onClick={() => setActiveTab('progress')}
           >
             Progress
           </button>
+          {showConnections && (
+            <button 
+              className={`py-3 px-2 text-sm font-medium border-b-2 transition-colors ${currentTab === 'connections' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+              onClick={() => setActiveTab('connections')}
+            >
+              Connections
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-500 hover:bg-red-500/10" title="Remove Download" onClick={() => setIsDeleteDialogOpen(true)}>
@@ -129,21 +174,46 @@ export function DownloadDetailsPanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {activeTab === 'general' && (
+        {currentTab === 'general' && (
           <div className="flex gap-6">
-            <div className="shrink-0 p-4 bg-muted/50 rounded-xl border border-border flex items-center justify-center">
+            <div className="shrink-0 pt-2 flex items-start justify-center">
               {getFileIcon()}
             </div>
             <div className="flex-1 min-w-0 space-y-4">
               <div>
                 <h2 className="text-xl font-semibold text-foreground truncate" title={fileName || ""}>{fileName}</h2>
-                <div className="flex gap-4 mt-1 text-sm text-muted-foreground">
-                  <span>Status: <span className="text-foreground capitalize">{download.status}</span></span>
-                  <span>Total size: <span className="text-foreground">{formatBytes(totalLength)}</span></span>
+                {(download.status === "active" || download.status === "paused" || download.status === "waiting") && (
+                  <div className="mt-2 space-y-1">
+                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                      <span>{download.status === "active" && speed > 0 ? getETA() : getStatusText(download.status)}</span>
+                      <span>{progress.toFixed(1)}%</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full ${download.status === 'paused' ? 'bg-amber-500' : 'bg-primary'} transition-all duration-300 ease-out`}
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm mt-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground w-20">Speed:</span>
+                  <span className="text-foreground">{download.status === 'active' ? `${formatBytes(speed)}/s` : '--'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground w-24">Downloaded:</span>
+                  <span className="text-foreground">{formatBytes(completedLength)} of {formatBytes(totalLength)}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground w-20">Added at:</span>
+                  <span className="text-foreground">{formatAddedAt(download.addedAt)}</span>
                 </div>
               </div>
               
-              <div className="space-y-2 text-sm">
+              <div className="space-y-2 text-sm pt-2">
                 <button type="button" className="flex gap-2 items-center group cursor-pointer w-full text-left" onClick={async () => {
                   const fp = download.files[0]?.path;
                   if (fp) {
@@ -191,37 +261,112 @@ export function DownloadDetailsPanel() {
           </div>
         )}
 
-        {activeTab === 'progress' && (
-          <div className="space-y-6 max-w-2xl">
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Downloaded:</span>
-                <span className="font-medium">{formatBytes(completedLength)} of {formatBytes(totalLength)}</span>
+        {currentTab === 'progress' && (() => {
+          const bitfieldStr = download.bitfield || "";
+          const numPieces = parseInt(download.numPieces || "0", 10);
+          const pieces: boolean[] = [];
+          if (bitfieldStr) {
+            for (let i = 0; i < bitfieldStr.length; i++) {
+              const val = parseInt(bitfieldStr[i], 16);
+              pieces.push((val & 8) !== 0);
+              pieces.push((val & 4) !== 0);
+              pieces.push((val & 2) !== 0);
+              pieces.push((val & 1) !== 0);
+            }
+          }
+          const actualPieces = pieces.slice(0, numPieces);
+
+          const MAX_RENDERED_PIECES = 1000;
+          let displayPieces = actualPieces;
+          if (numPieces > MAX_RENDERED_PIECES) {
+            const chunkSize = Math.ceil(numPieces / MAX_RENDERED_PIECES);
+            displayPieces = [];
+            for (let i = 0; i < numPieces; i += chunkSize) {
+              const chunk = actualPieces.slice(i, i + chunkSize);
+              const downloadedCount = chunk.filter(p => p).length;
+              displayPieces.push(downloadedCount > chunk.length / 2);
+            }
+          }
+
+          return (
+            <div className="h-full flex flex-col">
+              <div className="flex justify-between text-sm mb-4">
+                <span className="text-muted-foreground">Downloaded Pieces:</span>
+                <span className="font-medium">{actualPieces.filter(p => p).length} / {numPieces}</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Speed:</span>
-                <span className="font-medium">{download.status === 'active' ? `${formatBytes(speed)}/s` : '--'}</span>
+              <div className="flex-1 overflow-y-auto">
+                {numPieces > 0 ? (
+                  <div className="flex flex-wrap gap-[2px] pr-2 pb-2">
+                    {displayPieces.map((isDownloaded, i) => (
+                      <div 
+                        key={i} 
+                        className={`w-2.5 h-2.5 rounded-[1px] ${isDownloaded ? 'bg-blue-500/80' : 'bg-muted border border-border/50'}`}
+                        title={numPieces > MAX_RENDERED_PIECES ? `Block ${i + 1}` : `Piece ${i + 1}`}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                    No piece information available
+                  </div>
+                )}
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Progress:</span>
-                <span className="font-medium">{progress.toFixed(2)}%</span>
-              </div>
-              {download.status === 'active' && speed > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Time Remaining:</span>
-                  <span className="font-medium">{getETA()}</span>
-                </div>
-              )}
             </div>
-            
-            <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-              <div 
-                className={`h-full ${download.status === 'error' ? 'bg-red-500' : download.status === 'paused' ? 'bg-amber-500' : 'bg-primary'} transition-all duration-300 ease-out`}
-                style={{ width: `${progress}%` }}
-              />
+          );
+        })()}
+
+        {currentTab === 'connections' && (() => {
+          const uris = download.files[0]?.uris || [];
+          const connCount = download.connections || "0";
+
+          return (
+            <div className="overflow-x-auto rounded-md border border-border">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-muted/50 border-b border-border text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2 font-medium">Host</th>
+                    <th className="px-4 py-2 font-medium">Port</th>
+                    <th className="px-4 py-2 font-medium">Connection count</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parseInt(connCount, 10) > 0 && uris.length > 0 ? (
+                    uris.map((u, i) => {
+                      let host = "Unknown";
+                      let port = "Unknown";
+                      try {
+                        const parsedUrl = new URL(u.uri);
+                        host = parsedUrl.hostname;
+                        port = parsedUrl.port || (parsedUrl.protocol === 'https:' ? '443' : '80');
+                      } catch (e) {
+                        // invalid url
+                      }
+                      return (
+                        <tr key={i} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                          <td className="px-4 py-2 text-foreground truncate max-w-[200px]" title={host}>{host}</td>
+                          <td className="px-4 py-2 text-foreground">{port}</td>
+                          <td className="px-4 py-2 text-foreground">{i === 0 ? connCount : '-'}</td>
+                        </tr>
+                      );
+                    })
+                  ) : parseInt(connCount, 10) > 0 && uris.length === 0 ? (
+                    <tr className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-2 text-foreground truncate max-w-[200px]">P2P / Torrent</td>
+                      <td className="px-4 py-2 text-foreground">-</td>
+                      <td className="px-4 py-2 text-foreground">{connCount}</td>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <td colSpan={3} className="px-4 py-8 text-center text-muted-foreground">
+                        No active connections
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
