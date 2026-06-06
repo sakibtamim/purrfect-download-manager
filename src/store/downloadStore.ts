@@ -5,8 +5,9 @@ import { isPermissionGranted, requestPermission, sendNotification } from '@tauri
 import { Store, load } from '@tauri-apps/plugin-store';
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart';
 import { Command } from '@tauri-apps/plugin-shell';
-import { remove } from '@tauri-apps/plugin-fs';
+import { remove, exists } from '@tauri-apps/plugin-fs';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { join } from '@tauri-apps/api/path';
 
 const mockStore = new Map<string, unknown>();
 let settingsStoreCache: Store | null = null;
@@ -385,14 +386,52 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       options["dir"] = dir;
     }
     
+    let targetDir = dir || get().defaultDownloadDir;
+    if (!targetDir) {
+      try {
+        const globalOpts = await aria2Client.getGlobalOption();
+        targetDir = globalOpts["dir"] || "";
+      } catch (e) {
+        console.warn("Failed to get aria2c global dir", e);
+      }
+    }
+
+    async function getUniqueFilename(name: string): Promise<string> {
+      if (!targetDir || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return name;
+      let uniqueName = name;
+      let counter = 1;
+      
+      const lastDotIndex = name.lastIndexOf('.');
+      const hasExt = lastDotIndex !== -1 && lastDotIndex > 0;
+      const base = hasExt ? name.substring(0, lastDotIndex) : name;
+      const ext = hasExt ? name.substring(lastDotIndex) : '';
+
+      try {
+        while (await exists(await join(targetDir, uniqueName))) {
+          uniqueName = `${base} (${counter})${ext}`;
+          counter++;
+        }
+      } catch (e) {
+        console.warn("Failed to check file existence", e);
+      }
+      return uniqueName;
+    }
+
     if (audioUrl && filename) {
       const lastDotIndex = filename.lastIndexOf('.');
       const hasExt = lastDotIndex !== -1;
       const base = hasExt ? filename.substring(0, lastDotIndex) : filename;
       const ext = hasExt ? filename.substring(lastDotIndex + 1) : 'mp4';
       
-      const videoFilename = `${base}.video.${ext}`;
-      const audioFilename = `${base}.audio.m4a`;
+      let videoFilename = `${base}.video.${ext}`;
+      let audioFilename = `${base}.audio.m4a`;
+      let finalFilename = filename;
+      
+      if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+        videoFilename = await getUniqueFilename(videoFilename);
+        audioFilename = await getUniqueFilename(audioFilename);
+        finalFilename = await getUniqueFilename(filename);
+      }
       
       const videoGid = await aria2Client.addUri([url], { ...options, out: videoFilename });
       const audioGid = await aria2Client.addUri([audioUrl], { ...options, out: audioFilename });
@@ -401,13 +440,17 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         pendingMuxes: [...state.pendingMuxes, {
           videoGid,
           audioGid,
-          finalFilename: filename,
+          finalFilename: finalFilename,
           status: 'waiting'
         }]
       }));
     } else {
-      if (filename) {
-        options["out"] = filename;
+      let finalFilename = filename;
+      if (finalFilename) {
+        if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+          finalFilename = await getUniqueFilename(finalFilename);
+        }
+        options["out"] = finalFilename;
       }
       await aria2Client.addUri([url], options);
     }

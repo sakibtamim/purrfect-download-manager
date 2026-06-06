@@ -97,6 +97,10 @@ class Aria2Client {
   async changeGlobalOption(options: Record<string, string>): Promise<string> {
     return this.call("changeGlobalOption", [options]);
   }
+
+  async getGlobalOption(): Promise<Record<string, string>> {
+    return this.call("getGlobalOption");
+  }
 }
 
 export const aria2Client = new Aria2Client();
