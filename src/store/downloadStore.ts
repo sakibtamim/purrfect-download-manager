@@ -256,6 +256,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       // --- Metadata cache: persist sizes so session-restored paused downloads show correct values ---
       const metaStore = await getMetaStore();
       const allDownloads = [...combinedActive, ...completed, ...failed];
+      let hasChanges = false;
       for (const dl of allDownloads) {
         const total = parseInt(dl.totalLength, 10);
         const done = parseInt(dl.completedLength, 10);
@@ -266,9 +267,11 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         if (!cached) {
           cached = { totalLength: dl.totalLength, completedLength: dl.completedLength, addedAt: Date.now() };
           await metaStore.set(dl.gid, cached);
+          hasChanges = true;
         } else if (!cached.addedAt) {
           cached.addedAt = Date.now();
           await metaStore.set(dl.gid, cached);
+          hasChanges = true;
         }
         
         // Hydrate from cache
@@ -281,12 +284,15 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         
         dl.addedAt = cached.addedAt;
         
-        // Update size cache if aria2c has valid data
-        if (total > 0 && (cached.totalLength !== dl.totalLength || cached.completedLength !== dl.completedLength)) {
+        // Update size cache if aria2c has valid data, avoiding constant writes for active downloads
+        if (total > 0 && (cached.totalLength !== dl.totalLength || (dl.status !== "active" && cached.completedLength !== dl.completedLength))) {
           await metaStore.set(dl.gid, { ...cached, totalLength: dl.totalLength, completedLength: dl.completedLength } as CachedMeta);
+          hasChanges = true;
         }
       }
-      await metaStore.save();
+      if (hasChanges) {
+        await metaStore.save();
+      }
 
       const prevCompleted = get().completed;
       const prevFailed = get().failed;

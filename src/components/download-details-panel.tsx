@@ -271,6 +271,18 @@ export function DownloadDetailsPanel() {
           }
           const actualPieces = pieces.slice(0, numPieces);
 
+          const MAX_RENDERED_PIECES = 1000;
+          let displayPieces = actualPieces;
+          if (numPieces > MAX_RENDERED_PIECES) {
+            const chunkSize = Math.ceil(numPieces / MAX_RENDERED_PIECES);
+            displayPieces = [];
+            for (let i = 0; i < numPieces; i += chunkSize) {
+              const chunk = actualPieces.slice(i, i + chunkSize);
+              const downloadedCount = chunk.filter(p => p).length;
+              displayPieces.push(downloadedCount > chunk.length / 2);
+            }
+          }
+
           return (
             <div className="h-full flex flex-col">
               <div className="flex justify-between text-sm mb-4">
@@ -280,11 +292,11 @@ export function DownloadDetailsPanel() {
               <div className="flex-1 overflow-y-auto">
                 {numPieces > 0 ? (
                   <div className="flex flex-wrap gap-[2px] pr-2 pb-2">
-                    {actualPieces.map((isDownloaded, i) => (
+                    {displayPieces.map((isDownloaded, i) => (
                       <div 
                         key={i} 
                         className={`w-2.5 h-2.5 rounded-[1px] ${isDownloaded ? 'bg-blue-500/80' : 'bg-muted border border-border/50'}`}
-                        title={`Piece ${i + 1}`}
+                        title={numPieces > MAX_RENDERED_PIECES ? `Block ${i + 1}` : `Piece ${i + 1}`}
                       />
                     ))}
                   </div>
