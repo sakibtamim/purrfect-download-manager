@@ -5,8 +5,8 @@ import { isPermissionGranted, requestPermission, sendNotification } from '@tauri
 import { Store, load } from '@tauri-apps/plugin-store';
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart';
 import { Command } from '@tauri-apps/plugin-shell';
-import { remove, exists } from '@tauri-apps/plugin-fs';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 
@@ -336,8 +336,8 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
                 ]).execute().then(output => {
                    if (output.code === 0) {
                       notify("Video Processing Complete", `High-resolution video merged successfully.`);
-                      remove(vPath).catch(console.error);
-                      remove(aPath).catch(console.error);
+                      invoke('delete_downloaded_file', { path: vPath }).catch(console.error);
+                      invoke('delete_downloaded_file', { path: aPath }).catch(console.error);
                       set(state => ({ pendingMuxes: state.pendingMuxes.filter(m => m !== mux) }));
                    } else {
                       notify("Video Processing Failed", "Failed to merge video and audio tracks.");
@@ -499,13 +499,13 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         for (const f of dl.files) {
           if (f.path) {
             try {
-              await remove(f.path);
+              await invoke('delete_downloaded_file', { path: f.path });
             } catch(e) {
               console.error("Failed to delete local file:", f.path, e);
             }
             if (dl.status !== "complete") {
               try {
-                await remove(f.path + ".aria2");
+                await invoke('delete_downloaded_file', { path: f.path + ".aria2" });
               } catch {}
             }
           }
@@ -562,7 +562,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     }
 
     try {
-      while (await exists(await join(targetDir, uniqueName))) {
+      while (await invoke('check_downloaded_file_exists', { path: await join(targetDir, uniqueName) })) {
         uniqueName = `${base} (${counter})${ext}`;
         counter++;
       }
