@@ -7,6 +7,10 @@
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-focus",
+    "core:window:allow-show",
+    "core:window:allow-unminimize",
     "dialog:default",
     {
       "identifier": "http:default",
@@ -33,8 +37,15 @@
           "name": "bin/pdm-aria2c",
           "sidecar": true,
           "args": true
+        },
+        {
+          "name": "explorer",
+          "cmd": "explorer",
+          "args": true
         }
       ]
-    }
+    },
+
+    "shell:allow-open"
   ]
 }

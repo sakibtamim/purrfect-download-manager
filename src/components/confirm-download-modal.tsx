@@ -8,16 +8,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FolderOpen } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { FolderOpen, CheckCircle2 } from "lucide-react";
+import { type ChecksumAlgorithm, type DetectedChecksum, validateChecksum } from "@/lib/utils";
 
 export function ConfirmDownloadModal() {
   const { stagedDownload, clearStagedDownload, addDownload } = useDownloadStore();
   const [saveDir, setSaveDir] = useState<string>("");
+  const [rawFilename, setRawFilename] = useState<string>("Unknown");
   const [displayFilename, setDisplayFilename] = useState<string>("Unknown");
   const [displaySize, setDisplaySize] = useState<string>("Unknown size");
   const [securityStatus, setSecurityStatus] = useState<'scanning' | 'safe' | 'unsafe' | 'no-key' | 'error'>('no-key');
   const [threatDetails, setThreatDetails] = useState<string>('');
   const [selectedFormatUrl, setSelectedFormatUrl] = useState<string>("");
+  const [checksumDigest, setChecksumDigest] = useState<string>("");
+  const [checksumAlgorithm, setChecksumAlgorithm] = useState<ChecksumAlgorithm>("sha256");
+  const [checksumSource, setChecksumSource] = useState<string>("");
   const [prevStagedDownload, setPrevStagedDownload] = useState<unknown>(null);
 
   // Synchronous state updates during render to avoid cascading updates in effect
@@ -25,6 +31,20 @@ export function ConfirmDownloadModal() {
     setPrevStagedDownload(stagedDownload);
     if (stagedDownload) {
       setSaveDir(""); 
+      if (stagedDownload.checksum && typeof stagedDownload.checksum === 'object') {
+        const c = stagedDownload.checksum as DetectedChecksum;
+        setChecksumDigest(c.digest || "");
+        setChecksumAlgorithm(c.algorithm || "sha256");
+        setChecksumSource(c.source || "");
+      } else if (typeof stagedDownload.checksum === 'string') {
+        setChecksumDigest(stagedDownload.checksum);
+        setChecksumAlgorithm("sha256");
+        setChecksumSource("");
+      } else {
+        setChecksumDigest("");
+        setChecksumAlgorithm("sha256");
+        setChecksumSource("");
+      }
       
       const apiKey = useDownloadStore.getState().safeBrowsingApiKey;
       setSecurityStatus(apiKey ? 'scanning' : 'no-key');
@@ -39,7 +59,7 @@ export function ConfirmDownloadModal() {
           name = new URL(stagedDownload.url).pathname.split('/').pop() || "Unknown";
         } catch { name = "Unknown"; }
       }
-      setDisplayFilename(name || "Unknown");
+      setRawFilename(name || "Unknown");
 
       if (stagedDownload.fileSize && stagedDownload.fileSize > 0) {
         setDisplaySize(`${(stagedDownload.fileSize / (1024 * 1024)).toFixed(2)} MB`);
@@ -75,7 +95,7 @@ export function ConfirmDownloadModal() {
             if (dispHeader) {
               const match = dispHeader.match(/filename="?([^"]+)"?/i);
               if (match && match[1]) {
-                setDisplayFilename(match[1]);
+                setRawFilename(match[1].split(/[\/\\]/).pop() || "Unknown");
               }
             }
           })
@@ -89,7 +109,7 @@ export function ConfirmDownloadModal() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            client: { clientId: "purrfect-dl", clientVersion: "1.0.0" },
+            client: { clientId: "purrfect-download-manager", clientVersion: "1.0.0" },
             threatInfo: {
               threatTypes: ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
               platformTypes: ["ANY_PLATFORM"],
@@ -122,18 +142,31 @@ export function ConfirmDownloadModal() {
     }
   }, [stagedDownload]);
 
+  useEffect(() => {
+    let active = true;
+    const { getUniqueFilename } = useDownloadStore.getState();
+    if (rawFilename) {
+      getUniqueFilename(rawFilename, saveDir || undefined).then(uniqueName => {
+        if (active) setDisplayFilename(uniqueName);
+      }).catch(() => {
+        if (active) setDisplayFilename(rawFilename);
+      });
+    }
+    return () => { active = false; };
+  }, [rawFilename, saveDir]);
+
   const handleFormatChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const url = e.target.value;
     setSelectedFormatUrl(url);
     if (stagedDownload && stagedDownload.mediaFormats) {
       const format = stagedDownload.mediaFormats.find(f => f.url === url);
       if (format) {
-        let baseName = displayFilename;
+        let baseName = rawFilename;
         const lastDot = baseName.lastIndexOf('.');
         if (lastDot !== -1) {
           baseName = baseName.substring(0, lastDot);
         }
-        setDisplayFilename(`${baseName}.${format.ext}`);
+        setRawFilename(`${baseName}.${format.ext}`);
         
         if (format.fileSize > 0) {
           setDisplaySize(`${(format.fileSize / (1024 * 1024)).toFixed(2)} MB`);
@@ -159,17 +192,35 @@ export function ConfirmDownloadModal() {
     }
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!stagedDownload) return;
     
     const selectedFormat = stagedDownload.mediaFormats?.find(f => f.url === selectedFormatUrl);
+    const urlToDownload = selectedFormatUrl || stagedDownload.url;
+    const finalDir = saveDir || "";
     const audioUrl = selectedFormat?.audioUrl;
 
-    // Add the download with the selected directory and explicitly pass the display filename
-    addDownload(selectedFormatUrl || stagedDownload.url, stagedDownload.headers, saveDir || undefined, displayFilename, audioUrl);
+    if (checksumDigest) {
+      const c: DetectedChecksum = {
+        algorithm: checksumAlgorithm,
+        digest: checksumDigest,
+        source: (checksumSource || "manual") as "manual"
+      };
+      if (!validateChecksum(c)) {
+        window.alert(`Invalid ${checksumAlgorithm.toUpperCase()} checksum\nPlease check the length and format of your hash.`);
+        return;
+      }
+    }
     
-    // Clear staged state to close modal
-    clearStagedDownload();
+    const finalChecksum = checksumDigest ? { algorithm: checksumAlgorithm, digest: checksumDigest, source: checksumSource || "manual" } as DetectedChecksum : undefined;
+
+    if (selectedFormat) {
+        const headers = stagedDownload.headers || [];
+        await addDownload(urlToDownload, headers, finalDir, displayFilename, audioUrl, finalChecksum);
+      } else {
+        await addDownload(urlToDownload, stagedDownload.headers || [], finalDir, displayFilename, undefined, finalChecksum);
+      }
+      clearStagedDownload();
   };
 
   if (!stagedDownload) return null;
@@ -237,6 +288,43 @@ export function ConfirmDownloadModal() {
                 <FolderOpen className="w-4 h-4 mr-2" />
                 Browse
               </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-muted-foreground text-xs uppercase flex items-center">
+              Checksum (Hash) <span className="text-muted-foreground/60 lowercase font-normal mx-1">(Optional)</span>
+              {checksumSource && checksumSource !== "manual" && (
+                <Badge variant="outline" className="ml-auto text-green-500 bg-green-500/10 text-[10px] py-0 h-4">
+                  <CheckCircle2 className="w-3 h-3 mr-1" /> Auto-Detected
+                </Badge>
+              )}
+            </Label>
+            <div className="flex gap-2">
+              <select 
+                value={checksumAlgorithm}
+                onChange={e => {
+                   setChecksumAlgorithm(e.target.value as ChecksumAlgorithm);
+                   setChecksumSource("manual");
+                }}
+                className="bg-background border border-border text-foreground text-sm rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="md5">MD5</option>
+                <option value="sha1">SHA-1</option>
+                <option value="sha224">SHA-224</option>
+                <option value="sha256">SHA-256</option>
+                <option value="sha384">SHA-384</option>
+                <option value="sha512">SHA-512</option>
+              </select>
+              <Input 
+                value={checksumDigest} 
+                onChange={(e) => {
+                  setChecksumDigest(e.target.value);
+                  setChecksumSource("manual");
+                }}
+                placeholder="e.g. abc123..." 
+                className="bg-background border-border text-foreground font-mono text-sm flex-1"
+              />
             </div>
           </div>
 

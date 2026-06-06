@@ -11,6 +11,22 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_shell::ShellExt;
 use tiny_http::{Response, Server};
 
+#[tauri::command]
+fn delete_downloaded_file(path: String) -> Result<(), String> {
+    // Basic safety check to ensure it's an absolute path and exists before deleting
+    let p = std::path::Path::new(&path);
+    if p.exists() && p.is_file() {
+        std::fs::remove_file(p).map_err(|e| e.to_string())
+    } else {
+        Err("File not found or is a directory".to_string())
+    }
+}
+
+#[tauri::command]
+fn check_downloaded_file_exists(path: String) -> bool {
+    std::path::Path::new(&path).exists()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -231,6 +247,7 @@ pub fn run() {
       
       Ok(())
     })
+    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

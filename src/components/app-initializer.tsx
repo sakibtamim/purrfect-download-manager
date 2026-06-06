@@ -1,9 +1,17 @@
 "use client";
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { useDownloadStore } from "@/store/downloadStore";
 
 export function AppInitializer() {
+  const pathname = usePathname();
+  const setSelectedDownload = useDownloadStore(state => state.setSelectedDownload);
+  
+  useEffect(() => {
+    setSelectedDownload(null);
+  }, [pathname, setSelectedDownload]);
+
   const fetchDownloads = useDownloadStore(state => state.fetchDownloads);
   const stageDownload = useDownloadStore(state => state.stageDownload);
   const initSettings = useDownloadStore(state => state.initSettings);
@@ -58,7 +66,8 @@ export function AppInitializer() {
                   url: payload.url,
                   headers,
                   filename: typeof payload.filename === 'string' ? payload.filename : undefined,
-                  fileSize: typeof payload.fileSize === 'number' ? payload.fileSize : undefined
+                  fileSize: typeof payload.fileSize === 'number' ? payload.fileSize : undefined,
+                  checksum: typeof payload.checksum === 'object' && payload.checksum !== null ? (payload.checksum as import('@/lib/utils').DetectedChecksum) : undefined
                 });
             }
         }).then(f => unlisten = f).catch(e => console.warn("Tauri event listen failed:", e));
