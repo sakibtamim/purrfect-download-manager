@@ -19,8 +19,8 @@ export function Sidebar() {
   const isPlayfulMode = useDownloadStore((state) => state.isPlayfulMode);
 
   const navItems = [
-    { name: "All", href: "/all", icon: List },
-    { name: "Active", href: "/", icon: Download },
+    { name: "All", href: "/", icon: List },
+    { name: "Active", href: "/active", icon: Download },
     { name: "Completed", href: "/completed", icon: CheckCircle2 },
     { name: "Failed", href: "/failed", icon: AlertCircle },
     { name: "Web Tools", href: "/grabber", icon: Globe },
