@@ -98,6 +98,10 @@ class Aria2Client {
     return this.call("changeGlobalOption", [options]);
   }
 
+  async getOption(gid: string): Promise<Record<string, string>> {
+    return this.call("getOption", [gid]);
+  }
+
   async getGlobalOption(): Promise<Record<string, string>> {
     return this.call("getGlobalOption");
   }
