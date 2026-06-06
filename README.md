@@ -9,6 +9,8 @@ A modern, lightning-fast desktop download manager built with **Tauri v2**, **Nex
 - **Blazing Fast Downloads:** Uses the `aria2` backend to dynamically segment and multi-thread downloads for maximum speed.
 - **Global Speed Limiter:** Don't let downloads hog your whole network! Set a max KB/s download speed right from the dashboard header.
 - **Persistent Queues:** Automatically saves your active download queue to disk every 10 seconds. You can close PDM entirely, and when you reopen it, your downloads will resume right where they left off.
+- **Smart File Renaming:** Automatically prevents naming collisions. If you download a file multiple times, PDM intelligently renames it to `(1)`, `(2)`, etc. based on physical disk state.
+- **Deep Deletion:** Choose to just remove a download from your PDM history, or scrub it physically off your local disk entirely with a single click.
 
 ### Web Tools & Media Extraction
 
@@ -23,11 +25,16 @@ A modern, lightning-fast desktop download manager built with **Tauri v2**, **Nex
 - **Google Safe Browsing Integration:** Automatically pings Google Safe Browsing before staging a download. If a malicious or phishing URL is detected, the UI turns hostile and physically prevents you from downloading the virus.
 - **System Tray Integration:** Runs quietly in the background. Clicking the "X" safely minimizes PDM to your tray instead of killing your downloads.
 - **Windows Autostart:** Optionally boots PDM silently on system startup so your downloads never stop.
+- **Professional Installer:** Bundled and released as a sleek, professional desktop installer via Tauri's bundler and GitHub Actions automation.
+- **Robust Port Hopping:** PDM's WebSocket communication elegantly scans port ranges to ensure your browser extension always connects smoothly, even if standard ports are blocked.
 - **Native OS Notifications:** Get pinged directly on your desktop when your downloads hit completion or fail.
 
 ### UX/UI
 
 - **Interactive Staging Modal:** When a download is intercepted, PDM pauses the download and launches a beautiful confirmation modal, giving you a chance to inspect the file size, filename, security status, and choose a custom save directory.
+- **Download Details Panel:** Click any download to reveal a comprehensive slide-up panel. View live progress metrics, full URLs, and open the destination folder instantly via native OS file explorer integration.
+- **Real-time Metrics:** Displays live download speeds and a dynamic "Time Remaining" (ETA) directly on the download cards and in the details panel.
+- **Foreground Focus:** PDM waits silently in the background, but the moment you intercept a download in your browser, it seamlessly brings its native window right to the foreground.
 - **Drag & Drop Magic:** Found a link? Just drag and drop it directly onto the PDM window to immediately add it to your queue.
 - **"Playful Mode":** Toggle the playful switch to give the UI some fun cat-themed text and subtle CSS micro-animations while you wait! 🐈
 
