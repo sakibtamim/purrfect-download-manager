@@ -144,6 +144,12 @@ async function fetchAndParseChecksumFile(url) {
   try {
     const response = await fetch(url);
     if (!response.ok) return;
+    
+    const contentLength = response.headers.get("content-length");
+    if (contentLength && parseInt(contentLength, 10) > 1024 * 1024) {
+      return; // Skip files larger than 1MB to prevent memory exhaustion
+    }
+    
     const text = await response.text();
     const lines = text.trim().split('\n');
     
@@ -207,8 +213,11 @@ function scanForChecksumFiles() {
 
 // --- Global Page Scanning for Auto-Downloads ---
 function scanPageForRawHashes() {
+  const text = document.body.textContent;
+  if (!text || text.length > 100000) return; // Avoid scanning extremely large pages to prevent UI freezes
+
   // Extract all hashes from the entire page text (includes hidden text via textContent)
-  const allHashes = extractHashesFromText(document.body.textContent);
+  const allHashes = extractHashesFromText(text);
   if (allHashes.length === 0) return;
 
   // If there are very few unique hashes on the entire page, it's safe to assume

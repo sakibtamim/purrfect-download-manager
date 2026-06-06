@@ -39,6 +39,17 @@ function storeHash(url, checksum) {
   // Automatically clean up old hashes after 10 minutes
   setTimeout(() => {
     sniffedHashes.delete(url);
+    try {
+      const parsed = new URL(url);
+      sniffedHashes.delete(parsed.origin + parsed.pathname);
+      const segments = parsed.pathname.split('/').filter(Boolean);
+      if (segments.length > 0) {
+        const filename = segments[segments.length - 1];
+        if (filename.length > 3) {
+          sniffedHashes.delete("__filename__" + filename);
+        }
+      }
+    } catch { /* ignore */ }
   }, 10 * 60 * 1000);
 }
 
