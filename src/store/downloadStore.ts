@@ -6,6 +6,7 @@ import { Store, load } from '@tauri-apps/plugin-store';
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart';
 import { Command } from '@tauri-apps/plugin-shell';
 import { remove } from '@tauri-apps/plugin-fs';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 const mockStore = new Map<string, unknown>();
 let settingsStoreCache: Store | null = null;
@@ -85,12 +86,13 @@ export interface DownloadState {
   togglePlayfulMode: () => void;
   setSelectedDownload: (gid: string | null) => void;
   fetchDownloads: () => Promise<void>;
-  stageDownload: (download: StagedDownload) => void;
+  stageDownload: (download: StagedDownload) => Promise<void>;
   clearStagedDownload: () => void;
   addDownload: (url: string, headers?: string[], dir?: string, filename?: string, audioUrl?: string) => Promise<void>;
   pauseDownload: (gid: string) => Promise<void>;
   resumeDownload: (gid: string) => Promise<void>;
   cancelDownload: (gid: string) => Promise<void>;
+  deleteDownload: (gid: string, removeLocalFile: boolean) => Promise<void>;
   pauseAllDownloads: () => Promise<void>;
   resumeAllDownloads: () => Promise<void>;
   clearCompletedDownloads: () => Promise<void>;
@@ -193,7 +195,42 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
 
   togglePlayfulMode: () => set((state) => ({ isPlayfulMode: !state.isPlayfulMode })),
   setSelectedDownload: (gid) => set({ selectedDownloadId: gid }),
-  stageDownload: (download) => set({ stagedDownload: download }),
+  
+  stageDownload: async (download) => {
+    set({ stagedDownload: download });
+    
+    try {
+      if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+        const appWindow = getCurrentWindow();
+        await appWindow.unminimize();
+        await appWindow.show();
+        await appWindow.setAlwaysOnTop(true);
+        await appWindow.setFocus();
+        await appWindow.setAlwaysOnTop(false);
+      }
+    } catch (e) {
+      console.warn("Failed to focus window", e);
+    }
+    
+    try {
+      if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+        let permissionGranted = await isPermissionGranted();
+        if (!permissionGranted) {
+          const permission = await requestPermission();
+          permissionGranted = permission === 'granted';
+        }
+        if (permissionGranted) {
+          sendNotification({ 
+            title: "New Download Ready", 
+            body: download.filename ? `Confirmation required for: ${download.filename}` : "A new download requires your confirmation."
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Notification failed", e);
+    }
+  },
+
   clearStagedDownload: () => set({ stagedDownload: null }),
 
   fetchDownloads: async () => {
@@ -390,6 +427,39 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
 
   cancelDownload: async (gid: string) => {
     await aria2Client.remove(gid);
+    await get().fetchDownloads();
+  },
+
+  deleteDownload: async (gid: string, removeLocalFile: boolean) => {
+    const state = get();
+    const allDownloads = [...state.active, ...state.completed, ...state.failed];
+    const dl = allDownloads.find(d => d.gid === gid);
+
+    if (dl) {
+      if (dl.status === "active" || dl.status === "waiting" || dl.status === "paused") {
+        try { await aria2Client.remove(gid); } catch {}
+      } else {
+        try { await aria2Client.removeDownloadResult(gid); } catch {}
+      }
+      
+      if (removeLocalFile && dl.files && dl.files.length > 0) {
+        for (const f of dl.files) {
+          if (f.path) {
+            try {
+              await remove(f.path);
+            } catch(e) {
+              console.error("Failed to delete local file:", f.path, e);
+            }
+            if (dl.status !== "complete") {
+              try {
+                await remove(f.path + ".aria2");
+              } catch {}
+            }
+          }
+        }
+      }
+    }
+
     await get().fetchDownloads();
   },
 

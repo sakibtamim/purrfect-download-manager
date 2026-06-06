@@ -2,12 +2,16 @@
 
 import { useDownloadStore } from "@/store/downloadStore";
 import { useState } from "react";
-import { X, FileBox, FileArchive, FileImage, FileAudio, FileVideo, FileText, FileCode, FolderOpen } from "lucide-react";
+import { X, FileBox, FileArchive, FileImage, FileAudio, FileVideo, FileText, FileCode, FolderOpen, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { open, Command } from "@tauri-apps/plugin-shell";
 
 export function DownloadDetailsPanel() {
-  const { selectedDownloadId, setSelectedDownload, active, completed, failed } = useDownloadStore();
+  const { selectedDownloadId, setSelectedDownload, active, completed, failed, deleteDownload } = useDownloadStore();
   const [activeTab, setActiveTab] = useState<'general' | 'progress'>('general');
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteLocalFile, setDeleteLocalFile] = useState(false);
 
   if (!selectedDownloadId) return null;
 
@@ -20,6 +24,14 @@ export function DownloadDetailsPanel() {
   const filePath = download.files[0]?.path || "Unknown File";
   const fileName = filePath.includes('/') ? filePath.split('/').pop() : filePath.split('\\').pop() || "Unknown File";
   const ext = fileName?.split('.').pop()?.toLowerCase();
+  
+  const handleDelete = async () => {
+    if (download) {
+      await deleteDownload(download.gid, deleteLocalFile);
+      setIsDeleteDialogOpen(false);
+      setSelectedDownload(null);
+    }
+  };
   
   const getFileIcon = () => {
     switch(ext) {
@@ -70,9 +82,14 @@ export function DownloadDetailsPanel() {
             Progress
           </button>
         </div>
-        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => setSelectedDownload(null)}>
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-500 hover:bg-red-500/10" title="Remove Download" onClick={() => setIsDeleteDialogOpen(true)}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => setSelectedDownload(null)}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
@@ -91,9 +108,21 @@ export function DownloadDetailsPanel() {
               </div>
               
               <div className="space-y-2 text-sm">
-                <div className="flex gap-2 items-center">
-                  <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="text-muted-foreground truncate" title={filePath}>{filePath}</span>
+                <div className="flex gap-2 items-center group cursor-pointer" onClick={async () => {
+                  const fp = download.files[0]?.path;
+                  if (fp) {
+                    try {
+                      const normalizedPath = fp.replace(/\//g, '\\');
+                      await Command.create('explorer', ['/select,', normalizedPath]).execute();
+                    } catch (err) {
+                      if (download.dir) open(download.dir).catch(console.error);
+                    }
+                  } else if (download.dir) {
+                    open(download.dir).catch(console.error);
+                  }
+                }}>
+                  <FolderOpen className="h-4 w-4 text-muted-foreground group-hover:text-primary shrink-0 transition-colors" />
+                  <span className="text-muted-foreground group-hover:text-primary transition-colors truncate" title={filePath}>{filePath}</span>
                 </div>
                 <div className="flex gap-2 items-center">
                   <span className="text-primary text-xs font-bold uppercase tracking-wider shrink-0 w-8">URL</span>
@@ -130,6 +159,33 @@ export function DownloadDetailsPanel() {
           </div>
         )}
       </div>
+
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove Download</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove this download from the list?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center space-x-2 py-4">
+            <input 
+              type="checkbox" 
+              id="delete-local-panel" 
+              checked={deleteLocalFile}
+              onChange={(e) => setDeleteLocalFile(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            />
+            <label htmlFor="delete-local-panel" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+              Also remove the downloaded file from local disk
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete}>Remove</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

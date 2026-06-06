@@ -70,6 +70,10 @@ class Aria2Client {
     return this.call<string>("remove", [gid]);
   }
 
+  async removeDownloadResult(gid: string): Promise<string> {
+    return this.call<string>("removeDownloadResult", [gid]);
+  }
+
   async purgeDownloadResult(): Promise<string> {
     return this.call<string>("purgeDownloadResult");
   }

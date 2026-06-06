@@ -1,15 +1,26 @@
 "use client";
 
+import { useState } from "react";
 import { useDownloadStore } from "@/store/downloadStore";
 import { Aria2Download } from "@/lib/aria2Client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Play, Pause, X, FolderOpen, File, RefreshCw } from "lucide-react";
+import { Play, Pause, X, FolderOpen, File, RefreshCw, Trash2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { open, Command } from "@tauri-apps/plugin-shell";
 
 export function DownloadCard({ download }: { download: Aria2Download }) {
-  const { isPlayfulMode, pauseDownload, resumeDownload, cancelDownload, addDownload, selectedDownloadId, setSelectedDownload } = useDownloadStore();
+  const { isPlayfulMode, pauseDownload, resumeDownload, cancelDownload, addDownload, selectedDownloadId, setSelectedDownload, deleteDownload } = useDownloadStore();
+
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteLocalFile, setDeleteLocalFile] = useState(false);
+
+  const handleDelete = async () => {
+    await deleteDownload(download.gid, deleteLocalFile);
+    setIsDeleteDialogOpen(false);
+  };
 
   const rawTotal = parseInt(download.totalLength, 10);
   const rawCompleted = parseInt(download.completedLength, 10);
@@ -125,7 +136,27 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                 </Button>
               )}
               {download.status === "complete" && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10" title="Open Folder" onClick={(e) => e.stopPropagation()}>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10" 
+                  title="Open Folder" 
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    const filePath = download.files[0]?.path;
+                    if (filePath) {
+                      try {
+                        const normalizedPath = filePath.replace(/\//g, '\\');
+                        await Command.create('explorer', ['/select,', normalizedPath]).execute();
+                      } catch (err) {
+                        console.error("Explorer failed:", err);
+                        if (download.dir) open(download.dir).catch(console.error);
+                      }
+                    } else if (download.dir) {
+                      open(download.dir).catch(console.error);
+                    }
+                  }}
+                >
                   <FolderOpen className="h-4 w-4" />
                 </Button>
               )}
@@ -147,6 +178,18 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                   <RefreshCw className="h-4 w-4" />
                 </Button>
               )}
+              <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-8 w-8 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10" 
+                  title="Remove"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsDeleteDialogOpen(true);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
             </div>
           </div>
 
@@ -161,6 +204,33 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
           )}
         </div>
       </CardContent>
+
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent onClick={(e) => e.stopPropagation()}>
+          <DialogHeader>
+            <DialogTitle>Remove Download</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove this download from the list?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center space-x-2 py-4">
+            <input 
+              type="checkbox" 
+              id="delete-local" 
+              checked={deleteLocalFile}
+              onChange={(e) => setDeleteLocalFile(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            />
+            <label htmlFor="delete-local" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+              Also remove the downloaded file from local disk
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete}>Remove</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
