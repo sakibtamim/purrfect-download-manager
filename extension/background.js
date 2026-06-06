@@ -27,15 +27,22 @@ async function sendToPDM(endpoint, payload) {
   return false;
 }
 
-chrome.downloads.onCreated.addListener(async (downloadItem) => {
+chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
   // If we already sent it, or it's not interceptable, ignore.
-  if (downloadItem.state !== "in_progress") return;
+  if (downloadItem.state !== "in_progress") {
+    suggest();
+    return;
+  }
 
   // Check if interception is enabled
-  if (!pdmEnabled) return;
+  if (!pdmEnabled) {
+    suggest();
+    return;
+  }
 
   // We immediately pause and cancel the browser's native download
   chrome.downloads.cancel(downloadItem.id, async () => {
+    suggest(); // Free up the Chrome download pipeline
     
     // We need to fetch the cookies for the URL
     const urlObj = new URL(downloadItem.url);
@@ -48,7 +55,7 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
       referrer: downloadItem.referrer || "",
       cookies: cookieString,
       userAgent: navigator.userAgent,
-      filename: downloadItem.filename || "",
+      filename: downloadItem.filename ? downloadItem.filename.split(/[/\\]/).pop() : "",
       fileSize: downloadItem.fileSize || 0
     };
 
@@ -63,6 +70,8 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
       });
     }
   });
+  
+  return true; // Keep the message channel open for the async cancel callback
 });
 
 chrome.runtime.onInstalled.addListener((details) => {

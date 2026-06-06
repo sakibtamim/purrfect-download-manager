@@ -1,15 +1,26 @@
 "use client";
 
+import { useState } from "react";
 import { useDownloadStore } from "@/store/downloadStore";
 import { Aria2Download } from "@/lib/aria2Client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Play, Pause, X, FolderOpen, File, RefreshCw } from "lucide-react";
+import { Play, Pause, X, FolderOpen, File, RefreshCw, Trash2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { open, Command } from "@tauri-apps/plugin-shell";
 
 export function DownloadCard({ download }: { download: Aria2Download }) {
-  const { isPlayfulMode, pauseDownload, resumeDownload, cancelDownload, addDownload } = useDownloadStore();
+  const { isPlayfulMode, pauseDownload, resumeDownload, cancelDownload, addDownload, selectedDownloadId, setSelectedDownload, deleteDownload } = useDownloadStore();
+
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteLocalFile, setDeleteLocalFile] = useState(false);
+
+  const handleDelete = async () => {
+    await deleteDownload(download.gid, deleteLocalFile);
+    setIsDeleteDialogOpen(false);
+  };
 
   const rawTotal = parseInt(download.totalLength, 10);
   const rawCompleted = parseInt(download.completedLength, 10);
@@ -53,6 +64,23 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
     }
   };
 
+  const getETA = () => {
+    if (download.status !== "active" || speed === 0) return null;
+    const remainingBytes = totalLength - completedLength;
+    if (remainingBytes <= 0) return null;
+    
+    const seconds = Math.floor(remainingBytes / speed);
+    if (!isFinite(seconds)) return null;
+    
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    
+    if (h > 0) return `${h}h ${m}m left`;
+    if (m > 0) return `${m}m ${s}s left`;
+    return `${s}s left`;
+  };
+
   const getStatusColor = () => {
     switch (download.status) {
       case "active": return "bg-primary/10 text-primary border-primary/20";
@@ -79,8 +107,21 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
   const filePath = download.files[0]?.path || "Unknown File";
   const fileName = filePath.includes('/') ? filePath.split('/').pop() : filePath.split('\\').pop() || "Unknown File";
 
+  const isSelected = selectedDownloadId === download.gid;
+
   return (
-    <Card className={`bg-card border border-border hover:border-primary/20 transition-all duration-200 overflow-hidden group border-l-[3px] ${getLeftBorderColor()}`}>
+    <Card 
+      role="button"
+      tabIndex={0}
+      onClick={() => setSelectedDownload(isSelected ? null : download.gid)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setSelectedDownload(isSelected ? null : download.gid);
+        }
+      }}
+      className={`bg-card border hover:border-primary/50 transition-all duration-200 overflow-hidden group border-l-[3px] ${getLeftBorderColor()} cursor-pointer ${isSelected ? 'border-primary ring-1 ring-primary' : 'border-border'}`}
+    >
       <CardContent className="p-5">
         <div className="flex flex-col gap-4">
           <div className="flex justify-between items-start gap-4">
@@ -105,22 +146,42 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
             
             <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
               {download.status === "active" && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-500/10" onClick={() => pauseDownload(download.gid)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-500/10" onClick={(e) => { e.stopPropagation(); pauseDownload(download.gid); }}>
                   <Pause className="h-4 w-4" />
                 </Button>
               )}
               {download.status === "paused" && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-500/10" onClick={() => resumeDownload(download.gid)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-500/10" onClick={(e) => { e.stopPropagation(); resumeDownload(download.gid); }}>
                   <Play className="h-4 w-4" />
                 </Button>
               )}
               {(download.status === "active" || download.status === "paused" || download.status === "waiting") && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10" onClick={() => cancelDownload(download.gid)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10" onClick={(e) => { e.stopPropagation(); cancelDownload(download.gid); }}>
                   <X className="h-4 w-4" />
                 </Button>
               )}
               {download.status === "complete" && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10" title="Open Folder">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10" 
+                  title="Open Folder" 
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    const filePath = download.files[0]?.path;
+                    if (filePath) {
+                      try {
+                        const normalizedPath = filePath.replace(/\//g, '\\');
+                        await Command.create('explorer', [`/select,${normalizedPath}`]).execute();
+                      } catch (err) {
+                        console.error("Explorer failed:", err);
+                        if (download.dir) open(download.dir).catch(console.error);
+                      }
+                    } else if (download.dir) {
+                      open(download.dir).catch(console.error);
+                    }
+                  }}
+                >
                   <FolderOpen className="h-4 w-4" />
                 </Button>
               )}
@@ -130,7 +191,8 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                   size="icon" 
                   className="h-8 w-8 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-500/10" 
                   title="Retry Download"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     const uri = download.files[0]?.uris[0]?.uri;
                     if (uri) {
                       addDownload(uri);
@@ -141,13 +203,32 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                   <RefreshCw className="h-4 w-4" />
                 </Button>
               )}
+              <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-8 w-8 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10" 
+                  title="Remove"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsDeleteDialogOpen(true);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
             </div>
           </div>
 
           {(download.status === "active" || download.status === "paused" || download.status === "waiting") && (
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{download.status === "active" ? `${formatBytes(speed)}/s` : '--'}</span>
+                <div className="flex items-center gap-2">
+                  <span>{download.status === "active" ? `${formatBytes(speed)}/s` : '--'}</span>
+                  {download.status === "active" && speed > 0 && (
+                    <span className="text-muted-foreground/60">
+                      • {getETA()}
+                    </span>
+                  )}
+                </div>
                 <span>{progress.toFixed(1)}%</span>
               </div>
               <Progress value={progress} className="h-1.5 bg-muted" />
@@ -155,6 +236,33 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
           )}
         </div>
       </CardContent>
+
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent onClick={(e) => e.stopPropagation()}>
+          <DialogHeader>
+            <DialogTitle>Remove Download</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove this download from the list?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center space-x-2 py-4">
+            <input 
+              type="checkbox" 
+              id="delete-local" 
+              checked={deleteLocalFile}
+              onChange={(e) => setDeleteLocalFile(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            />
+            <label htmlFor="delete-local" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+              Also remove the downloaded file from local disk
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete}>Remove</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

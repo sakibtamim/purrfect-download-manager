@@ -13,6 +13,7 @@ import { FolderOpen } from "lucide-react";
 export function ConfirmDownloadModal() {
   const { stagedDownload, clearStagedDownload, addDownload } = useDownloadStore();
   const [saveDir, setSaveDir] = useState<string>("");
+  const [rawFilename, setRawFilename] = useState<string>("Unknown");
   const [displayFilename, setDisplayFilename] = useState<string>("Unknown");
   const [displaySize, setDisplaySize] = useState<string>("Unknown size");
   const [securityStatus, setSecurityStatus] = useState<'scanning' | 'safe' | 'unsafe' | 'no-key' | 'error'>('no-key');
@@ -39,7 +40,7 @@ export function ConfirmDownloadModal() {
           name = new URL(stagedDownload.url).pathname.split('/').pop() || "Unknown";
         } catch { name = "Unknown"; }
       }
-      setDisplayFilename(name || "Unknown");
+      setRawFilename(name || "Unknown");
 
       if (stagedDownload.fileSize && stagedDownload.fileSize > 0) {
         setDisplaySize(`${(stagedDownload.fileSize / (1024 * 1024)).toFixed(2)} MB`);
@@ -75,7 +76,7 @@ export function ConfirmDownloadModal() {
             if (dispHeader) {
               const match = dispHeader.match(/filename="?([^"]+)"?/i);
               if (match && match[1]) {
-                setDisplayFilename(match[1]);
+                setRawFilename(match[1].split(/[\/\\]/).pop() || "Unknown");
               }
             }
           })
@@ -122,18 +123,31 @@ export function ConfirmDownloadModal() {
     }
   }, [stagedDownload]);
 
+  useEffect(() => {
+    let active = true;
+    const { getUniqueFilename } = useDownloadStore.getState();
+    if (rawFilename) {
+      getUniqueFilename(rawFilename, saveDir || undefined).then(uniqueName => {
+        if (active) setDisplayFilename(uniqueName);
+      }).catch(() => {
+        if (active) setDisplayFilename(rawFilename);
+      });
+    }
+    return () => { active = false; };
+  }, [rawFilename, saveDir]);
+
   const handleFormatChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const url = e.target.value;
     setSelectedFormatUrl(url);
     if (stagedDownload && stagedDownload.mediaFormats) {
       const format = stagedDownload.mediaFormats.find(f => f.url === url);
       if (format) {
-        let baseName = displayFilename;
+        let baseName = rawFilename;
         const lastDot = baseName.lastIndexOf('.');
         if (lastDot !== -1) {
           baseName = baseName.substring(0, lastDot);
         }
-        setDisplayFilename(`${baseName}.${format.ext}`);
+        setRawFilename(`${baseName}.${format.ext}`);
         
         if (format.fileSize > 0) {
           setDisplaySize(`${(format.fileSize / (1024 * 1024)).toFixed(2)} MB`);

@@ -70,6 +70,10 @@ class Aria2Client {
     return this.call<string>("remove", [gid]);
   }
 
+  async removeDownloadResult(gid: string): Promise<string> {
+    return this.call<string>("removeDownloadResult", [gid]);
+  }
+
   async purgeDownloadResult(): Promise<string> {
     return this.call<string>("purgeDownloadResult");
   }
@@ -92,6 +96,10 @@ class Aria2Client {
 
   async changeGlobalOption(options: Record<string, string>): Promise<string> {
     return this.call("changeGlobalOption", [options]);
+  }
+
+  async getGlobalOption(): Promise<Record<string, string>> {
+    return this.call("getGlobalOption");
   }
 }
 

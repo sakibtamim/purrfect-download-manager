@@ -9,12 +9,14 @@ A modern, lightning-fast desktop download manager built with **Tauri v2**, **Nex
 - **Blazing Fast Downloads:** Uses the `aria2` backend to dynamically segment and multi-thread downloads for maximum speed.
 - **Global Speed Limiter:** Don't let downloads hog your whole network! Set a max KB/s download speed right from the dashboard header.
 - **Persistent Queues:** Automatically saves your active download queue to disk every 10 seconds. You can close PDM entirely, and when you reopen it, your downloads will resume right where they left off.
+- **Smart File Renaming:** Automatically prevents naming collisions. If you download a file multiple times, PDM intelligently renames it to `(1)`, `(2)`, etc. based on physical disk state.
+- **Deep Deletion:** Choose to just remove a download from your PDM history, or scrub it physically off your local disk entirely with a single click.
 
 ### Web Tools & Media Extraction
 
 - **The Site Grabber:** Paste a target website URL into the Web Tools tab. PDM rips the HTML directly bypassing CORS, extracts every single image, video, and document link, and allows you to bulk download them all in a single click.
-- **Native YouTube Downloader:** Paste a YouTube, Twitter, or TikTok link into the Web Tools tab. PDM runs `yt-dlp` in the background (configured with anti-bot evasion variables) to extract the absolute direct `.mp4` stream and pushes it to `aria2c` for high-speed queue downloading.
-- **True 4K Unlocked:** Standard downloaders cap out at 720p on YouTube. PDM intelligently detects high-res, separated video and audio tracks, downloads them concurrently via `aria2c`, and silently spins up a bundled `ffmpeg` process to perfectly mux them into pristine 1080p, 1440p, or 4K `.mp4` files.
+- **Native YouTube Downloader:** Paste a YouTube, Twitter, or TikTok link into the Web Tools tab. PDM runs `pdm-yt-dlp` in the background (configured with anti-bot evasion variables) to extract the absolute direct `.mp4` stream and pushes it to `pdm-aria2c` for high-speed queue downloading.
+- **True 4K Unlocked:** Standard downloaders cap out at 720p on YouTube. PDM intelligently detects high-res, separated video and audio tracks, downloads them concurrently via `pdm-aria2c`, and silently spins up a bundled `pdm-ffmpeg` process to perfectly mux them into pristine 1080p, 1440p, or 4K `.mp4` files.
 - **Browser Interceptor Extension:** Ships with a Chromium extension that intercepts all browser downloads and seamlessly pipes the metadata (URL, Filename, Size, Headers, and Cookies) directly into the PDM queue.
 - **Context Menus:** Right-click any link, image, or video in your browser and select "Download with Purrfect DL" to queue it instantly.
 
@@ -23,11 +25,16 @@ A modern, lightning-fast desktop download manager built with **Tauri v2**, **Nex
 - **Google Safe Browsing Integration:** Automatically pings Google Safe Browsing before staging a download. If a malicious or phishing URL is detected, the UI turns hostile and physically prevents you from downloading the virus.
 - **System Tray Integration:** Runs quietly in the background. Clicking the "X" safely minimizes PDM to your tray instead of killing your downloads.
 - **Windows Autostart:** Optionally boots PDM silently on system startup so your downloads never stop.
+- **Professional Installer:** Bundled and released as a sleek, professional desktop installer via Tauri's bundler and GitHub Actions automation.
+- **Robust Port Hopping:** PDM's WebSocket communication elegantly scans port ranges to ensure your browser extension always connects smoothly, even if standard ports are blocked.
 - **Native OS Notifications:** Get pinged directly on your desktop when your downloads hit completion or fail.
 
 ### UX/UI
 
 - **Interactive Staging Modal:** When a download is intercepted, PDM pauses the download and launches a beautiful confirmation modal, giving you a chance to inspect the file size, filename, security status, and choose a custom save directory.
+- **Download Details Panel:** Click any download to reveal a comprehensive slide-up panel. View live progress metrics, full URLs, and open the destination folder instantly via native OS file explorer integration.
+- **Real-time Metrics:** Displays live download speeds and a dynamic "Time Remaining" (ETA) directly on the download cards and in the details panel.
+- **Foreground Focus:** PDM waits silently in the background, but the moment you intercept a download in your browser, it seamlessly brings its native window right to the foreground.
 - **Drag & Drop Magic:** Found a link? Just drag and drop it directly onto the PDM window to immediately add it to your queue.
 - **"Playful Mode":** Toggle the playful switch to give the UI some fun cat-themed text and subtle CSS micro-animations while you wait! 🐈
 
@@ -35,7 +42,7 @@ A modern, lightning-fast desktop download manager built with **Tauri v2**, **Nex
 
 - **Frontend:** Next.js 16 (React 19), Tailwind CSS v4, Zustand (State Management), Lucide Icons, shadcn/ui.
 - **Backend:** Tauri v2 (Rust).
-- **Core Engines:** `aria2c`, `yt-dlp`, and `ffmpeg` running as decoupled sidecar processes.
+- **Core Engines:** `pdm-aria2c`, `pdm-yt-dlp`, and `pdm-ffmpeg` running as decoupled sidecar processes.
 - **Package Manager:** `pnpm`
 
 ## Contributor Workflow
@@ -60,7 +67,7 @@ Make sure you have [Node.js](https://nodejs.org/) (with `pnpm`), and [Rust](http
    pnpm install
    ```
 
-2. Download all platform-specific binaries for the sidecars (`aria2c`, `yt-dlp`, and `ffmpeg`):
+2. Download all platform-specific binaries for the sidecars (`pdm-aria2c`, `pdm-yt-dlp`, and `pdm-ffmpeg`):
 
    ```bash
    pnpm run setup
