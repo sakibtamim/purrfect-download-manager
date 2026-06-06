@@ -7,6 +7,28 @@ export function AppInitializer() {
   const fetchDownloads = useDownloadStore(state => state.fetchDownloads);
   const stageDownload = useDownloadStore(state => state.stageDownload);
   const initSettings = useDownloadStore(state => state.initSettings);
+  const pauseAllDownloads = useDownloadStore(state => state.pauseAllDownloads);
+  const resumeAllDownloads = useDownloadStore(state => state.resumeAllDownloads);
+
+  useEffect(() => {
+    let active = true;
+    const unlistens: (() => void)[] = [];
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      import('@tauri-apps/api/event').then(({ listen }) => {
+        if (!active) return;
+        listen('tray-pause-all', () => pauseAllDownloads()).then(f => {
+          if (active) unlistens.push(f); else f();
+        }).catch(console.warn);
+        listen('tray-resume-all', () => resumeAllDownloads()).then(f => {
+          if (active) unlistens.push(f); else f();
+        }).catch(console.warn);
+      });
+    }
+    return () => {
+      active = false;
+      unlistens.forEach(f => f());
+    };
+  }, [pauseAllDownloads, resumeAllDownloads]);
 
   useEffect(() => {
     // Initialize Settings
@@ -62,7 +84,7 @@ export function AppInitializer() {
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('drop', handleDrop);
     };
-  }, [fetchDownloads, stageDownload, initSettings]);
+  }, [fetchDownloads, stageDownload, initSettings, pauseAllDownloads, resumeAllDownloads]);
 
   return null;
 }

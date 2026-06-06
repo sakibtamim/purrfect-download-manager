@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Purrfect Download Manager</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <img src="icons/icon48.png" alt="PDM Logo" class="logo">
+    <h1>Purrfect Download Manager</h1>
+  </div>
+
+  <div class="status-container">
+    <div class="status-indicator" id="status-dot"></div>
+    <span class="status-text" id="status-text">Checking connection...</span>
+  </div>
+
+  <div class="toggle-container">
+    <div class="toggle-text">
+      <h3>Intercept Downloads</h3>
+      <p>Send all browser downloads to PDM automatically.</p>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="intercept-toggle">
+      <span class="slider round"></span>
+    </label>
+  </div>
+
+  <div class="footer">
+    <button id="open-app-btn">Open PDM Dashboard</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
