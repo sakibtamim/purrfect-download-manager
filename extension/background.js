@@ -13,21 +13,25 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 // We store by multiple keys for fuzzy matching after redirects
 const sniffedHashes = new Map();
 
-function storeHash(url, hash) {
-  sniffedHashes.set(url, hash);
+function storeHash(url, checksum) {
+  if (!checksum || !checksum.algorithm || !checksum.digest) return;
+  
+  // checksum is { algorithm, digest, source, timestamp }
+  const entry = { ...checksum, timestamp: Date.now() };
+  sniffedHashes.set(url, entry);
 
   // Also store by URL path (without query params) for redirect tolerance
   try {
     const parsed = new URL(url);
     const pathKey = parsed.origin + parsed.pathname;
-    sniffedHashes.set(pathKey, hash);
+    sniffedHashes.set(pathKey, entry);
 
     // Also store by just the filename for maximum fuzziness
     const segments = parsed.pathname.split('/').filter(Boolean);
     if (segments.length > 0) {
       const filename = segments[segments.length - 1];
       if (filename.length > 3) {
-        sniffedHashes.set("__filename__" + filename, hash);
+        sniffedHashes.set("__filename__" + filename, entry);
       }
     }
   } catch (_) { /* invalid URL, skip */ }
@@ -38,7 +42,7 @@ function storeHash(url, hash) {
   }, 10 * 60 * 1000);
 }
 
-function lookupHash(downloadUrl, finalUrl, filename) {
+function lookupHash(downloadUrl, finalUrl, filename, referrer) {
   // 1. Exact URL match
   let hash = sniffedHashes.get(downloadUrl);
   if (hash) return hash;
@@ -73,16 +77,25 @@ function lookupHash(downloadUrl, finalUrl, filename) {
     }
   }
 
-  // 5. Try the referrer page URL (for button-triggered downloads)
-  // The content script stores hash by page URL when a button is clicked
-  // This is handled automatically since we check all stored keys
+  // 5. Try by referrer
+  if (referrer) {
+    hash = sniffedHashes.get(referrer);
+    if (hash) return hash;
+    
+    // Check origin+path of referrer
+    try {
+      const parsed = new URL(referrer);
+      hash = sniffedHashes.get(parsed.origin + parsed.pathname);
+      if (hash) return hash;
+    } catch (_) { /* ignore */ }
+  }
 
   return null;
 }
 
 chrome.runtime.onMessage.addListener((message) => {
-  if (message.type === "HASH_FOUND" && message.url && message.hash) {
-    storeHash(message.url, message.hash);
+  if (message.type === "HASH_FOUND" && message.url && message.checksum) {
+    storeHash(message.url, message.checksum);
   }
 });
 
@@ -128,7 +141,7 @@ chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
     const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
     const cleanFilename = downloadItem.filename ? downloadItem.filename.split(/[/\\]/).pop() : "";
-    const matchedHash = lookupHash(downloadItem.url, downloadItem.finalUrl, cleanFilename);
+    const matchedHash = lookupHash(downloadItem.url, downloadItem.finalUrl, cleanFilename, downloadItem.referrer);
 
     const payload = {
       url: downloadItem.url,
