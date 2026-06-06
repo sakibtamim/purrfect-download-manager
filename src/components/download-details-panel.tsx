@@ -63,6 +63,23 @@ export function DownloadDetailsPanel() {
   const speed = parseInt(download.downloadSpeed, 10);
   const progress = totalLength > 0 ? (completedLength / totalLength) * 100 : 0;
 
+  const getETA = () => {
+    if (download.status !== "active" || speed === 0) return null;
+    const remainingBytes = totalLength - completedLength;
+    if (remainingBytes <= 0) return null;
+    
+    const seconds = Math.floor(remainingBytes / speed);
+    if (!isFinite(seconds)) return null;
+    
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  };
+
   const url = download.files[0]?.uris[0]?.uri || "Unknown URL";
 
   return (
@@ -148,6 +165,12 @@ export function DownloadDetailsPanel() {
                 <span className="text-muted-foreground">Progress:</span>
                 <span className="font-medium">{progress.toFixed(2)}%</span>
               </div>
+              {download.status === 'active' && speed > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Time Remaining:</span>
+                  <span className="font-medium">{getETA()}</span>
+                </div>
+              )}
             </div>
             
             <div className="h-2 w-full bg-muted rounded-full overflow-hidden">

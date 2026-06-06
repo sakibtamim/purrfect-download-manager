@@ -64,6 +64,23 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
     }
   };
 
+  const getETA = () => {
+    if (download.status !== "active" || speed === 0) return null;
+    const remainingBytes = totalLength - completedLength;
+    if (remainingBytes <= 0) return null;
+    
+    const seconds = Math.floor(remainingBytes / speed);
+    if (!isFinite(seconds)) return null;
+    
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    
+    if (h > 0) return `${h}h ${m}m left`;
+    if (m > 0) return `${m}m ${s}s left`;
+    return `${s}s left`;
+  };
+
   const getStatusColor = () => {
     switch (download.status) {
       case "active": return "bg-primary/10 text-primary border-primary/20";
@@ -196,7 +213,14 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
           {(download.status === "active" || download.status === "paused" || download.status === "waiting") && (
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{download.status === "active" ? `${formatBytes(speed)}/s` : '--'}</span>
+                <div className="flex items-center gap-2">
+                  <span>{download.status === "active" ? `${formatBytes(speed)}/s` : '--'}</span>
+                  {download.status === "active" && speed > 0 && (
+                    <span className="text-muted-foreground/60">
+                      • {getETA()}
+                    </span>
+                  )}
+                </div>
                 <span>{progress.toFixed(1)}%</span>
               </div>
               <Progress value={progress} className="h-1.5 bg-muted" />
