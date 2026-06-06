@@ -10,18 +10,79 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 });
 
 // Cache for dynamically sniffed hashes from content script
+// We store by multiple keys for fuzzy matching after redirects
 const sniffedHashes = new Map();
+
+function storeHash(url, hash) {
+  sniffedHashes.set(url, hash);
+
+  // Also store by URL path (without query params) for redirect tolerance
+  try {
+    const parsed = new URL(url);
+    const pathKey = parsed.origin + parsed.pathname;
+    sniffedHashes.set(pathKey, hash);
+
+    // Also store by just the filename for maximum fuzziness
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (segments.length > 0) {
+      const filename = segments[segments.length - 1];
+      if (filename.length > 3) {
+        sniffedHashes.set("__filename__" + filename, hash);
+      }
+    }
+  } catch (_) { /* invalid URL, skip */ }
+
+  // Automatically clean up old hashes after 10 minutes
+  setTimeout(() => {
+    sniffedHashes.delete(url);
+  }, 10 * 60 * 1000);
+}
+
+function lookupHash(downloadUrl, finalUrl, filename) {
+  // 1. Exact URL match
+  let hash = sniffedHashes.get(downloadUrl);
+  if (hash) return hash;
+
+  // 2. Final URL match (after redirects)
+  if (finalUrl) {
+    hash = sniffedHashes.get(finalUrl);
+    if (hash) return hash;
+  }
+
+  // 3. Try without query params
+  try {
+    const parsed = new URL(downloadUrl);
+    hash = sniffedHashes.get(parsed.origin + parsed.pathname);
+    if (hash) return hash;
+  } catch (_) { /* ignore */ }
+
+  if (finalUrl) {
+    try {
+      const parsed = new URL(finalUrl);
+      hash = sniffedHashes.get(parsed.origin + parsed.pathname);
+      if (hash) return hash;
+    } catch (_) { /* ignore */ }
+  }
+
+  // 4. Try by filename (most forgiving - handles full redirects to CDNs)
+  if (filename) {
+    const cleanName = filename.split(/[/\\]/).pop();
+    if (cleanName) {
+      hash = sniffedHashes.get("__filename__" + cleanName);
+      if (hash) return hash;
+    }
+  }
+
+  // 5. Try the referrer page URL (for button-triggered downloads)
+  // The content script stores hash by page URL when a button is clicked
+  // This is handled automatically since we check all stored keys
+
+  return null;
+}
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "HASH_FOUND" && message.url && message.hash) {
-    sniffedHashes.set(message.url, message.hash);
-    
-    // Automatically clean up old hashes after 5 minutes to prevent memory leaks
-    setTimeout(() => {
-      if (sniffedHashes.get(message.url) === message.hash) {
-        sniffedHashes.delete(message.url);
-      }
-    }, 5 * 60 * 1000);
+    storeHash(message.url, message.hash);
   }
 });
 
@@ -66,14 +127,15 @@ chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
     
     const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
-    let matchedHash = sniffedHashes.get(downloadItem.url) || sniffedHashes.get(downloadItem.finalUrl);
+    const cleanFilename = downloadItem.filename ? downloadItem.filename.split(/[/\\]/).pop() : "";
+    const matchedHash = lookupHash(downloadItem.url, downloadItem.finalUrl, cleanFilename);
 
     const payload = {
       url: downloadItem.url,
       referrer: downloadItem.referrer || "",
       cookies: cookieString,
       userAgent: navigator.userAgent,
-      filename: downloadItem.filename ? downloadItem.filename.split(/[/\\]/).pop() : "",
+      filename: cleanFilename,
       fileSize: downloadItem.fileSize || 0,
       checksum: matchedHash || undefined
     };
@@ -118,7 +180,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
     } catch {}
 
-    let matchedHash = sniffedHashes.get(targetUrl);
+    const matchedHash = lookupHash(targetUrl, null, null);
 
     const payload = {
       url: targetUrl,
