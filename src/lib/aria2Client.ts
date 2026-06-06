@@ -13,6 +13,10 @@ export interface Aria2Download {
     uris: { status: string; uri: string }[];
   }[];
   errorMessage?: string;
+  addedAt?: number;
+  bitfield?: string;
+  numPieces?: string;
+  connections?: string;
 }
 
 class Aria2Client {

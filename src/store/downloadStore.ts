@@ -29,7 +29,7 @@ async function getStore() {
 }
 
 // Persisted download metadata cache — survives app restarts
-interface CachedMeta { totalLength: string; completedLength: string; }
+interface CachedMeta { totalLength: string; completedLength: string; addedAt?: number; }
 const mockMetaStore = new Map<string, unknown>();
 let metaStoreCache: Store | null = null;
 async function getMetaStore() {
@@ -243,7 +243,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
 
   fetchDownloads: async () => {
     try {
-      const keys = ["gid", "status", "totalLength", "completedLength", "downloadSpeed", "dir", "files", "errorMessage"];
+      const keys = ["gid", "status", "totalLength", "completedLength", "downloadSpeed", "dir", "files", "errorMessage", "bitfield", "numPieces", "connections"];
       const active = await aria2Client.tellActive(keys);
       const waiting = await aria2Client.tellWaiting(0, 100, keys);
       const stopped = await aria2Client.tellStopped(0, 100, keys);
@@ -259,16 +259,31 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       for (const dl of allDownloads) {
         const total = parseInt(dl.totalLength, 10);
         const done = parseInt(dl.completedLength, 10);
-        if (total > 0) {
-          // Save known-good sizes to our cache
-          await metaStore.set(dl.gid, { totalLength: dl.totalLength, completedLength: dl.completedLength } as CachedMeta);
-        } else {
-          // aria2c returned 0 — fill in from our cache
-          const cached = await metaStore.get<CachedMeta>(dl.gid);
-          if (cached) {
-            dl.totalLength = cached.totalLength;
-            if (done === 0) dl.completedLength = cached.completedLength;
-          }
+        
+        let cached = await metaStore.get<CachedMeta>(dl.gid);
+        
+        // Ensure addedAt is carried over or initialized
+        if (!cached) {
+          cached = { totalLength: dl.totalLength, completedLength: dl.completedLength, addedAt: Date.now() };
+          await metaStore.set(dl.gid, cached);
+        } else if (!cached.addedAt) {
+          cached.addedAt = Date.now();
+          await metaStore.set(dl.gid, cached);
+        }
+        
+        // Hydrate from cache
+        if (total === 0 && cached.totalLength) {
+          dl.totalLength = cached.totalLength;
+        }
+        if (done === 0 && cached.completedLength) {
+          dl.completedLength = cached.completedLength;
+        }
+        
+        dl.addedAt = cached.addedAt;
+        
+        // Update size cache if aria2c has valid data
+        if (total > 0 && (cached.totalLength !== dl.totalLength || cached.completedLength !== dl.completedLength)) {
+          await metaStore.set(dl.gid, { ...cached, totalLength: dl.totalLength, completedLength: dl.completedLength } as CachedMeta);
         }
       }
       await metaStore.save();
