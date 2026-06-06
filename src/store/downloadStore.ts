@@ -9,7 +9,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-import { formatChecksum } from '@/lib/utils';
+import { formatChecksum, type DetectedChecksum } from '@/lib/utils';
 
 const mockStore = new Map<string, unknown>();
 let settingsStoreCache: Store | null = null;
@@ -53,7 +53,7 @@ export interface StagedDownload {
   filename?: string;
   fileSize?: number;
   mediaFormats?: YtDlpFormat[];
-  checksum?: string;
+  checksum?: DetectedChecksum;
 }
 
 export interface PendingMux {
@@ -92,7 +92,7 @@ export interface DownloadState {
   fetchDownloads: () => Promise<void>;
   stageDownload: (download: StagedDownload) => Promise<void>;
   clearStagedDownload: () => void;
-  addDownload: (url: string, headers?: string[], dir?: string, filename?: string, audioUrl?: string, checksum?: string) => Promise<void>;
+  addDownload: (url: string, headers?: string[], dir?: string, filename?: string, audioUrl?: string, checksum?: DetectedChecksum | string) => Promise<void>;
   pauseDownload: (gid: string) => Promise<void>;
   resumeDownload: (gid: string) => Promise<void>;
   cancelDownload: (gid: string) => Promise<void>;
@@ -382,7 +382,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     }
   },
 
-  addDownload: async (url: string, headers: string[] = [], dir?: string, filename?: string, audioUrl?: string, checksum?: string) => {
+  addDownload: async (url: string, headers: string[] = [], dir?: string, filename?: string, audioUrl?: string, checksum?: DetectedChecksum | string) => {
     const options: Record<string, string | string[]> = {
       "check-certificate": "false"
     };

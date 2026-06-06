@@ -59,7 +59,7 @@ export function AppInitializer() {
                   headers,
                   filename: typeof payload.filename === 'string' ? payload.filename : undefined,
                   fileSize: typeof payload.fileSize === 'number' ? payload.fileSize : undefined,
-                  checksum: typeof payload.checksum === 'string' ? payload.checksum : undefined
+                  checksum: typeof payload.checksum === 'object' && payload.checksum !== null ? (payload.checksum as import('@/lib/utils').DetectedChecksum) : undefined
                 });
             }
         }).then(f => unlisten = f).catch(e => console.warn("Tauri event listen failed:", e));
