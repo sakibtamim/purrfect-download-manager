@@ -15,6 +15,11 @@ export function DownloadDetailsPanel() {
   const [deleteLocalFile, setDeleteLocalFile] = useState(false);
   const [checksumOpt, setChecksumOpt] = useState<string | null>(null);
 
+  const download = [...active, ...completed, ...failed].find(d => d.gid === selectedDownloadId);
+
+  const showConnections = download && (download.status === 'active' || download.status === 'waiting' || download.status === 'paused');
+  const currentTab = (activeTab === 'connections' && !showConnections) ? 'general' : activeTab;
+
   useEffect(() => {
     let isMounted = true;
     if (selectedDownloadId) {
@@ -33,8 +38,6 @@ export function DownloadDetailsPanel() {
   }, [selectedDownloadId]);
 
   if (!selectedDownloadId) return null;
-
-  const download = [...active, ...completed, ...failed].find(d => d.gid === selectedDownloadId);
   
   if (!download) {
     return null;
@@ -140,23 +143,25 @@ export function DownloadDetailsPanel() {
       <div className="flex items-center justify-between px-4 border-b border-border">
         <div className="flex gap-4">
           <button 
-            className={`py-3 px-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'general' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+            className={`py-3 px-2 text-sm font-medium border-b-2 transition-colors ${currentTab === 'general' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
             onClick={() => setActiveTab('general')}
           >
             General
           </button>
           <button 
-            className={`py-3 px-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'progress' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+            className={`py-3 px-2 text-sm font-medium border-b-2 transition-colors ${currentTab === 'progress' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
             onClick={() => setActiveTab('progress')}
           >
             Progress
           </button>
-          <button 
-            className={`py-3 px-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'connections' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-            onClick={() => setActiveTab('connections')}
-          >
-            Connections
-          </button>
+          {showConnections && (
+            <button 
+              className={`py-3 px-2 text-sm font-medium border-b-2 transition-colors ${currentTab === 'connections' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+              onClick={() => setActiveTab('connections')}
+            >
+              Connections
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-500 hover:bg-red-500/10" title="Remove Download" onClick={() => setIsDeleteDialogOpen(true)}>
@@ -169,7 +174,7 @@ export function DownloadDetailsPanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {activeTab === 'general' && (
+        {currentTab === 'general' && (
           <div className="flex gap-6">
             <div className="shrink-0 pt-2 flex items-start justify-center">
               {getFileIcon()}
@@ -256,7 +261,7 @@ export function DownloadDetailsPanel() {
           </div>
         )}
 
-        {activeTab === 'progress' && (() => {
+        {currentTab === 'progress' && (() => {
           const bitfieldStr = download.bitfield || "";
           const numPieces = parseInt(download.numPieces || "0", 10);
           const pieces: boolean[] = [];
@@ -310,16 +315,8 @@ export function DownloadDetailsPanel() {
           );
         })()}
 
-        {activeTab === 'connections' && (() => {
-          let host = "Unknown";
-          let port = "Unknown";
-          try {
-            const parsedUrl = new URL(url);
-            host = parsedUrl.hostname;
-            port = parsedUrl.port || (parsedUrl.protocol === 'https:' ? '443' : '80');
-          } catch (e) {
-            // invalid url
-          }
+        {currentTab === 'connections' && (() => {
+          const uris = download.files[0]?.uris || [];
           const connCount = download.connections || "0";
 
           return (
@@ -333,10 +330,29 @@ export function DownloadDetailsPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {parseInt(connCount, 10) > 0 ? (
+                  {parseInt(connCount, 10) > 0 && uris.length > 0 ? (
+                    uris.map((u, i) => {
+                      let host = "Unknown";
+                      let port = "Unknown";
+                      try {
+                        const parsedUrl = new URL(u.uri);
+                        host = parsedUrl.hostname;
+                        port = parsedUrl.port || (parsedUrl.protocol === 'https:' ? '443' : '80');
+                      } catch (e) {
+                        // invalid url
+                      }
+                      return (
+                        <tr key={i} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                          <td className="px-4 py-2 text-foreground truncate max-w-[200px]" title={host}>{host}</td>
+                          <td className="px-4 py-2 text-foreground">{port}</td>
+                          <td className="px-4 py-2 text-foreground">{i === 0 ? connCount : '-'}</td>
+                        </tr>
+                      );
+                    })
+                  ) : parseInt(connCount, 10) > 0 && uris.length === 0 ? (
                     <tr className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                      <td className="px-4 py-2 text-foreground truncate max-w-[200px]" title={host}>{host}</td>
-                      <td className="px-4 py-2 text-foreground">{port}</td>
+                      <td className="px-4 py-2 text-foreground truncate max-w-[200px]">P2P / Torrent</td>
+                      <td className="px-4 py-2 text-foreground">-</td>
                       <td className="px-4 py-2 text-foreground">{connCount}</td>
                     </tr>
                   ) : (
