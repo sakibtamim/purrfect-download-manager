@@ -12,7 +12,8 @@
     "dev:app": "pnpm run clean && pnpm run tauri dev",
     "setup": "node scripts/setup-sidecars.js",
     "prepare": "husky",
-    "version": "node scripts/sync-versions.js && git add src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock"
+    "version": "node scripts/sync-versions.js && git add src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock",
+    "postversion": "git push && git push --tags"
   },
   "lint-staged": {
     "**/*.{js,mjs,cjs,ts,tsx}": "eslint --fix"
