@@ -240,7 +240,7 @@ export function ConfirmDownloadModal() {
             <Label className="text-muted-foreground text-xs uppercase">URL</Label>
             <div className="text-xs font-mono break-all bg-background p-2 rounded border border-border max-h-24 overflow-y-auto" title={selectedFormatUrl || stagedDownload.url}>
               {(() => {
-                const u = selectedFormatUrl || stagedDownload.url;
+                const u = selectedFormatUrl || stagedDownload.url || "";
                 return u.length > 80 ? u.substring(0, 50) + '...' + u.substring(u.length - 20) : u;
               })()}
             </div>

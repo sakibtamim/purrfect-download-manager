@@ -21,7 +21,7 @@ const { execSync } = require('child_process');
 // Update Cargo.toml
 let cargoToml = fs.readFileSync(cargoTomlPath, 'utf8');
 // Matches the first 'version = "..."' which belongs to the [package] section
-cargoToml = cargoToml.replace(/version = ".*"/, `version = "${version}"`);
+cargoToml = cargoToml.replace(/^version *= *".*"/m, `version = "${version}"`);
 fs.writeFileSync(cargoTomlPath, cargoToml);
 console.log(`[sync-versions] Updated Cargo.toml to version ${version}`);
 
