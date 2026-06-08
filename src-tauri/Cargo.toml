@@ -1,6 +1,6 @@
 [package]
 name = "purrfect-download-manager"
-version = "0.1.0"
+version = "0.1.1"
 description = "Purrfect Download Manager - A fast and aesthetic download manager built with Tauri and Next.js"
 authors = ["Sakib"]
 license = "MIT"
