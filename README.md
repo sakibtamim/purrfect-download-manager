@@ -33,6 +33,7 @@ A modern, lightning-fast desktop download manager built with **Tauri v2**, **Nex
 
 - **Interactive Staging Modal:** When a download is intercepted, PDM pauses the download and launches a beautiful confirmation modal, giving you a chance to inspect the file size, filename, security status, and choose a custom save directory.
 - **Download Details Panel:** Click any download to reveal a comprehensive slide-up panel. View live progress metrics, full URLs, and open the destination folder instantly via native OS file explorer integration.
+- **Collapsible Sidebar:** Gain more screen real estate for your download queues by smoothly collapsing the navigation sidebar into a compact, icon-only mode.
 - **Real-time Metrics:** Displays live download speeds and a dynamic "Time Remaining" (ETA) directly on the download cards and in the details panel.
 - **Foreground Focus:** PDM waits silently in the background, but the moment you intercept a download in your browser, it seamlessly brings its native window right to the foreground.
 - **Drag & Drop Magic:** Found a link? Just drag and drop it directly onto the PDM window to immediately add it to your queue.
@@ -49,6 +50,7 @@ A modern, lightning-fast desktop download manager built with **Tauri v2**, **Nex
 
 - Run `pnpm install` to install dependencies and set up the local Git hooks.
 - Use `pnpm lint` before pushing changes.
+- **Versioning:** When preparing a release, run `pnpm version [patch|minor|major]`. A custom script will automatically keep `tauri.conf.json` and `Cargo.toml` in perfect sync with `package.json` and bundle the commit for you.
 - The GitHub helper scripts live in `scripts/`:
   - `scripts/generate-issues-report.js` generates an issue report under `docs/reports/`.
   - `scripts/gh-pr-review-comments.js` fetches review comments for a pull request.
