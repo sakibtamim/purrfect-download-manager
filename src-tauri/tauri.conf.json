@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "PDM",
+  "productName": "Purrfect Download Manager",
   "version": "0.1.0",
-  "identifier": "com.purrfectsoftware.pdm",
+  "identifier": "com.purrfectsoftwareltd.pdm",
   "build": {
     "frontendDist": "../out",
     "devUrl": "http://localhost:3000",
@@ -26,6 +26,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Purrfect Software Limited",
     "windows": {
       "nsis": {
         "installMode": "perMachine"
