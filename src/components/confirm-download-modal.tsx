@@ -227,7 +227,7 @@ export function ConfirmDownloadModal() {
 
   return (
     <Dialog open={!!stagedDownload} onOpenChange={(open) => !open && clearStagedDownload()}>
-      <DialogContent className="sm:max-w-125 bg-card border-border text-foreground">
+      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto bg-card border-border text-foreground">
         <DialogHeader>
           <DialogTitle>Confirm Download</DialogTitle>
           <DialogDescription className="text-muted-foreground">
@@ -238,8 +238,11 @@ export function ConfirmDownloadModal() {
         <div className="grid gap-4 py-4">
           <div className="space-y-1">
             <Label className="text-muted-foreground text-xs uppercase">URL</Label>
-            <div className="text-xs font-mono break-all bg-background p-2 rounded border border-border max-h-24 overflow-y-auto">
-              {selectedFormatUrl || stagedDownload.url}
+            <div className="text-xs font-mono break-all bg-background p-2 rounded border border-border max-h-24 overflow-y-auto" title={selectedFormatUrl || stagedDownload.url}>
+              {(() => {
+                const u = selectedFormatUrl || stagedDownload.url;
+                return u.length > 80 ? u.substring(0, 50) + '...' + u.substring(u.length - 20) : u;
+              })()}
             </div>
           </div>
           

@@ -213,8 +213,8 @@ export function DownloadDetailsPanel() {
                 </div>
               </div>
               
-              <div className="space-y-2 text-sm pt-2">
-                <button type="button" className="flex gap-2 items-center group cursor-pointer w-full text-left" onClick={async () => {
+              <div className="space-y-2 text-sm pt-2 w-full min-w-0">
+                <button type="button" className="flex gap-2 items-center group cursor-pointer w-full text-left min-w-0" onClick={async () => {
                   const fp = download.files[0]?.path;
                   if (fp) {
                     try {
@@ -228,11 +228,15 @@ export function DownloadDetailsPanel() {
                   }
                 }}>
                   <FolderOpen className="h-4 w-4 text-muted-foreground group-hover:text-primary shrink-0 transition-colors" />
-                  <span className="text-muted-foreground group-hover:text-primary transition-colors truncate" title={filePath}>{filePath}</span>
+                  <span className="text-muted-foreground group-hover:text-primary transition-colors truncate flex-1 min-w-0" title={filePath}>
+                    {filePath.length > 60 ? '...' + filePath.substring(filePath.length - 55) : filePath}
+                  </span>
                 </button>
-                <div className="flex gap-2 items-center">
+                <div className="flex gap-2 items-center min-w-0">
                   <span className="text-primary text-xs font-bold uppercase tracking-wider shrink-0 w-8">URL</span>
-                  <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate block" title={url}>{url}</a>
+                  <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate block flex-1 min-w-0" title={url}>
+                    {url.length > 60 ? url.substring(0, 35) + '...' + url.substring(url.length - 15) : url}
+                  </a>
                 </div>
                 {checksumOpt && (() => {
                   const parts = checksumOpt.split('=');
