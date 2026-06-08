@@ -181,7 +181,7 @@ export function DownloadDetailsPanel() {
             </div>
             <div className="flex-1 min-w-0 space-y-4">
               <div>
-                <h2 className="text-xl font-semibold text-foreground truncate" title={fileName || ""}>{fileName}</h2>
+                <h2 className="text-xl font-semibold text-foreground line-clamp-2 break-all" title={fileName || ""}>{fileName}</h2>
                 {(download.status === "active" || download.status === "paused" || download.status === "waiting") && (
                   <div className="mt-2 space-y-1">
                     <div className="flex justify-between text-xs text-muted-foreground mb-1">
