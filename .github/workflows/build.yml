@@ -19,7 +19,7 @@ jobs:
           - platform: "macos-latest"
             args: ""
           - platform: "ubuntu-latest"
-            args: "--bundles appimage,deb,rpm,pacman"
+            args: "--bundles appimage,deb,rpm"
           - platform: "windows-latest"
             args: ""
 
@@ -75,6 +75,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: ${{ matrix.args }}
+
+      - name: build arch package (pacman)
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get install -y ruby ruby-dev rubygems build-essential libarchive-tools
+          sudo gem install --no-document fpm
+          cd src-tauri/target/release/bundle/deb
+          mv *.deb app.deb
+          fpm -s deb -t pacman -n purrfect-download-manager --no-depends -d "webkit2gtk-4.1" -d "gtk3" -d "libayatana-appindicator" app.deb
+          mkdir -p ../pacman
+          mv *.pkg.tar.* ../pacman/
 
 
       - name: Upload artifacts
