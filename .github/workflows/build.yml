@@ -86,17 +86,21 @@ jobs:
         run: |
           sudo apt-get install -y ruby ruby-dev rubygems build-essential
           sudo gem install --no-document fpm
-          find src-tauri/target/release/bundle/deb -name "*.deb" -exec fpm -s deb -t pacman -n purrfect-download-manager {} \;
-          mkdir -p src-tauri/target/release/bundle/pacman
-          mv *.pkg.tar.* src-tauri/target/release/bundle/pacman/
+          cd src-tauri/target/release/bundle/deb
+          mv *.deb app.deb
+          fpm -s deb -t pacman -n purrfect-download-manager app.deb
+          mkdir -p ../pacman
+          mv *.pkg.tar.* ../pacman/
 
       - name: Read package version
         id: package-version
+        shell: bash
         run: |
           echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
 
       - name: Upload artifacts to Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
           find src-tauri/target/release/bundle -type f -exec gh release upload "v${{ steps.package-version.outputs.version }}" {} --clobber \;
