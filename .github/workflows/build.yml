@@ -105,3 +105,9 @@ jobs:
         shell: bash
         run: |
           gh release upload "v${{ steps.package-version.outputs.version }}" src-tauri/target/release/bundle/pacman/*.pkg.tar.* --clobber
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-build-${{ matrix.platform }}
+          path: src-tauri/target/release/bundle/**
