@@ -75,11 +75,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: ${{ matrix.args }}
-          tagName: v__VERSION__
-          releaseName: "Purrfect Download Manager v__VERSION__"
-          releaseBody: "See the assets to download this version and install."
-          releaseDraft: false
-          prerelease: false
 
       - name: build arch package (pacman)
         if: matrix.platform == 'ubuntu-latest'
@@ -92,19 +87,6 @@ jobs:
           mkdir -p ../pacman
           mv *.pkg.tar.* ../pacman/
 
-      - name: Read package version
-        id: package-version
-        shell: bash
-        run: |
-          echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
-
-      - name: Upload pacman package to Release
-        if: matrix.platform == 'ubuntu-22.04'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          gh release upload "v${{ steps.package-version.outputs.version }}" src-tauri/target/release/bundle/pacman/*.pkg.tar.* --clobber
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
