@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - deploy
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
@@ -16,8 +18,8 @@ jobs:
         include:
           - platform: "macos-latest"
             args: ""
-          - platform: "ubuntu-22.04"
-            args: ""
+          - platform: "ubuntu-latest"
+            args: "--bundles appimage,deb,rpm"
           - platform: "windows-latest"
             args: ""
 
@@ -26,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
@@ -79,8 +81,22 @@ jobs:
           releaseDraft: true
           prerelease: false
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: tauri-build-${{ matrix.platform }}
-          path: src-tauri/target/release/bundle/**
+      - name: build arch package (pacman)
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get install -y ruby ruby-dev rubygems build-essential
+          sudo gem install --no-document fpm
+          find src-tauri/target/release/bundle/deb -name "*.deb" -exec fpm -s deb -t pacman -n purrfect-download-manager {} \;
+          mkdir -p src-tauri/target/release/bundle/pacman
+          mv *.pkg.tar.* src-tauri/target/release/bundle/pacman/
+
+      - name: Read package version
+        id: package-version
+        run: |
+          echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Upload artifacts to Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          find src-tauri/target/release/bundle -type f -exec gh release upload "v${{ steps.package-version.outputs.version }}" {} --clobber \;
