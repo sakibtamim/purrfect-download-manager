@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "clean": "node scripts/kill-zombies.js",
     "dev:app": "pnpm run clean && pnpm run tauri dev",

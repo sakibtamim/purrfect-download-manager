@@ -22,7 +22,6 @@ gh issue view <ISSUE_NUMBER> --comments
 - Map issue scope to concrete files first.
 - Keep changes focused; avoid unrelated refactors.
 - Reuse existing architecture patterns in:
-  - `src/lib/firebase/`
   - `src/components/providers/`
   - `src/store/`
   - `src/types/`
@@ -32,7 +31,6 @@ gh issue view <ISSUE_NUMBER> --comments
 - Always run `pnpm lint`.
 - Run the available test command for domain logic, calculations, auth/settings, or utilities.
 - For deploy-sensitive work, run `pnpm build` or `pnpm predeploy:check`.
-- If Firestore rules/indexes are modified, include rule/index verification steps.
 
 ## 4. Completion Criteria
 

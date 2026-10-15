@@ -6,14 +6,14 @@ trigger: always_on
 
 ## 1. Read Core Rules
 
-- `.agent/rules/guardrails.md`
-- `.agent/rules/coding-standards.md`
-- `.agent/rules/security-standards.md`
-- `.agent/rules/project-structure.md`
-- `.agent/rules/tech-stack.md`
-- `.agent/rules/issue-creation-standards.md`
-- `.agent/rules/issue-execution.md`
-- `.agent/rules/pr-code-review-address-guidelines.md`
+- `.agents/rules/guardrails.md`
+- `.agents/rules/coding-standards.md`
+- `.agents/rules/security-standards.md`
+- `.agents/rules/project-structure.md`
+- `.agents/rules/tech-stack.md`
+- `.agents/rules/issue-creation-standards.md`
+- `.agents/rules/issue-execution.md`
+- `.agents/rules/pr-code-review-address-guidelines.md`
 
 ## 2. Read Project Context
 

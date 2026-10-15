@@ -35,7 +35,6 @@ Acceptance criteria should call out applicable checks from this project:
 
 - `pnpm lint`
 - `pnpm test:run` (for logic changes)
-- Firestore rules/index updates when data model/security changes
 - Dashboard QA checklist validation for dashboard UI changes
 
 ## 4. Technical Notes Requirements
@@ -43,7 +42,6 @@ Acceptance criteria should call out applicable checks from this project:
 Mention concrete touchpoints when known:
 
 - Route/pages in `src/app/`
-- Services in `src/lib/firebase/`
 - Stores/providers in `src/store/` and `src/components/providers/`
 - Types in `src/types/`
 
