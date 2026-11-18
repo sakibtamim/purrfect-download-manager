@@ -385,16 +385,17 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       }
 
       if (removeLocalFile && dl.files && dl.files.length > 0) {
+        const customDir = get().defaultDownloadDir || undefined;
         for (const f of dl.files) {
           if (f.path) {
             try {
-              await invoke('delete_downloaded_file', { path: f.path });
+              await invoke('delete_downloaded_file', { path: f.path, customDir });
             } catch (e) {
               console.error('Failed to delete local file:', f.path, e);
             }
             if (dl.status !== 'complete') {
               try {
-                await invoke('delete_downloaded_file', { path: f.path + '.aria2' });
+                await invoke('delete_downloaded_file', { path: f.path + '.aria2', customDir });
               } catch {}
             }
           }

@@ -12,7 +12,7 @@ use tauri_plugin_shell::ShellExt;
 use tiny_http::{Response, Server};
 
 #[tauri::command]
-fn delete_downloaded_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
+fn delete_downloaded_file(app: tauri::AppHandle, path: String, custom_dir: Option<String>) -> Result<(), String> {
     let p = std::path::Path::new(&path);
     let target = p.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
     if !target.is_file() {
@@ -21,11 +21,13 @@ fn delete_downloaded_file(app: tauri::AppHandle, path: String) -> Result<(), Str
 
     let download_dir = app.path().download_dir().ok().and_then(|d| d.canonicalize().ok());
     let app_data_dir = app.path().app_local_data_dir().ok().and_then(|d| d.canonicalize().ok());
+    let custom_target_dir = custom_dir.and_then(|cd| std::path::PathBuf::from(cd).canonicalize().ok());
 
     let is_in_download = download_dir.map(|d| target.starts_with(&d)).unwrap_or(false);
     let is_in_app_data = app_data_dir.map(|d| target.starts_with(&d)).unwrap_or(false);
+    let is_in_custom = custom_target_dir.map(|d| target.starts_with(&d)).unwrap_or(false);
 
-    if is_in_download || is_in_app_data {
+    if is_in_download || is_in_app_data || is_in_custom {
         std::fs::remove_file(target).map_err(|e| e.to_string())
     } else {
         Err("Permission denied: Target file is outside allowed download directories".to_string())

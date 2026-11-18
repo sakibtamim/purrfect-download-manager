@@ -85,7 +85,11 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
     await store.set('maxConcurrentDownloads', max);
     await store.save();
     set({ maxConcurrentDownloads: max });
-    await aria2Client.changeGlobalOption({ 'max-concurrent-downloads': max.toString() });
+    try {
+      await aria2Client.changeGlobalOption({ 'max-concurrent-downloads': max.toString() });
+    } catch (err) {
+      console.warn('Failed to update aria2 max-concurrent-downloads:', err);
+    }
   },
 
   setSplitConnections: async (split: number) => {
@@ -93,10 +97,14 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
     await store.set('splitConnections', split);
     await store.save();
     set({ splitConnections: split });
-    await aria2Client.changeGlobalOption({
-      'split': split.toString(),
-      'max-connection-per-server': split.toString()
-    });
+    try {
+      await aria2Client.changeGlobalOption({
+        'split': split.toString(),
+        'max-connection-per-server': split.toString()
+      });
+    } catch (err) {
+      console.warn('Failed to update aria2 split connections:', err);
+    }
   },
 
   setAutoStart: async (enabled: boolean) => {

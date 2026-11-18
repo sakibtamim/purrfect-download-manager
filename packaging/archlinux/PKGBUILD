@@ -35,6 +35,7 @@ source=(
   "$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
   "purrfect-download-manager.desktop"
 )
+# sha256sums are set to 'SKIP' during development and updated via 'updpkgsums' upon tagging a release
 sha256sums=(
   'SKIP'
   'SKIP'

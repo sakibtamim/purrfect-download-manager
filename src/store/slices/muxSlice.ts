@@ -12,5 +12,9 @@ export const createMuxSlice: StateCreator<DownloadState, [], [], MuxSlice> = (se
   pendingMuxes: [],
   setPendingMuxes: (muxes) => set({ pendingMuxes: muxes }),
   addPendingMux: (mux) => set((state) => ({ pendingMuxes: [...state.pendingMuxes, mux] })),
-  removePendingMux: (mux) => set((state) => ({ pendingMuxes: state.pendingMuxes.filter((m) => m !== mux) })),
+  removePendingMux: (mux) => set((state) => ({
+    pendingMuxes: state.pendingMuxes.filter(
+      (m) => !(m.videoGid === mux.videoGid && m.audioGid === mux.audioGid)
+    ),
+  })),
 });
