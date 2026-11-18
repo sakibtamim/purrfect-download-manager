@@ -348,15 +348,24 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
               if (vPath && aPath) {
                 const finalPath = vPath.replace(/\.video\.[^.]+$/, '') + '.mp4';
                 
-                // Spawn FFmpeg
-                Command.sidecar('bin/pdm-ffmpeg', [
+                const ffmpegArgs = [
                    '-y',
                    '-i', vPath,
                    '-i', aPath,
                    '-c:v', 'copy',
                    '-c:a', 'copy',
                    finalPath
-                ]).execute().then(output => {
+                ];
+
+                const runFfmpeg = async () => {
+                   try {
+                     return await Command.sidecar('bin/pdm-ffmpeg', ffmpegArgs).execute();
+                   } catch {
+                     return await Command.create('system-ffmpeg', ffmpegArgs).execute();
+                   }
+                };
+
+                runFfmpeg().then(output => {
                    if (output.code === 0) {
                       notify("Video Processing Complete", `High-resolution video merged successfully.`);
                       invoke('delete_downloaded_file', { path: vPath }).catch(console.error);

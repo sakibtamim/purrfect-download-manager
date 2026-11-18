@@ -39,28 +39,12 @@ fn reveal_in_folder(path: String) -> Result<(), String> {
         return Err("File or folder does not exist".to_string());
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .args(["/select,", &path])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .args(["-R", &path])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let parent = if p.is_dir() { p } else { p.parent().unwrap_or(p) };
-        std::process::Command::new("xdg-open")
-            .arg(parent)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
+    // Native Linux / EndeavourOS desktop file manager reveal via xdg-open
+    let parent = if p.is_dir() { p } else { p.parent().unwrap_or(p) };
+    std::process::Command::new("xdg-open")
+        .arg(parent)
+        .spawn()
+        .map_err(|e| format!("Failed to open folder via xdg-open: {}", e))?;
     Ok(())
 }
 
@@ -209,30 +193,43 @@ pub fn run() {
       let current_pid = std::process::id();
       let stop_with_process_arg = format!("--stop-with-process={}", current_pid);
 
-      let sidecar_command = app.shell().sidecar("pdm-aria2c").unwrap()
-        .args([
-            "--enable-rpc", 
-            "--rpc-listen-all=false", 
-            "--rpc-listen-port=6800", 
-            "--check-certificate=true",
-            "--file-allocation=falloc",
-            "--save-session-interval=10",
-            "--continue=true",
-            &stop_with_process_arg,
-            &session_arg,
-            &input_file_arg,
-            &dir_arg,
-            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        ]);
+      let sidecar_cmd_result = app.shell().sidecar("pdm-aria2c");
+      let sidecar_command = match sidecar_cmd_result {
+          Ok(cmd) => cmd,
+          Err(err) => {
+              log::warn!("Bundled pdm-aria2c sidecar not available ({}), falling back to system aria2c...", err);
+              app.shell().command("system-aria2c")
+          }
+      };
+
+      let configured_command = sidecar_command.args([
+          "--enable-rpc", 
+          "--rpc-listen-all=false", 
+          "--rpc-listen-port=6800", 
+          "--check-certificate=true",
+          "--file-allocation=falloc",
+          "--save-session-interval=10",
+          "--continue=true",
+          &stop_with_process_arg,
+          &session_arg,
+          &input_file_arg,
+          &dir_arg,
+          "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+      ]);
         
-      let (mut rx, mut _child) = sidecar_command.spawn().expect("Failed to spawn aria2c");
-      
-      tauri::async_runtime::spawn(async move {
-        let _child_keep_alive = _child;
-        while let Some(_event) = rx.recv().await {
-            // println!("aria2c event: {:?}", _event);
-        }
-      });
+      match configured_command.spawn() {
+          Ok((mut rx, _child)) => {
+              tauri::async_runtime::spawn(async move {
+                  let _child_keep_alive = _child;
+                  while let Some(_event) = rx.recv().await {
+                      // Keep receiver active
+                  }
+              });
+          }
+          Err(err) => {
+              eprintln!("Failed to spawn aria2 daemon: {}. Please ensure aria2 is installed via pacman -S aria2 or run pnpm setup.", err);
+          }
+      }
       
       let app_handle = app.handle().clone();
       thread::spawn(move || {

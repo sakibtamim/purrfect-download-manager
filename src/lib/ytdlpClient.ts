@@ -58,8 +58,15 @@ export const ytdlpClient = {
     // So we'll rely on the player_client arg which solves 90% of the issues.
 
     try {
-      const command = Command.sidecar('bin/pdm-yt-dlp', args);
-      const output = await command.execute();
+      let output;
+      try {
+        const command = Command.sidecar('bin/pdm-yt-dlp', args);
+        output = await command.execute();
+      } catch (sidecarErr) {
+        console.warn("[yt-dlp] Sidecar execution failed, trying system yt-dlp:", sidecarErr);
+        const command = Command.create('system-ytdlp', args);
+        output = await command.execute();
+      }
 
       if (output.code !== 0) {
         throw new Error(`yt-dlp exited with code ${output.code}: ${output.stderr}`);
