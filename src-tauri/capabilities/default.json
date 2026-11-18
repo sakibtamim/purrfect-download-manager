@@ -39,8 +39,18 @@
           "args": true
         },
         {
-          "name": "explorer",
-          "cmd": "explorer",
+          "name": "system-ytdlp",
+          "cmd": "yt-dlp",
+          "args": true
+        },
+        {
+          "name": "system-ffmpeg",
+          "cmd": "ffmpeg",
+          "args": true
+        },
+        {
+          "name": "system-aria2c",
+          "cmd": "aria2c",
           "args": true
         }
       ]

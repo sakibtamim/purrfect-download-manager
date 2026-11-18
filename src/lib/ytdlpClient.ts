@@ -48,6 +48,7 @@ export const ytdlpClient = {
       '--no-warnings',
       '--extractor-args',
       'youtube:player_client=default', // Let yt-dlp pick the best unblocked client (Android/iOS)
+      '--',
       videoUrl
     ];
 

@@ -12,14 +12,56 @@ use tauri_plugin_shell::ShellExt;
 use tiny_http::{Response, Server};
 
 #[tauri::command]
-fn delete_downloaded_file(path: String) -> Result<(), String> {
-    // Basic safety check to ensure it's an absolute path and exists before deleting
+fn delete_downloaded_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
     let p = std::path::Path::new(&path);
-    if p.exists() && p.is_file() {
-        std::fs::remove_file(p).map_err(|e| e.to_string())
-    } else {
-        Err("File not found or is a directory".to_string())
+    let target = p.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    if !target.is_file() {
+        return Err("File not found or is a directory".to_string());
     }
+
+    let download_dir = app.path().download_dir().ok().and_then(|d| d.canonicalize().ok());
+    let app_data_dir = app.path().app_local_data_dir().ok().and_then(|d| d.canonicalize().ok());
+
+    let is_in_download = download_dir.map(|d| target.starts_with(&d)).unwrap_or(false);
+    let is_in_app_data = app_data_dir.map(|d| target.starts_with(&d)).unwrap_or(false);
+
+    if is_in_download || is_in_app_data {
+        std::fs::remove_file(target).map_err(|e| e.to_string())
+    } else {
+        Err("Permission denied: Target file is outside allowed download directories".to_string())
+    }
+}
+
+#[tauri::command]
+fn reveal_in_folder(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err("File or folder does not exist".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .args(["/select,", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let parent = if p.is_dir() { p } else { p.parent().unwrap_or(p) };
+        std::process::Command::new("xdg-open")
+            .arg(parent)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -164,15 +206,19 @@ pub fn run() {
       let session_arg = format!("--save-session={}", session_file.to_string_lossy());
       let input_file_arg = format!("--input-file={}", session_file.to_string_lossy());
 
+      let current_pid = std::process::id();
+      let stop_with_process_arg = format!("--stop-with-process={}", current_pid);
+
       let sidecar_command = app.shell().sidecar("pdm-aria2c").unwrap()
         .args([
             "--enable-rpc", 
             "--rpc-listen-all=false", 
             "--rpc-listen-port=6800", 
-            "--rpc-allow-origin-all",
-            "--check-certificate=false",
+            "--check-certificate=true",
+            "--file-allocation=falloc",
             "--save-session-interval=10",
             "--continue=true",
+            &stop_with_process_arg,
             &session_arg,
             &input_file_arg,
             &dir_arg,
@@ -247,7 +293,7 @@ pub fn run() {
       
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists])
+    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists, reveal_in_folder])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Play, Pause, X, FolderOpen, File, RefreshCw, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { open, Command } from "@tauri-apps/plugin-shell";
+import { open } from "@tauri-apps/plugin-shell";
+import { invoke } from "@tauri-apps/api/core";
 
 export function DownloadCard({ download }: { download: Aria2Download }) {
   const { isPlayfulMode, pauseDownload, resumeDownload, cancelDownload, addDownload, selectedDownloadId, setSelectedDownload, deleteDownload } = useDownloadStore();
@@ -189,10 +190,9 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                     const filePath = download.files[0]?.path;
                     if (filePath) {
                       try {
-                        const normalizedPath = filePath.replace(/\//g, '\\');
-                        await Command.create('explorer', [`/select,${normalizedPath}`]).execute();
+                        await invoke('reveal_in_folder', { path: filePath });
                       } catch (err) {
-                        console.error("Explorer failed:", err);
+                        console.error("Reveal in folder failed:", err);
                         if (download.dir) open(download.dir).catch(console.error);
                       }
                     } else if (download.dir) {

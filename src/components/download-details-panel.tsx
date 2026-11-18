@@ -6,7 +6,8 @@ import { aria2Client } from "@/lib/aria2Client";
 import { X, FileBox, FileArchive, FileImage, FileAudio, FileVideo, FileText, FileCode, FolderOpen, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { open, Command } from "@tauri-apps/plugin-shell";
+import { open } from "@tauri-apps/plugin-shell";
+import { invoke } from "@tauri-apps/api/core";
 
 export function DownloadDetailsPanel() {
   const { selectedDownloadId, setSelectedDownload, active, completed, failed, deleteDownload, isPlayfulMode } = useDownloadStore();
@@ -218,8 +219,7 @@ export function DownloadDetailsPanel() {
                   const fp = download.files[0]?.path;
                   if (fp) {
                     try {
-                      const normalizedPath = fp.replace(/\//g, '\\');
-                      await Command.create('explorer', [`/select,${normalizedPath}`]).execute();
+                      await invoke('reveal_in_folder', { path: fp });
                     } catch (err) {
                       if (download.dir) open(download.dir).catch(console.error);
                     }

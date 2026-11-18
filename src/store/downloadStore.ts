@@ -405,7 +405,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
 
   addDownload: async (url: string, headers: string[] = [], dir?: string, filename?: string, audioUrl?: string, checksum?: DetectedChecksum | string) => {
     const options: Record<string, string | string[]> = {
-      "check-certificate": "false"
+      "check-certificate": "true"
     };
     if (headers.length > 0) {
       options["header"] = headers;
