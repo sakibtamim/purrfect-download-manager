@@ -1,14 +1,14 @@
 "use client";
 
-import { useDownloadStore } from "@/store/downloadStore";
+import { useActiveDownloads, useCompletedDownloads, useFailedDownloads, usePlayfulMode } from "@/store/selectors/downloadSelectors";
 import { DownloadCard } from "@/components/download-card";
 import { List } from "lucide-react";
 
 export default function AllDownloads() {
-  const activeDownloads = useDownloadStore(state => state.active);
-  const completedDownloads = useDownloadStore(state => state.completed);
-  const failedDownloads = useDownloadStore(state => state.failed);
-  const isPlayfulMode = useDownloadStore(state => state.isPlayfulMode);
+  const activeDownloads = useActiveDownloads();
+  const completedDownloads = useCompletedDownloads();
+  const failedDownloads = useFailedDownloads();
+  const isPlayfulMode = usePlayfulMode();
 
   const allDownloads = [...activeDownloads, ...completedDownloads, ...failedDownloads];
 

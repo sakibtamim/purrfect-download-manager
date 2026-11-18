@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useDownloadStore } from "@/store/downloadStore";
+import { useAppStore } from "@/store";
 import { open } from "@tauri-apps/plugin-dialog";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -13,7 +13,9 @@ import { FolderOpen, CheckCircle2 } from "lucide-react";
 import { type ChecksumAlgorithm, type DetectedChecksum, validateChecksum } from "@/lib/utils";
 
 export function ConfirmDownloadModal() {
-  const { stagedDownload, clearStagedDownload, addDownload } = useDownloadStore();
+  const stagedDownload = useAppStore((state) => state.stagedDownload);
+  const clearStagedDownload = useAppStore((state) => state.clearStagedDownload);
+  const addDownload = useAppStore((state) => state.addDownload);
   const [saveDir, setSaveDir] = useState<string>("");
   const [rawFilename, setRawFilename] = useState<string>("Unknown");
   const [displayFilename, setDisplayFilename] = useState<string>("Unknown");
@@ -46,7 +48,7 @@ export function ConfirmDownloadModal() {
         setChecksumSource("");
       }
       
-      const apiKey = useDownloadStore.getState().safeBrowsingApiKey;
+      const apiKey = useAppStore.getState().safeBrowsingApiKey;
       setSecurityStatus(apiKey ? 'scanning' : 'no-key');
       
       setThreatDetails('');
@@ -103,7 +105,7 @@ export function ConfirmDownloadModal() {
       }
 
       // Perform Security Scan
-      const apiKey = useDownloadStore.getState().safeBrowsingApiKey;
+      const apiKey = useAppStore.getState().safeBrowsingApiKey;
       if (apiKey) {
         tauriFetch(`https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${apiKey}`, {
           method: "POST",
@@ -144,9 +146,9 @@ export function ConfirmDownloadModal() {
 
   useEffect(() => {
     let active = true;
-    const { getUniqueFilename } = useDownloadStore.getState();
+    const { getUniqueFilename } = useAppStore.getState();
     if (rawFilename) {
-      getUniqueFilename(rawFilename, saveDir || undefined).then(uniqueName => {
+      getUniqueFilename(rawFilename, saveDir || undefined).then((uniqueName: string) => {
         if (active) setDisplayFilename(uniqueName);
       }).catch(() => {
         if (active) setDisplayFilename(rawFilename);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useDownloadStore } from "@/store/downloadStore";
+import { useAppStore } from "@/store";
 import { Aria2Download } from "@/lib/aria2Client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -13,7 +13,14 @@ import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 
 export function DownloadCard({ download }: { download: Aria2Download }) {
-  const { isPlayfulMode, pauseDownload, resumeDownload, cancelDownload, addDownload, selectedDownloadId, setSelectedDownload, deleteDownload } = useDownloadStore();
+  const isPlayfulMode = useAppStore((state) => state.isPlayfulMode);
+  const isSelected = useAppStore((state) => state.selectedDownloadId === download.gid);
+  const setSelectedDownload = useAppStore((state) => state.setSelectedDownload);
+  const pauseDownload = useAppStore((state) => state.pauseDownload);
+  const resumeDownload = useAppStore((state) => state.resumeDownload);
+  const cancelDownload = useAppStore((state) => state.cancelDownload);
+  const addDownload = useAppStore((state) => state.addDownload);
+  const deleteDownload = useAppStore((state) => state.deleteDownload);
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteLocalFile, setDeleteLocalFile] = useState(false);
@@ -117,8 +124,6 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
   // Derive filename from path
   const filePath = download.files[0]?.path || "Unknown File";
   const fileName = filePath.includes('/') ? filePath.split('/').pop() : filePath.split('\\').pop() || "Unknown File";
-
-  const isSelected = selectedDownloadId === download.gid;
 
   return (
     <Card 

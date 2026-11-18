@@ -1,6 +1,6 @@
 "use client";
 
-import { useDownloadStore } from "@/store/downloadStore";
+import { useAppStore } from "@/store";
 import { useState, useEffect } from "react";
 import { aria2Client } from "@/lib/aria2Client";
 import { X, FileBox, FileArchive, FileImage, FileAudio, FileVideo, FileText, FileCode, FolderOpen, Trash2 } from "lucide-react";
@@ -10,13 +10,23 @@ import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 
 export function DownloadDetailsPanel() {
-  const { selectedDownloadId, setSelectedDownload, active, completed, failed, deleteDownload, isPlayfulMode } = useDownloadStore();
+  const selectedDownloadId = useAppStore((state) => state.selectedDownloadId);
+  if (!selectedDownloadId) return null;
+  return <DownloadDetailsPanelContent selectedDownloadId={selectedDownloadId} />;
+}
+
+function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadId: string }) {
+  const setSelectedDownload = useAppStore((state) => state.setSelectedDownload);
+  const deleteDownload = useAppStore((state) => state.deleteDownload);
+  const isPlayfulMode = useAppStore((state) => state.isPlayfulMode);
+  const download = useAppStore((state) =>
+    [...state.active, ...state.completed, ...state.failed].find((d) => d.gid === selectedDownloadId)
+  );
+
   const [activeTab, setActiveTab] = useState<'general' | 'progress' | 'connections'>('general');
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteLocalFile, setDeleteLocalFile] = useState(false);
   const [checksumOpt, setChecksumOpt] = useState<string | null>(null);
-
-  const download = [...active, ...completed, ...failed].find(d => d.gid === selectedDownloadId);
 
   const showConnections = download && (download.status === 'active' || download.status === 'waiting' || download.status === 'paused');
   const currentTab = (activeTab === 'connections' && !showConnections) ? 'general' : activeTab;
@@ -38,8 +48,6 @@ export function DownloadDetailsPanel() {
     return () => { isMounted = false; };
   }, [selectedDownloadId]);
 
-  if (!selectedDownloadId) return null;
-  
   if (!download) {
     return null;
   }

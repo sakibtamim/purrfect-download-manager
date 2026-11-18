@@ -1,13 +1,18 @@
 "use client";
 
-import { useDownloadStore } from "@/store/downloadStore";
+import { useAppStore } from "@/store";
 import { Activity, DownloadCloud, Gauge, Pause, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "./ui/button";
 import { AddDownloadModal } from "./add-download-modal";
 
 export function DashboardHeader() {
-  const { active, globalSpeed, setSpeedLimit, pauseAllDownloads, resumeAllDownloads, clearCompletedDownloads } = useDownloadStore();
+  const activeCount = useAppStore((state) => state.active.length);
+  const globalSpeed = useAppStore((state) => state.globalSpeed);
+  const setSpeedLimit = useAppStore((state) => state.setSpeedLimit);
+  const pauseAllDownloads = useAppStore((state) => state.pauseAllDownloads);
+  const resumeAllDownloads = useAppStore((state) => state.resumeAllDownloads);
+  const clearCompletedDownloads = useAppStore((state) => state.clearCompletedDownloads);
   const [limitInput, setLimitInput] = useState("");
 
   const formatSpeed = (bytesPerSec: string) => {
@@ -28,7 +33,7 @@ export function DashboardHeader() {
           </div>
           <div>
             <p className="text-sm font-medium text-muted-foreground">Active Downloads</p>
-            <p className="text-2xl font-bold text-foreground">{active.length}</p>
+            <p className="text-2xl font-bold text-foreground">{activeCount}</p>
           </div>
         </div>
         <div className="flex items-center gap-1 mt-1 lg:mt-0">

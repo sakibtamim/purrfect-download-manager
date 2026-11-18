@@ -1,12 +1,12 @@
 "use client";
 
-import { useDownloadStore } from "@/store/downloadStore";
+import { useCompletedDownloads, usePlayfulMode } from "@/store/selectors/downloadSelectors";
 import { DownloadCard } from "@/components/download-card";
 import { CheckCircle2 } from "lucide-react";
 
 export default function Completed() {
-  const completedDownloads = useDownloadStore(state => state.completed);
-  const isPlayfulMode = useDownloadStore(state => state.isPlayfulMode);
+  const completedDownloads = useCompletedDownloads();
+  const isPlayfulMode = usePlayfulMode();
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">

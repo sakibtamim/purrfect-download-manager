@@ -12,6 +12,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "tauri": "tauri",
     "clean": "node scripts/kill-zombies.js",
     "dev:app": "pnpm run clean && pnpm run tauri dev",
@@ -57,7 +58,8 @@
     "lint-staged": "^16.1.0",
     "shadcn": "^4.6.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^5.1.1"
   },
   "pnpm": {
     "overrides": {
