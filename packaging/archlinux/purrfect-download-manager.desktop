@@ -1,0 +1,22 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Purrfect Download Manager
+GenericName=Download Manager
+Comment=Fast, steady modern download manager with aria2 and yt-dlp acceleration
+Exec=purrfect-download-manager %U
+Icon=purrfect-download-manager
+Terminal=false
+Categories=Network;FileTransfer;P2P;GTK;
+StartupWMClass=PurrfectDownloadManager
+MimeType=x-scheme-handler/magnet;application/x-bittorrent;application/x-metalink+xml;x-scheme-handler/pdm;
+Keywords=download;manager;torrent;magnet;aria2;video;ytdlp;stream;
+Actions=NewDownload;OpenDownloads;
+
+[Desktop Action NewDownload]
+Name=New Download
+Exec=purrfect-download-manager --action=new
+
+[Desktop Action OpenDownloads]
+Name=Open Downloads Folder
+Exec=purrfect-download-manager --action=open-folder
