@@ -204,7 +204,7 @@ export default function SettingsPage() {
             <div className="flex justify-between items-center">
               <div>
                 <Label className="text-foreground/80">Connections Per File (Split)</Label>
-                <p className="text-sm text-muted-foreground">How many pieces a single file is split into to maximize bandwidth.</p>
+                <p className="text-sm text-muted-foreground">How many parallel connections a single file is split into (up to 32 connections for gigabit speed).</p>
               </div>
               <span className="text-xl font-bold text-foreground bg-background px-4 py-1 rounded-lg border border-border">
                 {splitConnections}
@@ -213,7 +213,7 @@ export default function SettingsPage() {
             <Slider
               value={[splitConnections]}
               onValueChange={(vals) => setSplitConnections(typeof vals === 'number' ? vals : vals[0])}
-              max={16}
+              max={32}
               min={1}
               step={1}
               className="py-4"

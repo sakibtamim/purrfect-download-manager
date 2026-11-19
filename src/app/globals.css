@@ -96,6 +96,7 @@
    DARK MODE — Deep space with vibrant violet glow
    ────────────────────────────────────────────── */
 .dark {
+  color-scheme: dark;
   --background: oklch(0.13 0.015 270);
   --foreground: oklch(0.96 0.005 260);
   --card: oklch(0.17 0.015 270);
@@ -138,6 +139,15 @@
   }
   html {
     @apply font-sans;
+  }
+  select {
+    color-scheme: dark;
+    background-color: var(--card);
+    color: var(--foreground);
+  }
+  select option {
+    background-color: var(--card);
+    color: var(--foreground);
   }
 }
 

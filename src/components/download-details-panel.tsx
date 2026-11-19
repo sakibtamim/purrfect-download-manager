@@ -441,8 +441,9 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {numConn > 0 && uris.length > 0 ? (
-                      uris.map((u, i) => {
+                    {numConn > 0 && uris.length > 0 ? (() => {
+                      const hostMap = new Map<string, { host: string; port: string; protocol: string; count: number }>();
+                      uris.forEach(u => {
                         let host = "Unknown";
                         let port = "Unknown";
                         let protocol = "HTTP";
@@ -451,19 +452,30 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
                           host = parsedUrl.hostname;
                           protocol = parsedUrl.protocol.replace(':', '').toUpperCase();
                           port = parsedUrl.port || (parsedUrl.protocol === 'https:' ? '443' : '80');
-                        } catch {
-                          // invalid url
+                        } catch {}
+                        const key = `${host}:${port}`;
+                        const existing = hostMap.get(key);
+                        if (existing) {
+                          existing.count++;
+                        } else {
+                          hostMap.set(key, { host, port, protocol, count: 1 });
                         }
+                      });
+                      const uniqueHosts = Array.from(hostMap.values());
+                      return uniqueHosts.map((h, i) => {
+                        const sockets = uniqueHosts.length === 1 
+                          ? numConn 
+                          : Math.max(1, Math.round((h.count / uris.length) * numConn));
                         return (
                           <tr key={i} className="hover:bg-muted/30 transition-colors">
-                            <td className="px-4 py-2.5 text-foreground font-mono text-xs truncate max-w-[240px]" title={host}>
-                              {host}
+                            <td className="px-4 py-2.5 text-foreground font-mono text-xs truncate max-w-[240px]" title={h.host}>
+                              {h.host}
                             </td>
                             <td className="px-4 py-2.5 text-foreground text-xs font-mono">
-                              {protocol} / {port}
+                              {h.protocol} / {h.port}
                             </td>
                             <td className="px-4 py-2.5 text-foreground font-mono text-xs">
-                              {i === 0 ? connCount : '-'}
+                              <span className="font-semibold">{sockets}</span> socket{sockets > 1 ? 's' : ''}
                             </td>
                             <td className="px-4 py-2.5">
                               <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 text-[11px] py-0 font-normal">
@@ -472,8 +484,8 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
                             </td>
                           </tr>
                         );
-                      })
-                    ) : numConn > 0 && uris.length === 0 ? (
+                      });
+                    })() : numConn > 0 && uris.length === 0 ? (
                       <tr className="hover:bg-muted/30 transition-colors">
                         <td className="px-4 py-2.5 text-foreground font-mono text-xs truncate max-w-[240px]">
                           P2P / BitTorrent Swarm

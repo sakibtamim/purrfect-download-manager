@@ -284,10 +284,11 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
   },
 
   addDownload: async (url: string, headers: string[] = [], dir?: string, filename?: string, audioUrl?: string, checksum?: DetectedChecksum | string, sourceUrl?: string) => {
+    const splitCount = String(get().splitConnections || 16);
     const options: Record<string, string | string[]> = {
       'check-certificate': 'true',
-      'split': '16',
-      'max-connection-per-server': '16',
+      'split': splitCount,
+      'max-connection-per-server': splitCount,
       'min-split-size': '1M'
     };
     if (headers.length > 0) {

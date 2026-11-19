@@ -206,6 +206,8 @@ pub fn run() {
           "--split=16",
           "--max-connection-per-server=16",
           "--min-split-size=1M",
+          "--disk-cache=64M",
+          "--piece-length=1M",
           &stop_with_process_arg,
           &session_arg,
           &input_file_arg,

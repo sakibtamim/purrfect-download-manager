@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { FolderOpen, CheckCircle2 } from "lucide-react";
+import { FolderOpen, CheckCircle2, ChevronDown } from "lucide-react";
 import { type ChecksumAlgorithm, type DetectedChecksum, validateChecksum } from "@/lib/utils";
 import { type YtDlpFormat } from "@/lib/ytdlpClient";
 
@@ -301,17 +301,21 @@ export function ConfirmDownloadModal() {
           {stagedDownload.mediaFormats && stagedDownload.mediaFormats.length > 0 && (
             <div className="space-y-1">
               <Label className="text-muted-foreground text-xs uppercase">Quality / Resolution</Label>
-              <select 
-                value={selectedFormatUrl}
-                onChange={handleFormatChange}
-                className="w-full bg-card border border-border text-foreground rounded-md p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
-              >
-                {stagedDownload.mediaFormats.map(format => (
-                  <option key={format.format_id} value={format.url} className="bg-card text-foreground">
-                    {formatResolutionLabel(format)}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <select 
+                  value={selectedFormatUrl}
+                  onChange={handleFormatChange}
+                  style={{ colorScheme: 'dark' }}
+                  className="w-full appearance-none bg-card border border-border text-foreground rounded-md px-3 py-2 pr-10 text-sm focus:ring-1 focus:ring-primary outline-none cursor-pointer"
+                >
+                  {stagedDownload.mediaFormats.map(format => (
+                    <option key={format.format_id} value={format.url} className="bg-card text-foreground py-1">
+                      {formatResolutionLabel(format)}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-4 h-4 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
             </div>
           )}
           
@@ -356,21 +360,25 @@ export function ConfirmDownloadModal() {
               )}
             </Label>
             <div className="flex gap-2">
-              <select 
-                value={checksumAlgorithm}
-                onChange={e => {
-                   setChecksumAlgorithm(e.target.value as ChecksumAlgorithm);
-                   setChecksumSource("manual");
-                }}
-                className="bg-background border border-border text-foreground text-sm rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="md5">MD5</option>
-                <option value="sha1">SHA-1</option>
-                <option value="sha224">SHA-224</option>
-                <option value="sha256">SHA-256</option>
-                <option value="sha384">SHA-384</option>
-                <option value="sha512">SHA-512</option>
-              </select>
+              <div className="relative shrink-0">
+                <select 
+                  value={checksumAlgorithm}
+                  onChange={e => {
+                     setChecksumAlgorithm(e.target.value as ChecksumAlgorithm);
+                     setChecksumSource("manual");
+                  }}
+                  style={{ colorScheme: 'dark' }}
+                  className="appearance-none bg-card border border-border text-foreground text-sm rounded-md pl-3 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
+                >
+                  <option value="md5" className="bg-card text-foreground">MD5</option>
+                  <option value="sha1" className="bg-card text-foreground">SHA-1</option>
+                  <option value="sha224" className="bg-card text-foreground">SHA-224</option>
+                  <option value="sha256" className="bg-card text-foreground">SHA-256</option>
+                  <option value="sha384" className="bg-card text-foreground">SHA-384</option>
+                  <option value="sha512" className="bg-card text-foreground">SHA-512</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
               <Input 
                 value={checksumDigest} 
                 onChange={(e) => {

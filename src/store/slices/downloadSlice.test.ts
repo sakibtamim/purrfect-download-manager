@@ -53,4 +53,28 @@ describe('downloadSlice metadata tracking', () => {
     await useTestStore.getState().deleteDownload('gid-1', false);
     expect(useTestStore.getState().downloadMetadata['gid-1']).toBeUndefined();
   });
+
+  it('respects splitConnections up to 32 in aria2 options', async () => {
+    let capturedOptions: Record<string, unknown> | undefined;
+    vi.spyOn(aria2Client, 'addUri').mockImplementation(async (_uris, options) => {
+      capturedOptions = options as Record<string, unknown>;
+      return 'gid-32';
+    });
+
+    const useTestStore = create<DownloadDataSlice & { splitConnections?: number }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      splitConnections: 32,
+    }));
+
+    await useTestStore.getState().addDownload(
+      'https://cdn.example.com/gigabit-stream.bin',
+      [],
+      '/tmp/downloads',
+      'gigabit.bin'
+    );
+
+    expect(capturedOptions?.['split']).toBe('32');
+    expect(capturedOptions?.['max-connection-per-server']).toBe('32');
+    expect(capturedOptions?.['min-split-size']).toBe('1M');
+  });
 });
