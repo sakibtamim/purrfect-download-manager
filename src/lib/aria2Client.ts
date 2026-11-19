@@ -20,7 +20,7 @@ export interface Aria2Download {
 }
 
 class Aria2Client {
-  private rpcUrl = "http://localhost:6800/jsonrpc";
+  private rpcUrl = "http://127.0.0.1:6800/jsonrpc";
   private idCount = 0;
 
   private async call<T>(method: string, params: unknown[] = []): Promise<T> {

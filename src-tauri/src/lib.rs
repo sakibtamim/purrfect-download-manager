@@ -197,6 +197,7 @@ pub fn run() {
       let aria2_args = [
           "--enable-rpc", 
           "--rpc-listen-all=false", 
+          "--rpc-allow-origin-all=true",
           "--rpc-listen-port=6800", 
           "--check-certificate=true",
           "--file-allocation=falloc",
