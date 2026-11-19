@@ -2,6 +2,7 @@ import { StateCreator } from 'zustand';
 import { Store, load } from '@tauri-apps/plugin-store';
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart';
 import { aria2Client } from '@/lib/aria2Client';
+import { SpeedUnit } from '@/lib/utils';
 import { DownloadState } from '../types';
 
 const mockStore = new Map<string, unknown>();
@@ -27,6 +28,7 @@ export interface SettingsSlice {
   maxConcurrentDownloads: number;
   splitConnections: number;
   dynamicConnections: boolean;
+  speedUnit: SpeedUnit;
   autoStart: boolean;
   safeBrowsingApiKey: string;
 
@@ -35,6 +37,7 @@ export interface SettingsSlice {
   setMaxConcurrentDownloads: (max: number) => Promise<void>;
   setSplitConnections: (split: number) => Promise<void>;
   setDynamicConnections: (enabled: boolean) => Promise<void>;
+  setSpeedUnit: (unit: SpeedUnit) => Promise<void>;
   setAutoStart: (enabled: boolean) => Promise<void>;
   setSafeBrowsingApiKey: (key: string) => Promise<void>;
 }
@@ -42,17 +45,20 @@ export interface SettingsSlice {
 export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSlice> = (set) => ({
   defaultDownloadDir: '',
   maxConcurrentDownloads: 5,
-  splitConnections: 16,
+  splitConnections: 32,
   dynamicConnections: true,
+  speedUnit: 'MBps',
   autoStart: false,
   safeBrowsingApiKey: '',
 
   initSettings: async () => {
     const store = await getSettingsStore();
     const maxConcurrent = await store.get<number>('maxConcurrentDownloads') || 5;
-    const split = await store.get<number>('splitConnections') || 16;
+    const split = await store.get<number>('splitConnections') || 32;
     const storedDynamic = await store.get<boolean>('dynamicConnections');
     const dynamicConn = storedDynamic !== null && storedDynamic !== undefined ? storedDynamic : true;
+    const storedSpeedUnit = await store.get<SpeedUnit>('speedUnit');
+    const speedUnit: SpeedUnit = (storedSpeedUnit === 'Mbps' || storedSpeedUnit === 'MBps') ? storedSpeedUnit : 'MBps';
     const dir = await store.get<string>('defaultDownloadDir') || '';
     const apiKey = await store.get<string>('safeBrowsingApiKey') || '';
 
@@ -65,6 +71,7 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
       maxConcurrentDownloads: maxConcurrent,
       splitConnections: split,
       dynamicConnections: dynamicConn,
+      speedUnit: speedUnit,
       defaultDownloadDir: dir,
       autoStart: autoStartEnabled,
       safeBrowsingApiKey: apiKey
@@ -120,6 +127,13 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
     await store.set('dynamicConnections', enabled);
     await store.save();
     set({ dynamicConnections: enabled });
+  },
+
+  setSpeedUnit: async (unit: SpeedUnit) => {
+    const store = await getSettingsStore();
+    await store.set('speedUnit', unit);
+    await store.save();
+    set({ speedUnit: unit });
   },
 
   setAutoStart: async (enabled: boolean) => {

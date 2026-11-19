@@ -386,14 +386,27 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       dynamicEnabled: get().dynamicConnections
     });
 
+    const isMediaStream = Boolean(
+      url.includes('googlevideo.com') ||
+      (sourceUrl && (sourceUrl.includes('youtube.com') || sourceUrl.includes('youtu.be'))) ||
+      url.includes('youtube.com') ||
+      url.includes('youtu.be')
+    );
+
+    const hasUserAgent = headers.some(h => h.toLowerCase().startsWith('user-agent:'));
+    const effectiveHeaders = [...headers];
+    if (isMediaStream && !hasUserAgent) {
+      effectiveHeaders.push('User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36');
+    }
+
     const options: Record<string, string | string[]> = {
       'check-certificate': 'true',
       'split': String(split),
       'max-connection-per-server': String(maxConnectionPerServer),
       'min-split-size': minSplitSize
     };
-    if (headers.length > 0) {
-      options['header'] = headers;
+    if (effectiveHeaders.length > 0) {
+      options['header'] = effectiveHeaders;
     }
     if (dir) {
       options['dir'] = dir;

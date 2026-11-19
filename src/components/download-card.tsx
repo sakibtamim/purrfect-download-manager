@@ -11,9 +11,11 @@ import { Play, Pause, X, FolderOpen, File, RefreshCw, Trash2 } from "lucide-reac
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
+import { formatSpeed } from "@/lib/utils";
 
 export function DownloadCard({ download }: { download: Aria2Download }) {
   const isPlayfulMode = useAppStore((state) => state.isPlayfulMode);
+  const speedUnit = useAppStore((state) => state.speedUnit);
   const isSelected = useAppStore((state) => state.selectedDownloadId === download.gid);
   const setSelectedDownload = useAppStore((state) => state.setSelectedDownload);
   const pauseDownload = useAppStore((state) => state.pauseDownload);
@@ -250,7 +252,7 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-muted-foreground">
                 <div className="flex items-center gap-2">
-                  <span>{download.status === "active" ? `${formatBytes(speed)}/s` : download.status === "muxing" ? "Merging..." : '--'}</span>
+                  <span>{download.status === "active" ? formatSpeed(speed, speedUnit) : download.status === "muxing" ? "Merging..." : '--'}</span>
                   {download.status === "active" && speed > 0 && (
                     <span className="text-muted-foreground/60">
                       • {getETA()}

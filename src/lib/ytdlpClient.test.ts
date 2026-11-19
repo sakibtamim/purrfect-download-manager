@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ytdlpClient, isDirectHttp, RawFormat } from './ytdlpClient';
+import { ytdlpClient, downloadMediaStream, isDirectHttp, RawFormat } from './ytdlpClient';
 import { Command } from '@tauri-apps/plugin-shell';
 
 vi.mock('@tauri-apps/plugin-shell', () => ({
@@ -142,5 +142,67 @@ describe('ytdlpClient.extractVideoInfo', () => {
     expect(format137?.audioUrl).toBe('https://rr4---sn-jpgjax-q5je.googlevideo.com/videoplayback?itag=140');
     // Ensure the audio URL is not the m3u8 audio
     expect(format137?.audioUrl).not.toContain('.m3u8');
+  });
+
+  it('passes --js-runtimes node to yt-dlp arguments to solve YouTube n cipher challenge', async () => {
+    const mockOutput = {
+      code: 0,
+      stdout: JSON.stringify({
+        title: 'Test',
+        url: 'https://example.com/video.mp4',
+        formats: [],
+      }),
+      stderr: '',
+    };
+
+    const sidecarSpy = (Command.sidecar as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      execute: vi.fn().mockResolvedValue(mockOutput),
+    });
+
+    await ytdlpClient.extractVideoInfo('https://www.youtube.com/watch?v=cipher-test');
+
+    expect(sidecarSpy).toHaveBeenCalled();
+    const passedArgs = sidecarSpy.mock.calls[sidecarSpy.mock.calls.length - 1][1] as string[];
+    expect(passedArgs).toContain('--js-runtimes');
+    expect(passedArgs[passedArgs.indexOf('--js-runtimes') + 1]).toBe('node');
+  });
+});
+
+describe('ytdlpClient.downloadMediaStream', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('invokes pdm-yt-dlp with -N 16 concurrent fragments and --js-runtimes node', async () => {
+    const mockOutput = {
+      code: 0,
+      stdout: '[download] 100% of 50.00MiB in 00:01',
+      stderr: '',
+    };
+
+    const sidecarSpy = (Command.sidecar as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      execute: vi.fn().mockResolvedValue(mockOutput),
+    });
+
+    const result = await downloadMediaStream({
+      url: 'https://www.youtube.com/watch?v=stream-test',
+      outputDir: '/downloads',
+      filename: 'my-video.mp4',
+      formatId: '137+140',
+      concurrentFragments: 16,
+    });
+
+    expect(result.code).toBe(0);
+    expect(sidecarSpy).toHaveBeenCalled();
+    const passedArgs = sidecarSpy.mock.calls[0][1] as string[];
+    expect(passedArgs).toContain('-N');
+    expect(passedArgs[passedArgs.indexOf('-N') + 1]).toBe('16');
+    expect(passedArgs).toContain('--js-runtimes');
+    expect(passedArgs[passedArgs.indexOf('--js-runtimes') + 1]).toBe('node');
+    expect(passedArgs).toContain('-f');
+    expect(passedArgs[passedArgs.indexOf('-f') + 1]).toBe('137+140');
+    expect(passedArgs).toContain('-o');
+    expect(passedArgs[passedArgs.indexOf('-o') + 1]).toBe('/downloads/my-video.mp4');
+    expect(passedArgs).toContain('https://www.youtube.com/watch?v=stream-test');
   });
 });

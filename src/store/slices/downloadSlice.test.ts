@@ -6,12 +6,13 @@ import { DownloadState, PendingMux } from '../types';
 import { aria2Client } from '@/lib/aria2Client';
 
 describe('settingsSlice defaults', () => {
-  it('initializes splitConnections to 16 by default', () => {
+  it('initializes splitConnections to 32 and speedUnit to MBps by default', () => {
     const useTestStore = create<SettingsSlice>()((set, get, api) =>
       createSettingsSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
     );
 
-    expect(useTestStore.getState().splitConnections).toBe(16);
+    expect(useTestStore.getState().splitConnections).toBe(32);
+    expect(useTestStore.getState().speedUnit).toBe('MBps');
     expect(useTestStore.getState().dynamicConnections).toBe(true);
   });
 });
@@ -106,6 +107,7 @@ describe('downloadSlice metadata tracking', () => {
     expect(capturedOptions?.['split']).toBe('32');
     expect(capturedOptions?.['max-connection-per-server']).toBe('16');
     expect(capturedOptions?.['min-split-size']).toBe('1M');
+    expect((capturedOptions?.['header'] as string[])?.some(h => h.startsWith('User-Agent:'))).toBe(true);
   });
 
   it('allocates unthrottled 32 splits across all file sizes for line speed saturation', async () => {

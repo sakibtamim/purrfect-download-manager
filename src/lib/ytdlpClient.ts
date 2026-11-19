@@ -43,6 +43,74 @@ export const isDirectHttp = (f: RawFormat): boolean => {
   return !proto.includes('m3u8') && !u.includes('.m3u8') && !u.includes('/hls_playlist/');
 };
 
+export function isNodeAvailable(): boolean {
+  if (typeof process !== 'undefined' && process.versions?.node) {
+    return true;
+  }
+  return true;
+}
+
+export interface DownloadMediaStreamOptions {
+  url: string;
+  outputDir?: string;
+  filename?: string;
+  formatId?: string;
+  concurrentFragments?: number;
+}
+
+export async function downloadMediaStream(options: DownloadMediaStreamOptions): Promise<{ code: number; stdout: string; stderr: string }> {
+  const { url, outputDir, filename, formatId, concurrentFragments = 16 } = options;
+  const args = [
+    '-N', String(concurrentFragments),
+    '--no-warnings',
+    '--extractor-args', 'youtube:player_client=default',
+  ];
+
+  if (isNodeAvailable()) {
+    args.push('--js-runtimes', 'node');
+  }
+
+  if (formatId) {
+    args.push('-f', formatId);
+  }
+
+  if (outputDir && filename) {
+    const cleanDir = outputDir.replace(/[\\/]+$/, '');
+    args.push('-o', `${cleanDir}/${filename}`);
+  } else if (outputDir) {
+    args.push('-P', outputDir);
+  } else if (filename) {
+    args.push('-o', filename);
+  }
+
+  args.push('--', url);
+
+  try {
+    let output;
+    try {
+      const command = Command.sidecar('bin/pdm-yt-dlp', args);
+      output = await command.execute();
+    } catch (sidecarErr) {
+      console.warn("[yt-dlp] Sidecar execution failed, trying system yt-dlp:", sidecarErr);
+      const command = Command.create('system-ytdlp', args);
+      output = await command.execute();
+    }
+
+    if (output.code !== 0) {
+      throw new Error(`yt-dlp download failed with code ${output.code}: ${output.stderr}`);
+    }
+
+    return {
+      code: output.code ?? 0,
+      stdout: output.stdout,
+      stderr: output.stderr
+    };
+  } catch (error) {
+    console.error("[yt-dlp] downloadMediaStream failed:", error);
+    throw error;
+  }
+}
+
 export const ytdlpClient = {
   /**
    * Extracts direct video stream URLs and metadata from a given URL using yt-dlp.
@@ -57,9 +125,13 @@ export const ytdlpClient = {
       '--no-warnings',
       '--extractor-args',
       'youtube:player_client=default', // Let yt-dlp pick the best unblocked client (Android/iOS)
-      '--',
-      videoUrl
     ];
+
+    if (isNodeAvailable()) {
+      args.push('--js-runtimes', 'node');
+    }
+
+    args.push('--', videoUrl);
 
     // If cookies are provided, we should ideally write them to a temp file and pass --cookies
     // But yt-dlp also accepts --cookies-from-browser (e.g. chrome) which is great for local apps.
@@ -174,5 +246,6 @@ export const ytdlpClient = {
       console.error("[yt-dlp] Extraction failed:", error);
       throw error;
     }
-  }
+  },
+  downloadMediaStream
 };

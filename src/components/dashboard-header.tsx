@@ -5,24 +5,17 @@ import { Activity, DownloadCloud, Gauge, Pause, Play, Trash2 } from "lucide-reac
 import { useState } from "react";
 import { Button } from "./ui/button";
 import { AddDownloadModal } from "./add-download-modal";
+import { formatSpeed } from "@/lib/utils";
 
 export function DashboardHeader() {
   const activeCount = useAppStore((state) => state.active.length);
   const globalSpeed = useAppStore((state) => state.globalSpeed);
+  const speedUnit = useAppStore((state) => state.speedUnit);
   const setSpeedLimit = useAppStore((state) => state.setSpeedLimit);
   const pauseAllDownloads = useAppStore((state) => state.pauseAllDownloads);
   const resumeAllDownloads = useAppStore((state) => state.resumeAllDownloads);
   const clearCompletedDownloads = useAppStore((state) => state.clearCompletedDownloads);
   const [limitInput, setLimitInput] = useState("");
-
-  const formatSpeed = (bytesPerSec: string) => {
-    const speed = parseInt(bytesPerSec, 10);
-    if (isNaN(speed) || speed === 0) return "0 B/s";
-    const k = 1024;
-    const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
-    const i = Math.floor(Math.log(speed) / Math.log(k));
-    return parseFloat((speed / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
 
   return (
     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-background/80 glass border-b border-border">
@@ -54,7 +47,7 @@ export function DashboardHeader() {
           </div>
           <div>
             <p className="text-sm font-medium text-muted-foreground">Total Speed</p>
-            <p className="text-2xl font-bold text-foreground">{formatSpeed(globalSpeed)}</p>
+            <p className="text-2xl font-bold text-foreground">{formatSpeed(globalSpeed, speedUnit)}</p>
           </div>
         </div>
       </div>

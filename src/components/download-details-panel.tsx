@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
+import { formatSpeed } from "@/lib/utils";
 
 export function DownloadDetailsPanel() {
   const selectedDownloadId = useAppStore((state) => state.selectedDownloadId);
@@ -20,6 +21,7 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
   const setSelectedDownload = useAppStore((state) => state.setSelectedDownload);
   const deleteDownload = useAppStore((state) => state.deleteDownload);
   const isPlayfulMode = useAppStore((state) => state.isPlayfulMode);
+  const speedUnit = useAppStore((state) => state.speedUnit);
   const downloadMetadata = useAppStore((state) => state.downloadMetadata);
   const download = useAppStore((state) =>
     [...state.active, ...state.completed, ...state.failed].find((d) => d.gid === selectedDownloadId)
@@ -215,7 +217,7 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
               <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm mt-4">
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground w-20">Speed:</span>
-                  <span className="text-foreground">{download.status === 'active' ? `${formatBytes(speed)}/s` : '--'}</span>
+                  <span className="text-foreground">{download.status === 'active' ? formatSpeed(speed, speedUnit) : '--'}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground w-24">Downloaded:</span>
@@ -322,7 +324,7 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
                       {getStatusText(download.status)}
                     </Badge>
                     {download.status === 'active' && speed > 0 && (
-                      <span className="text-xs font-semibold text-primary">{formatBytes(speed)}/s</span>
+                      <span className="text-xs font-semibold text-primary">{formatSpeed(speed, speedUnit)}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
@@ -349,7 +351,7 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
                   </div>
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Speed</span>
-                    <span className="font-medium text-foreground">{download.status === 'active' && speed > 0 ? `${formatBytes(speed)}/s` : '--'}</span>
+                    <span className="font-medium text-foreground">{download.status === 'active' && speed > 0 ? formatSpeed(speed, speedUnit) : '--'}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground block text-[11px]">{numPieces > 0 ? 'Pieces' : 'Mode'}</span>
@@ -424,7 +426,7 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
                 <div className="bg-muted/30 border border-border rounded-lg px-3 py-1.5 flex items-center gap-2">
                   <span className="text-xs text-muted-foreground uppercase font-semibold">Throughput:</span>
                   <Badge variant="outline" className="font-mono text-xs text-primary border-primary/30">
-                    {speed > 0 ? `${formatBytes(speed)}/s` : '--'}
+                    {speed > 0 ? formatSpeed(speed, speedUnit) : '--'}
                   </Badge>
                 </div>
               </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getFileCategory, validateChecksum, formatChecksum, DetectedChecksum } from './utils';
+import { getFileCategory, validateChecksum, formatChecksum, formatSpeed, DetectedChecksum } from './utils';
 
 describe('getFileCategory', () => {
   it('correctly categorizes software files', () => {
@@ -69,5 +69,64 @@ describe('formatChecksum', () => {
 
   it('returns undefined for invalid checksum object', () => {
     expect(formatChecksum(undefined)).toBeUndefined();
+  });
+});
+
+describe('formatSpeed', () => {
+  describe('MBps (binary byte scaling)', () => {
+    it('handles zero, negative, or invalid speed', () => {
+      expect(formatSpeed(0)).toBe('0 B/s');
+      expect(formatSpeed(0, 'MBps')).toBe('0 B/s');
+      expect(formatSpeed(-100)).toBe('0 B/s');
+      expect(formatSpeed('0')).toBe('0 B/s');
+      expect(formatSpeed('invalid')).toBe('0 B/s');
+    });
+
+    it('formats bytes per second correctly', () => {
+      expect(formatSpeed(500)).toBe('500 B/s');
+      expect(formatSpeed(1024)).toBe('1 KB/s');
+      expect(formatSpeed(1536)).toBe('1.5 KB/s');
+      expect(formatSpeed(1048576)).toBe('1 MB/s');
+      expect(formatSpeed(13107200)).toBe('12.5 MB/s');
+      expect(formatSpeed(1073741824)).toBe('1 GB/s');
+    });
+
+    it('supports string inputs', () => {
+      expect(formatSpeed('1048576')).toBe('1 MB/s');
+      expect(formatSpeed('13107200')).toBe('12.5 MB/s');
+    });
+  });
+
+  describe('Mbps (decimal networking scaling)', () => {
+    it('handles zero, negative, or invalid speed', () => {
+      expect(formatSpeed(0, 'Mbps')).toBe('0 bps');
+      expect(formatSpeed(-100, 'Mbps')).toBe('0 bps');
+      expect(formatSpeed('0', 'Mbps')).toBe('0 bps');
+      expect(formatSpeed('invalid', 'Mbps')).toBe('0 bps');
+    });
+
+    it('multiplies by 8 and applies decimal scaling', () => {
+      // 50 bytes/s * 8 = 400 bps (< 1000)
+      expect(formatSpeed(50, 'Mbps')).toBe('400 bps');
+
+      // 125 bytes/s * 8 = 1000 bps = 1 Kbps
+      expect(formatSpeed(125, 'Mbps')).toBe('1 Kbps');
+
+      // 12,500 bytes/s * 8 = 100,000 bps = 100 Kbps
+      expect(formatSpeed(12500, 'Mbps')).toBe('100 Kbps');
+
+      // 125,000 bytes/s * 8 = 1,000,000 bps = 1 Mbps
+      expect(formatSpeed(125000, 'Mbps')).toBe('1 Mbps');
+
+      // 12,500,000 bytes/s * 8 = 100,000,000 bps = 100 Mbps (matches 100 Mbps Speedtest)
+      expect(formatSpeed(12500000, 'Mbps')).toBe('100 Mbps');
+
+      // 125,000,000 bytes/s * 8 = 1,000,000,000 bps = 1 Gbps
+      expect(formatSpeed(125000000, 'Mbps')).toBe('1 Gbps');
+    });
+
+    it('supports string inputs in Mbps', () => {
+      expect(formatSpeed('12500000', 'Mbps')).toBe('100 Mbps');
+    });
   });
 });
