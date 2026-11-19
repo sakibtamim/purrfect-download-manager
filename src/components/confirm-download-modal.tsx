@@ -259,12 +259,12 @@ export function ConfirmDownloadModal() {
     const finalChecksum = checksumDigest ? { algorithm: checksumAlgorithm, digest: checksumDigest, source: checksumSource || "manual" } as DetectedChecksum : undefined;
 
     if (selectedFormat) {
-        const headers = stagedDownload.headers || [];
-        await addDownload(urlToDownload, headers, finalDir, displayFilename, audioUrl, finalChecksum);
-      } else {
-        await addDownload(urlToDownload, stagedDownload.headers || [], finalDir, displayFilename, undefined, finalChecksum);
-      }
-      clearStagedDownload();
+      const headers = stagedDownload.headers || [];
+      await addDownload(urlToDownload, headers, finalDir, displayFilename, audioUrl, finalChecksum, stagedDownload.sourceUrl);
+    } else {
+      await addDownload(urlToDownload, stagedDownload.headers || [], finalDir, displayFilename, undefined, finalChecksum, stagedDownload.sourceUrl);
+    }
+    clearStagedDownload();
   };
 
   if (!stagedDownload) return null;

@@ -40,14 +40,14 @@ export interface SettingsSlice {
 export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSlice> = (set) => ({
   defaultDownloadDir: '',
   maxConcurrentDownloads: 5,
-  splitConnections: 1,
+  splitConnections: 16,
   autoStart: false,
   safeBrowsingApiKey: '',
 
   initSettings: async () => {
     const store = await getSettingsStore();
     const maxConcurrent = await store.get<number>('maxConcurrentDownloads') || 5;
-    const split = await store.get<number>('splitConnections') || 1;
+    const split = await store.get<number>('splitConnections') || 16;
     const dir = await store.get<string>('defaultDownloadDir') || '';
     const apiKey = await store.get<string>('safeBrowsingApiKey') || '';
 
@@ -68,7 +68,8 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
       await aria2Client.changeGlobalOption({
         'max-concurrent-downloads': maxConcurrent.toString(),
         'split': split.toString(),
-        'max-connection-per-server': split.toString()
+        'max-connection-per-server': split.toString(),
+        'min-split-size': '1M'
       });
     } catch {}
   },
@@ -100,7 +101,8 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
     try {
       await aria2Client.changeGlobalOption({
         'split': split.toString(),
-        'max-connection-per-server': split.toString()
+        'max-connection-per-server': split.toString(),
+        'min-split-size': '1M'
       });
     } catch (err) {
       console.warn('Failed to update aria2 split connections:', err);

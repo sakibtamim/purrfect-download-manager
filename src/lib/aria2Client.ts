@@ -17,6 +17,7 @@ export interface Aria2Download {
   bitfield?: string;
   numPieces?: string;
   connections?: string;
+  pieceLength?: string;
 }
 
 class Aria2Client {

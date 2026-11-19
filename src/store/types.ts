@@ -22,4 +22,9 @@ export interface PendingMux {
   status: 'waiting' | 'muxing' | 'error';
 }
 
+export interface DownloadMetadata {
+  sourceUrl?: string;
+  title?: string;
+}
+
 export type DownloadState = UISlice & SettingsSlice & MuxSlice & DownloadDataSlice;

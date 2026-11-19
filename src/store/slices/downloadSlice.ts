@@ -14,6 +14,8 @@ interface CachedMeta {
   totalLength: string;
   completedLength: string;
   addedAt?: number;
+  sourceUrl?: string;
+  title?: string;
 }
 
 const mockMetaStore = new Map<string, unknown>();
@@ -40,11 +42,12 @@ export interface DownloadDataSlice {
   failed: Aria2Download[];
   globalSpeed: string;
   stagedDownload: StagedDownload | null;
+  downloadMetadata: Record<string, { sourceUrl?: string; title?: string }>;
 
   stageDownload: (download: StagedDownload) => Promise<void>;
   clearStagedDownload: () => void;
   fetchDownloads: () => Promise<void>;
-  addDownload: (url: string, headers?: string[], dir?: string, filename?: string, audioUrl?: string, checksum?: DetectedChecksum | string) => Promise<void>;
+  addDownload: (url: string, headers?: string[], dir?: string, filename?: string, audioUrl?: string, checksum?: DetectedChecksum | string, sourceUrl?: string) => Promise<void>;
   pauseDownload: (gid: string) => Promise<void>;
   resumeDownload: (gid: string) => Promise<void>;
   cancelDownload: (gid: string) => Promise<void>;
@@ -62,6 +65,7 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
   failed: [],
   globalSpeed: '0',
   stagedDownload: null,
+  downloadMetadata: {},
 
   stageDownload: async (download) => {
     set({ stagedDownload: download });
@@ -105,7 +109,7 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
 
   fetchDownloads: async () => {
     try {
-      const keys = ['gid', 'status', 'totalLength', 'completedLength', 'downloadSpeed', 'dir', 'files', 'errorMessage', 'bitfield', 'numPieces', 'connections'];
+      const keys = ['gid', 'status', 'totalLength', 'completedLength', 'downloadSpeed', 'dir', 'files', 'errorMessage', 'bitfield', 'numPieces', 'connections', 'pieceLength'];
       const active = await aria2Client.tellActive(keys);
       const waiting = await aria2Client.tellWaiting(0, 100, keys);
       const stopped = await aria2Client.tellStopped(0, 100, keys);
@@ -118,6 +122,8 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       const metaStore = await getMetaStore();
       const allDownloads = [...combinedActive, ...completed, ...failed];
       let hasChanges = false;
+      const metadataUpdates: Record<string, { sourceUrl?: string; title?: string }> = { ...get().downloadMetadata };
+
       for (const dl of allDownloads) {
         const total = parseInt(dl.totalLength, 10);
         const done = parseInt(dl.completedLength, 10);
@@ -143,6 +149,15 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
 
         dl.addedAt = cached.addedAt;
 
+        if (cached.sourceUrl || cached.title) {
+          if (!metadataUpdates[dl.gid]) {
+            metadataUpdates[dl.gid] = {
+              sourceUrl: cached.sourceUrl,
+              title: cached.title
+            };
+          }
+        }
+
         if (total > 0 && (cached.totalLength !== dl.totalLength || (dl.status !== 'active' && cached.completedLength !== dl.completedLength))) {
           await metaStore.set(dl.gid, { ...cached, totalLength: dl.totalLength, completedLength: dl.completedLength } as CachedMeta);
           hasChanges = true;
@@ -152,8 +167,8 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         await metaStore.save();
       }
 
-      const prevCompleted = get().completed;
-      const prevFailed = get().failed;
+      const prevCompleted = get().completed || [];
+      const prevFailed = get().failed || [];
 
       const newCompleted = completed.filter(c => !prevCompleted.find(p => p.gid === c.gid));
       const newFailed = failed.filter(f => !prevFailed.find(p => p.gid === f.gid));
@@ -173,8 +188,10 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         }
       };
 
+      const pendingMuxes = get().pendingMuxes || [];
+
       if (newCompleted.length > 0 && prevCompleted.length > 0) {
-        const nonMuxCompleted = newCompleted.filter(c => !get().pendingMuxes.some(m => m.videoGid === c.gid || m.audioGid === c.gid));
+        const nonMuxCompleted = newCompleted.filter(c => !pendingMuxes.some(m => m.videoGid === c.gid || m.audioGid === c.gid));
         if (nonMuxCompleted.length > 0) {
           notify('Download Complete', `${nonMuxCompleted.length} file(s) finished downloading.`);
         }
@@ -183,7 +200,6 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         notify('Download Failed', 'A download has failed or encountered an error.');
       }
 
-      const { pendingMuxes } = get();
       if (pendingMuxes.length > 0) {
         const updatedMuxes = [...pendingMuxes];
         let stateChanged = false;
@@ -250,7 +266,8 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         active: combinedActive,
         completed,
         failed,
-        globalSpeed: stats.downloadSpeed
+        globalSpeed: stats.downloadSpeed,
+        downloadMetadata: metadataUpdates
       });
     } catch (error) {
       const err = error as Error;
@@ -266,7 +283,7 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
     }
   },
 
-  addDownload: async (url: string, headers: string[] = [], dir?: string, filename?: string, audioUrl?: string, checksum?: DetectedChecksum | string) => {
+  addDownload: async (url: string, headers: string[] = [], dir?: string, filename?: string, audioUrl?: string, checksum?: DetectedChecksum | string, sourceUrl?: string) => {
     const options: Record<string, string | string[]> = {
       'check-certificate': 'true',
       'split': '16',
@@ -315,7 +332,14 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       const videoGid = await aria2Client.addUri([url], { ...options, out: videoFilename });
       const audioGid = await aria2Client.addUri([audioUrl], { ...options, out: audioFilename });
 
+      const metaUpdates: Record<string, { sourceUrl?: string; title?: string }> = {};
+      if (sourceUrl || filename) {
+        metaUpdates[videoGid] = { sourceUrl, title: filename };
+        metaUpdates[audioGid] = { sourceUrl, title: filename };
+      }
+
       set(state => ({
+        downloadMetadata: { ...state.downloadMetadata, ...metaUpdates },
         pendingMuxes: [...state.pendingMuxes, {
           videoGid,
           audioGid,
@@ -323,6 +347,17 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
           status: 'waiting'
         }]
       }));
+
+      if (sourceUrl || filename) {
+        try {
+          const metaStore = await getMetaStore();
+          await metaStore.set(videoGid, { sourceUrl, title: filename, totalLength: '0', completedLength: '0', addedAt: Date.now() });
+          await metaStore.set(audioGid, { sourceUrl, title: filename, totalLength: '0', completedLength: '0', addedAt: Date.now() });
+          await metaStore.save();
+        } catch (e) {
+          console.warn('Failed to save download meta to store', e);
+        }
+      }
     } else {
       let finalFilename = filename;
 
@@ -354,7 +389,23 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         }
         options['out'] = finalFilename;
       }
-      await aria2Client.addUri([url], options);
+      const gid = await aria2Client.addUri([url], options);
+
+      if (sourceUrl || finalFilename) {
+        set(state => ({
+          downloadMetadata: {
+            ...state.downloadMetadata,
+            [gid]: { sourceUrl, title: finalFilename }
+          }
+        }));
+        try {
+          const metaStore = await getMetaStore();
+          await metaStore.set(gid, { sourceUrl, title: finalFilename, totalLength: '0', completedLength: '0', addedAt: Date.now() });
+          await metaStore.save();
+        } catch (e) {
+          console.warn('Failed to save download meta to store', e);
+        }
+      }
     }
 
     await get().fetchDownloads();
@@ -405,6 +456,10 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         }
       }
     }
+
+    const nextMeta = { ...get().downloadMetadata };
+    delete nextMeta[gid];
+    set({ downloadMetadata: nextMeta });
 
     await get().fetchDownloads();
   },
