@@ -11,6 +11,48 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { FolderOpen, CheckCircle2 } from "lucide-react";
 import { type ChecksumAlgorithm, type DetectedChecksum, validateChecksum } from "@/lib/utils";
+import { type YtDlpFormat } from "@/lib/ytdlpClient";
+
+export function formatResolutionLabel(format: YtDlpFormat): string {
+  let width = format.width;
+  let height = format.height;
+
+  if ((!width || !height) && format.resolution) {
+    const dimMatch = format.resolution.match(/(\d+)\s*[xX×]\s*(\d+)/);
+    if (dimMatch) {
+      width = parseInt(dimMatch[1], 10);
+      height = parseInt(dimMatch[2], 10);
+    } else {
+      const pMatch = format.resolution.match(/(\d+)p/i);
+      if (pMatch) {
+        height = parseInt(pMatch[1], 10);
+      }
+    }
+  }
+
+  let label: string;
+  if ((width && width >= 3840) || (height && height >= 2160)) {
+    label = '4K (2160p)';
+  } else if ((width && width >= 2560) || (height && height >= 1440)) {
+    label = '1440p (2K)';
+  } else if ((width && width >= 1920) || (height && height >= 1000)) {
+    label = '1080p (Full HD)';
+  } else if ((width && width >= 1280) || (height && height >= 700)) {
+    label = '720p (HD)';
+  } else if ((width && width >= 800) || (height && height >= 450)) {
+    label = '480p';
+  } else if ((width && width >= 600) || (height && height >= 300)) {
+    label = '360p';
+  } else {
+    label = format.resolution || 'Standard Quality';
+  }
+
+  const sizeStr = format.fileSize > 0 
+    ? `${(format.fileSize / (1024 * 1024)).toFixed(1)} MB` 
+    : 'Unknown Size';
+
+  return `${label} • ${sizeStr} • ${format.ext.toUpperCase()}`;
+}
 
 export function ConfirmDownloadModal() {
   const stagedDownload = useAppStore((state) => state.stagedDownload);
@@ -237,12 +279,20 @@ export function ConfirmDownloadModal() {
           </DialogDescription>
         </DialogHeader>
         
-        <div className="grid gap-4 py-4">
+        <div className="grid gap-4 py-4 min-w-0">
           <div className="space-y-1">
-            <Label className="text-muted-foreground text-xs uppercase">URL</Label>
-            <div className="text-xs font-mono break-all bg-background p-2 rounded border border-border max-h-24 overflow-y-auto" title={selectedFormatUrl || stagedDownload.url}>
+            <div className="flex items-center justify-between">
+              <Label className="text-muted-foreground text-xs uppercase">URL</Label>
+              <Badge variant="outline" className="text-[10px] py-0 h-4 font-normal text-muted-foreground">
+                {stagedDownload.sourceUrl ? "Source Page" : "Direct Stream"}
+              </Badge>
+            </div>
+            <div 
+              className="text-xs font-mono break-all bg-background p-2 rounded border border-border max-h-24 overflow-y-auto select-all" 
+              title={stagedDownload.sourceUrl || selectedFormatUrl || stagedDownload.url}
+            >
               {(() => {
-                const u = selectedFormatUrl || stagedDownload.url || "";
+                const u = stagedDownload.sourceUrl || selectedFormatUrl || stagedDownload.url || "";
                 return u.length > 80 ? u.substring(0, 50) + '...' + u.substring(u.length - 20) : u;
               })()}
             </div>
@@ -254,11 +304,11 @@ export function ConfirmDownloadModal() {
               <select 
                 value={selectedFormatUrl}
                 onChange={handleFormatChange}
-                className="w-full bg-background border border-border text-foreground rounded-md p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                className="w-full bg-card border border-border text-foreground rounded-md p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
               >
                 {stagedDownload.mediaFormats.map(format => (
-                  <option key={format.format_id} value={format.url}>
-                    {format.resolution} ({format.fileSize > 0 ? `${(format.fileSize / (1024 * 1024)).toFixed(1)} MB` : 'Unknown Size'}) - {format.ext.toUpperCase()}
+                  <option key={format.format_id} value={format.url} className="bg-card text-foreground">
+                    {formatResolutionLabel(format)}
                   </option>
                 ))}
               </select>

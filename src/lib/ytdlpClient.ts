@@ -7,6 +7,8 @@ export interface YtDlpFormat {
   fileSize: number;
   url: string;
   audioUrl?: string;
+  width?: number;
+  height?: number;
 }
 
 export interface YtDlpVideoInfo {
@@ -115,6 +117,8 @@ export const ytdlpClient = {
               format_id: f.format_id || 'unknown',
               ext: finalExt,
               resolution: f.resolution || f.format_note || (f.width ? `${f.width}x${f.height}` : 'Unknown'),
+              width: f.width,
+              height: f.height,
               fileSize: (f.filesize || f.filesize_approx || 0) + (!hasAudio && bestAudio ? (bestAudio.filesize || bestAudio.filesize_approx || 0) : 0),
               url: f.url!,
               audioUrl: !hasAudio && bestAudio ? bestAudio.url : undefined

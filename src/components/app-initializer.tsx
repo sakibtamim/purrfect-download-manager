@@ -68,6 +68,7 @@ export function AppInitializer() {
                 
                 stageDownload({
                   url: payload.url,
+                  sourceUrl: typeof payload.referrer === 'string' && payload.referrer ? payload.referrer : (typeof payload.url === 'string' ? payload.url : undefined),
                   headers,
                   filename: typeof payload.filename === 'string' ? payload.filename : undefined,
                   fileSize: typeof payload.fileSize === 'number' ? payload.fileSize : undefined,
