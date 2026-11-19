@@ -56,15 +56,15 @@ describe('calculateOptimalSplit', () => {
     });
   });
 
-  describe('File Size Tiering', () => {
-    it('allocates 2 connections for small files (< 5MB)', () => {
+  describe('Unthrottled Maximum Speed Across All File Sizes', () => {
+    it('allocates 32 connections for small files (< 5MB)', () => {
       const oneMb = calculateOptimalSplit({
         url: 'https://example.com/document.pdf',
         fileSize: 1024 * 1024
       });
       expect(oneMb).toEqual({
-        split: 2,
-        maxConnectionPerServer: 2,
+        split: 32,
+        maxConnectionPerServer: 16,
         minSplitSize: '1M'
       });
 
@@ -73,20 +73,20 @@ describe('calculateOptimalSplit', () => {
         fileSize: 5 * 1024 * 1024 - 1
       });
       expect(justUnderFiveMb).toEqual({
-        split: 2,
-        maxConnectionPerServer: 2,
+        split: 32,
+        maxConnectionPerServer: 16,
         minSplitSize: '1M'
       });
     });
 
-    it('allocates 8 connections for medium files (5MB - 50MB)', () => {
+    it('allocates 32 connections for medium files (5MB - 50MB)', () => {
       const exactFiveMb = calculateOptimalSplit({
         url: 'https://example.com/archive.zip',
         fileSize: 5 * 1024 * 1024
       });
       expect(exactFiveMb).toEqual({
-        split: 8,
-        maxConnectionPerServer: 8,
+        split: 32,
+        maxConnectionPerServer: 16,
         minSplitSize: '1M'
       });
 
@@ -95,60 +95,18 @@ describe('calculateOptimalSplit', () => {
         fileSize: 20 * 1024 * 1024
       });
       expect(twentyMb).toEqual({
-        split: 8,
-        maxConnectionPerServer: 8,
-        minSplitSize: '1M'
-      });
-
-      const justUnderFiftyMb = calculateOptimalSplit({
-        url: 'https://example.com/video-clip.mp4',
-        fileSize: 50 * 1024 * 1024 - 1
-      });
-      expect(justUnderFiftyMb).toEqual({
-        split: 8,
-        maxConnectionPerServer: 8,
+        split: 32,
+        maxConnectionPerServer: 16,
         minSplitSize: '1M'
       });
     });
 
-    it('allocates 16 connections for large files (50MB - 500MB)', () => {
-      const exactFiftyMb = calculateOptimalSplit({
+    it('allocates 32 connections for large and huge files (>= 50MB)', () => {
+      const fiftyMb = calculateOptimalSplit({
         url: 'https://example.com/dataset.tar.gz',
         fileSize: 50 * 1024 * 1024
       });
-      expect(exactFiftyMb).toEqual({
-        split: 16,
-        maxConnectionPerServer: 16,
-        minSplitSize: '1M'
-      });
-
-      const twoHundredMb = calculateOptimalSplit({
-        url: 'https://example.com/installer.dmg',
-        fileSize: 200 * 1024 * 1024
-      });
-      expect(twoHundredMb).toEqual({
-        split: 16,
-        maxConnectionPerServer: 16,
-        minSplitSize: '1M'
-      });
-
-      const justUnderFiveHundredMb = calculateOptimalSplit({
-        url: 'https://example.com/update.bin',
-        fileSize: 500 * 1024 * 1024 - 1
-      });
-      expect(justUnderFiveHundredMb).toEqual({
-        split: 16,
-        maxConnectionPerServer: 16,
-        minSplitSize: '1M'
-      });
-    });
-
-    it('allocates 32 connections for huge files (>= 500MB)', () => {
-      const exactFiveHundredMb = calculateOptimalSplit({
-        url: 'https://example.com/os-image.iso',
-        fileSize: 500 * 1024 * 1024
-      });
-      expect(exactFiveHundredMb).toEqual({
+      expect(fiftyMb).toEqual({
         split: 32,
         maxConnectionPerServer: 16,
         minSplitSize: '1M'
@@ -165,22 +123,22 @@ describe('calculateOptimalSplit', () => {
       });
     });
 
-    it('defaults to 8 connections when fileSize is missing, 0, or negative', () => {
+    it('allocates 32 connections when fileSize is missing, 0, or negative', () => {
       expect(calculateOptimalSplit({ url: 'https://example.com/file' })).toEqual({
-        split: 8,
-        maxConnectionPerServer: 8,
+        split: 32,
+        maxConnectionPerServer: 16,
         minSplitSize: '1M'
       });
 
       expect(calculateOptimalSplit({ url: 'https://example.com/file', fileSize: 0 })).toEqual({
-        split: 8,
-        maxConnectionPerServer: 8,
+        split: 32,
+        maxConnectionPerServer: 16,
         minSplitSize: '1M'
       });
 
       expect(calculateOptimalSplit({ url: 'https://example.com/file', fileSize: -1 })).toEqual({
-        split: 8,
-        maxConnectionPerServer: 8,
+        split: 32,
+        maxConnectionPerServer: 16,
         minSplitSize: '1M'
       });
     });

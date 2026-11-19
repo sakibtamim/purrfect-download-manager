@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { create, StoreApi } from 'zustand';
 import { createDownloadSlice, DownloadDataSlice } from './downloadSlice';
 import { createSettingsSlice, SettingsSlice } from './settingsSlice';
-import { DownloadState } from '../types';
+import { DownloadState, PendingMux } from '../types';
 import { aria2Client } from '@/lib/aria2Client';
 
 describe('settingsSlice defaults', () => {
@@ -108,7 +108,7 @@ describe('downloadSlice metadata tracking', () => {
     expect(capturedOptions?.['min-split-size']).toBe('1M');
   });
 
-  it('dynamically adapts connection splits based on file size', async () => {
+  it('allocates unthrottled 32 splits across all file sizes for line speed saturation', async () => {
     let capturedOptions: Record<string, unknown> | undefined;
     vi.spyOn(aria2Client, 'addUri').mockImplementation(async (_uris, options) => {
       capturedOptions = options as Record<string, unknown>;
@@ -121,7 +121,7 @@ describe('downloadSlice metadata tracking', () => {
       dynamicConnections: true,
     }));
 
-    // Small file (< 5MB) -> 2 connections
+    // Small file (< 5MB) -> 32 connections for maximum BDIX / line speed saturation
     await useTestStore.getState().addDownload(
       'https://example.com/small.png',
       [],
@@ -132,8 +132,8 @@ describe('downloadSlice metadata tracking', () => {
       undefined,
       1024 * 1024
     );
-    expect(capturedOptions?.['split']).toBe('2');
-    expect(capturedOptions?.['max-connection-per-server']).toBe('2');
+    expect(capturedOptions?.['split']).toBe('32');
+    expect(capturedOptions?.['max-connection-per-server']).toBe('16');
 
     // Huge file (> 500MB) -> 32 connections
     await useTestStore.getState().addDownload(
@@ -169,5 +169,144 @@ describe('downloadSlice metadata tracking', () => {
       expect.stringContaining('Attempted to download HLS manifest directly with aria2:'),
       'https://manifest.googlevideo.com/playlist/index.m3u8'
     );
+  });
+});
+
+describe('Unified dual-stream encapsulation and tandem controls', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('filters companion audio tasks out of active/completed and combines metrics onto the video card', async () => {
+    const mockVideo = {
+      gid: 'vid-1',
+      status: 'active' as const,
+      totalLength: '1000',
+      completedLength: '500',
+      downloadSpeed: '200',
+      dir: '/downloads',
+      files: [{ path: '/downloads/Movie.video.mp4', length: '1000', completedLength: '500', uris: [] }]
+    };
+    const mockAudio = {
+      gid: 'aud-1',
+      status: 'active' as const,
+      totalLength: '500',
+      completedLength: '250',
+      downloadSpeed: '100',
+      dir: '/downloads',
+      files: [{ path: '/downloads/Movie.audio.m4a', length: '500', completedLength: '250', uris: [] }]
+    };
+
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([mockVideo, mockAudio]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'getGlobalStat').mockResolvedValue({ downloadSpeed: '300', numActive: '2', numWaiting: '0', numStopped: '0' });
+
+    const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      pendingMuxes: [{
+        videoGid: 'vid-1',
+        audioGid: 'aud-1',
+        finalFilename: 'Movie.mp4',
+        status: 'waiting'
+      }]
+    }));
+
+    await useTestStore.getState().fetchDownloads();
+
+    const active = useTestStore.getState().active;
+    // Audio task must be completely hidden!
+    expect(active.some(d => d.gid === 'aud-1')).toBe(false);
+    expect(active.length).toBe(1);
+
+    const videoDl = active[0];
+    expect(videoDl.gid).toBe('vid-1');
+    // Combined metrics
+    expect(videoDl.totalLength).toBe('1500'); // 1000 + 500
+    expect(videoDl.completedLength).toBe('750'); // 500 + 250
+    expect(videoDl.downloadSpeed).toBe('300'); // 200 + 100
+    // Normalized file path ends with finalFilename (Movie.mp4, NOT .video.mp4)
+    expect(videoDl.files[0].path).toBe('/downloads/Movie.mp4');
+  });
+
+  it('sets status to muxing when video and audio are completed and mux is active', async () => {
+    const mockVideo = {
+      gid: 'vid-2',
+      status: 'complete' as const,
+      totalLength: '2000',
+      completedLength: '2000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/Clip.video.mp4', length: '2000', completedLength: '2000', uris: [] }]
+    };
+    const mockAudio = {
+      gid: 'aud-2',
+      status: 'complete' as const,
+      totalLength: '500',
+      completedLength: '500',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/Clip.audio.m4a', length: '500', completedLength: '500', uris: [] }]
+    };
+
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([mockVideo, mockAudio]);
+    vi.spyOn(aria2Client, 'getGlobalStat').mockResolvedValue({ downloadSpeed: '0', numActive: '0', numWaiting: '0', numStopped: '2' });
+
+    const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      pendingMuxes: [{
+        videoGid: 'vid-2',
+        audioGid: 'aud-2',
+        finalFilename: 'Clip.mp4',
+        status: 'muxing'
+      }]
+    }));
+
+    await useTestStore.getState().fetchDownloads();
+
+    // Actively muxing downloads stay in active downloads with status "muxing"
+    const active = useTestStore.getState().active;
+    expect(active.length).toBe(1);
+    expect(active[0].gid).toBe('vid-2');
+    expect(active[0].status).toBe('muxing');
+    expect(active[0].files[0].path).toBe('/downloads/Clip.mp4');
+  });
+
+  it('pauses, resumes, cancels, and deletes companion audio tasks in tandem with video tasks', async () => {
+    const pauseSpy = vi.spyOn(aria2Client, 'pause').mockResolvedValue('OK');
+    const unpauseSpy = vi.spyOn(aria2Client, 'unpause').mockResolvedValue('OK');
+    const removeSpy = vi.spyOn(aria2Client, 'remove').mockResolvedValue('OK');
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'getGlobalStat').mockResolvedValue({ downloadSpeed: '0', numActive: '0', numWaiting: '0', numStopped: '0' });
+
+    const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      pendingMuxes: [{
+        videoGid: 'vid-3',
+        audioGid: 'aud-3',
+        finalFilename: 'Tandem.mp4',
+        status: 'waiting'
+      }]
+    }));
+
+    // Pause
+    await useTestStore.getState().pauseDownload('vid-3');
+    expect(pauseSpy).toHaveBeenCalledWith('vid-3');
+    expect(pauseSpy).toHaveBeenCalledWith('aud-3');
+
+    // Resume
+    await useTestStore.getState().resumeDownload('vid-3');
+    expect(unpauseSpy).toHaveBeenCalledWith('vid-3');
+    expect(unpauseSpy).toHaveBeenCalledWith('aud-3');
+
+    // Cancel
+    await useTestStore.getState().cancelDownload('vid-3');
+    expect(removeSpy).toHaveBeenCalledWith('vid-3');
+    expect(removeSpy).toHaveBeenCalledWith('aud-3');
+    expect(useTestStore.getState().pendingMuxes.some(m => m.videoGid === 'vid-3')).toBe(false);
   });
 });

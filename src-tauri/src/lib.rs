@@ -203,7 +203,7 @@ pub fn run() {
           "--file-allocation=falloc",
           "--save-session-interval=10",
           "--continue=true",
-          "--split=16",
+          "--split=32",
           "--max-connection-per-server=16",
           "--min-split-size=1M",
           "--disk-cache=64M",

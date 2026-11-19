@@ -1,7 +1,7 @@
 // src/lib/aria2Client.ts
 export interface Aria2Download {
   gid: string;
-  status: "active" | "waiting" | "paused" | "error" | "complete" | "removed";
+  status: "active" | "waiting" | "paused" | "error" | "complete" | "removed" | "muxing";
   totalLength: string;
   completedLength: string;
   downloadSpeed: string;

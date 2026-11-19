@@ -12,13 +12,8 @@ export interface SplitResult {
   minSplitSize: string;
 }
 
-export function calculateOptimalSplit({
-  fileSize,
-  url,
-  sourceUrl,
-  userSetting = 16,
-  dynamicEnabled = true
-}: DynamicSplitOptions): SplitResult {
+export function calculateOptimalSplit(options: DynamicSplitOptions): SplitResult {
+  const { userSetting = 16, dynamicEnabled = true } = options;
   // If dynamic is disabled by user, honor their manual setting
   if (!dynamicEnabled) {
     const fixed = Math.max(1, Math.min(32, userSetting));
@@ -29,36 +24,10 @@ export function calculateOptimalSplit({
     };
   }
 
-  const targetUrl = `${sourceUrl || ''} ${url}`.toLowerCase();
-  const isMediaStream = (
-    targetUrl.includes('googlevideo.com') ||
-    targetUrl.includes('youtube.com') ||
-    targetUrl.includes('youtu.be') ||
-    targetUrl.includes('.m3u8') ||
-    targetUrl.includes('.mpd')
-  );
-
-  // 1. YouTube & CDN Streaming: Max split to saturate BDIX cache and gigabit links
-  if (isMediaStream) {
-    return {
-      split: 32,
-      maxConnectionPerServer: 16,
-      minSplitSize: '1M'
-    };
-  }
-
-  // 2. File size tiering
-  if (!fileSize || fileSize <= 0) {
-    return { split: 8, maxConnectionPerServer: 8, minSplitSize: '1M' };
-  }
-
-  if (fileSize < 5 * 1024 * 1024) {
-    return { split: 2, maxConnectionPerServer: 2, minSplitSize: '1M' };
-  } else if (fileSize < 50 * 1024 * 1024) {
-    return { split: 8, maxConnectionPerServer: 8, minSplitSize: '1M' };
-  } else if (fileSize < 500 * 1024 * 1024) {
-    return { split: 16, maxConnectionPerServer: 16, minSplitSize: '1M' };
-  } else {
-    return { split: 32, maxConnectionPerServer: 16, minSplitSize: '1M' };
-  }
+  // Standardize to max 32 connections for full line speed and BDIX cache saturation
+  return {
+    split: 32,
+    maxConnectionPerServer: 16,
+    minSplitSize: '1M'
+  };
 }
