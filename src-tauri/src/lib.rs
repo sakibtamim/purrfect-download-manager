@@ -1,6 +1,5 @@
 use serde_json::Value;
 use std::fs;
-use std::io::Read;
 use std::thread;
 use tauri::{
     menu::{Menu, MenuItem, CheckMenuItem, PredefinedMenuItem},
@@ -195,16 +194,7 @@ pub fn run() {
       let current_pid = std::process::id();
       let stop_with_process_arg = format!("--stop-with-process={}", current_pid);
 
-      let sidecar_cmd_result = app.shell().sidecar("pdm-aria2c");
-      let sidecar_command = match sidecar_cmd_result {
-          Ok(cmd) => cmd,
-          Err(err) => {
-              log::warn!("Bundled pdm-aria2c sidecar not available ({}), falling back to system aria2c...", err);
-              app.shell().command("system-aria2c")
-          }
-      };
-
-      let configured_command = sidecar_command.args([
+      let aria2_args = [
           "--enable-rpc", 
           "--rpc-listen-all=false", 
           "--rpc-listen-port=6800", 
@@ -217,9 +207,19 @@ pub fn run() {
           &input_file_arg,
           &dir_arg,
           "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
-      ]);
-        
-      match configured_command.spawn() {
+      ];
+
+      // Try bundled pdm-aria2c sidecar first; fall back to system aria2c if spawn fails
+      let sidecar_spawn = app.shell().sidecar("pdm-aria2c").and_then(|cmd| cmd.args(&aria2_args).spawn());
+      let final_spawn = match sidecar_spawn {
+          Ok(child) => Ok(child),
+          Err(err) => {
+              log::warn!("Bundled pdm-aria2c sidecar spawn failed ({}), falling back to system-aria2c...", err);
+              app.shell().command("system-aria2c").args(&aria2_args).spawn()
+          }
+      };
+
+      match final_spawn {
           Ok((mut rx, _child)) => {
               tauri::async_runtime::spawn(async move {
                   let _child_keep_alive = _child;
