@@ -228,15 +228,27 @@ export default function SettingsPage() {
             <h2 className="text-lg font-semibold text-foreground">Browser Integration</h2>
           </div>
           
-          <div className="space-y-2">
-            <Label className="text-foreground/80">Chrome / Edge Extension</Label>
+          <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
               Install the companion extension to automatically intercept browser downloads and add a right-click &quot;Download with Purrfect DL&quot; context menu.
             </p>
-            <div className="mt-4 bg-background border border-border rounded-md p-4 text-sm text-foreground/80 space-y-3">
-              <p>1. Open your browser and navigate to <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">chrome://extensions</code> (or <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">edge://extensions</code>).</p>
-              <p>2. Enable <strong className="text-foreground">Developer Mode</strong> in the top right corner.</p>
-              <p>3. Click <strong className="text-foreground">Load unpacked</strong> and select the <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">extension</code> folder inside your PDM directory.</p>
+
+            <div className="space-y-2">
+              <Label className="text-foreground/80 font-medium">Firefox</Label>
+              <div className="bg-background border border-border rounded-md p-4 text-sm text-foreground/80 space-y-2">
+                <p>1. Open Firefox and navigate to <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">about:debugging#/runtime/this-firefox</code>.</p>
+                <p>2. Click <strong className="text-foreground">Load Temporary Add-on...</strong></p>
+                <p>3. Select the <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">manifest.json</code> file inside your PDM <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">extension</code> directory.</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-foreground/80 font-medium">Chrome / Brave / Edge</Label>
+              <div className="bg-background border border-border rounded-md p-4 text-sm text-foreground/80 space-y-2">
+                <p>1. Open your browser and navigate to <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">chrome://extensions</code> (or <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">brave://extensions</code>).</p>
+                <p>2. Enable <strong className="text-foreground">Developer Mode</strong> in the top right corner.</p>
+                <p>3. Click <strong className="text-foreground">Load unpacked</strong> and select the <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">extension</code> folder inside your PDM directory.</p>
+              </div>
             </div>
           </div>
         </section>
