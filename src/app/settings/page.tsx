@@ -251,7 +251,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between py-2">
             <div className="space-y-0.5">
               <Label className="text-foreground/80">Launch on Startup</Label>
-              <p className="text-sm text-muted-foreground">Automatically open Purrfect DL in the system tray when Windows boots.</p>
+              <p className="text-sm text-muted-foreground">Automatically open Purrfect DL in the system tray when system starts.</p>
             </div>
             <Switch
               checked={autoStart}
