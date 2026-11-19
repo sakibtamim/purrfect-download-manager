@@ -12,6 +12,7 @@ describe('settingsSlice defaults', () => {
     );
 
     expect(useTestStore.getState().splitConnections).toBe(16);
+    expect(useTestStore.getState().dynamicConnections).toBe(true);
   });
 });
 
@@ -54,16 +55,17 @@ describe('downloadSlice metadata tracking', () => {
     expect(useTestStore.getState().downloadMetadata['gid-1']).toBeUndefined();
   });
 
-  it('respects splitConnections up to 32 in aria2 options', async () => {
+  it('respects manual splitConnections up to 32 when dynamic scaling is disabled', async () => {
     let capturedOptions: Record<string, unknown> | undefined;
     vi.spyOn(aria2Client, 'addUri').mockImplementation(async (_uris, options) => {
       capturedOptions = options as Record<string, unknown>;
       return 'gid-32';
     });
 
-    const useTestStore = create<DownloadDataSlice & { splitConnections?: number }>()((set, get, api) => ({
+    const useTestStore = create<DownloadDataSlice & { splitConnections?: number; dynamicConnections?: boolean }>()((set, get, api) => ({
       ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
       splitConnections: 32,
+      dynamicConnections: false,
     }));
 
     await useTestStore.getState().addDownload(
@@ -74,7 +76,77 @@ describe('downloadSlice metadata tracking', () => {
     );
 
     expect(capturedOptions?.['split']).toBe('32');
-    expect(capturedOptions?.['max-connection-per-server']).toBe('32');
+    expect(capturedOptions?.['max-connection-per-server']).toBe('16');
     expect(capturedOptions?.['min-split-size']).toBe('1M');
+  });
+
+  it('dynamically allocates 32 splits for YouTube streams', async () => {
+    let capturedOptions: Record<string, unknown> | undefined;
+    vi.spyOn(aria2Client, 'addUri').mockImplementation(async (_uris, options) => {
+      capturedOptions = options as Record<string, unknown>;
+      return 'gid-yt';
+    });
+
+    const useTestStore = create<DownloadDataSlice & { splitConnections?: number; dynamicConnections?: boolean }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      splitConnections: 16,
+      dynamicConnections: true,
+    }));
+
+    await useTestStore.getState().addDownload(
+      'https://rr1---sn-4g5ednks.googlevideo.com/videoplayback',
+      [],
+      '/tmp/downloads',
+      'video.mp4',
+      undefined,
+      undefined,
+      'https://www.youtube.com/watch?v=123'
+    );
+
+    expect(capturedOptions?.['split']).toBe('32');
+    expect(capturedOptions?.['max-connection-per-server']).toBe('16');
+    expect(capturedOptions?.['min-split-size']).toBe('1M');
+  });
+
+  it('dynamically adapts connection splits based on file size', async () => {
+    let capturedOptions: Record<string, unknown> | undefined;
+    vi.spyOn(aria2Client, 'addUri').mockImplementation(async (_uris, options) => {
+      capturedOptions = options as Record<string, unknown>;
+      return 'gid-size';
+    });
+
+    const useTestStore = create<DownloadDataSlice & { splitConnections?: number; dynamicConnections?: boolean }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      splitConnections: 16,
+      dynamicConnections: true,
+    }));
+
+    // Small file (< 5MB) -> 2 connections
+    await useTestStore.getState().addDownload(
+      'https://example.com/small.png',
+      [],
+      '/tmp/downloads',
+      'small.png',
+      undefined,
+      undefined,
+      undefined,
+      1024 * 1024
+    );
+    expect(capturedOptions?.['split']).toBe('2');
+    expect(capturedOptions?.['max-connection-per-server']).toBe('2');
+
+    // Huge file (> 500MB) -> 32 connections
+    await useTestStore.getState().addDownload(
+      'https://example.com/huge.iso',
+      [],
+      '/tmp/downloads',
+      'huge.iso',
+      undefined,
+      undefined,
+      undefined,
+      1024 * 1024 * 1024
+    );
+    expect(capturedOptions?.['split']).toBe('32');
+    expect(capturedOptions?.['max-connection-per-server']).toBe('16');
   });
 });

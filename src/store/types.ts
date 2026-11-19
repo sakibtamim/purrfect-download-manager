@@ -27,4 +27,6 @@ export interface DownloadMetadata {
   title?: string;
 }
 
+export type SettingsState = SettingsSlice;
+
 export type DownloadState = UISlice & SettingsSlice & MuxSlice & DownloadDataSlice;

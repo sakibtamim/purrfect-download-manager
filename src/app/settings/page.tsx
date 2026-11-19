@@ -19,6 +19,7 @@ export default function SettingsPage() {
     defaultDownloadDir, setDefaultDownloadDir,
     maxConcurrentDownloads, setMaxConcurrentDownloads,
     splitConnections, setSplitConnections,
+    dynamicConnections, setDynamicConnections,
     autoStart, setAutoStart,
     isPlayfulMode, togglePlayfulMode,
     safeBrowsingApiKey, setSafeBrowsingApiKey
@@ -201,23 +202,45 @@ export default function SettingsPage() {
           </div>
 
           <div className="pt-4 border-t border-border space-y-4">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center gap-4">
               <div>
-                <Label className="text-foreground/80">Connections Per File (Split)</Label>
-                <p className="text-sm text-muted-foreground">How many parallel connections a single file is split into (up to 32 connections for gigabit speed).</p>
+                <Label className="text-foreground/80">Dynamic Connection Scaling (Auto-Tuning)</Label>
+                <p className="text-sm text-muted-foreground">Automatically adjusts parallel connections (2 to 32 streams) based on file size and YouTube/BDIX cache limits.</p>
               </div>
-              <span className="text-xl font-bold text-foreground bg-background px-4 py-1 rounded-lg border border-border">
-                {splitConnections}
-              </span>
+              <div className="flex items-center gap-3 shrink-0">
+                {dynamicConnections && (
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                    ⚡ Auto (2–32 Streams)
+                  </span>
+                )}
+                <Switch
+                  checked={dynamicConnections}
+                  onCheckedChange={setDynamicConnections}
+                />
+              </div>
             </div>
-            <Slider
-              value={[splitConnections]}
-              onValueChange={(vals) => setSplitConnections(typeof vals === 'number' ? vals : vals[0])}
-              max={32}
-              min={1}
-              step={1}
-              className="py-4"
-            />
+
+            {!dynamicConnections && (
+              <div className="space-y-4 pt-2 animate-in fade-in duration-200">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <Label className="text-foreground/80">Connections Per File (Split)</Label>
+                    <p className="text-sm text-muted-foreground">Fixed parallel connections a single file is split into (1 to 32 connections).</p>
+                  </div>
+                  <span className="text-xl font-bold text-foreground bg-background px-4 py-1 rounded-lg border border-border">
+                    {splitConnections}
+                  </span>
+                </div>
+                <Slider
+                  value={[splitConnections]}
+                  onValueChange={(vals) => setSplitConnections(typeof vals === 'number' ? vals : vals[0])}
+                  max={32}
+                  min={1}
+                  step={1}
+                  className="py-4"
+                />
+              </div>
+            )}
           </div>
         </section>
 

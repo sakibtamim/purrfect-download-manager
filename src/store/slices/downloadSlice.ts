@@ -8,6 +8,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { formatChecksum, type DetectedChecksum } from '@/lib/utils';
+import { calculateOptimalSplit } from '@/lib/networkOptimizer';
 import { DownloadState, StagedDownload } from '../types';
 
 interface CachedMeta {
@@ -47,7 +48,7 @@ export interface DownloadDataSlice {
   stageDownload: (download: StagedDownload) => Promise<void>;
   clearStagedDownload: () => void;
   fetchDownloads: () => Promise<void>;
-  addDownload: (url: string, headers?: string[], dir?: string, filename?: string, audioUrl?: string, checksum?: DetectedChecksum | string, sourceUrl?: string) => Promise<void>;
+  addDownload: (url: string, headers?: string[], dir?: string, filename?: string, audioUrl?: string, checksum?: DetectedChecksum | string, sourceUrl?: string, fileSize?: number) => Promise<void>;
   pauseDownload: (gid: string) => Promise<void>;
   resumeDownload: (gid: string) => Promise<void>;
   cancelDownload: (gid: string) => Promise<void>;
@@ -283,13 +284,21 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
     }
   },
 
-  addDownload: async (url: string, headers: string[] = [], dir?: string, filename?: string, audioUrl?: string, checksum?: DetectedChecksum | string, sourceUrl?: string) => {
-    const splitCount = String(get().splitConnections || 16);
+  addDownload: async (url: string, headers: string[] = [], dir?: string, filename?: string, audioUrl?: string, checksum?: DetectedChecksum | string, sourceUrl?: string, fileSize?: number) => {
+    let resolvedFileSize = fileSize;
+    const { split, maxConnectionPerServer, minSplitSize } = calculateOptimalSplit({
+      fileSize: resolvedFileSize,
+      url,
+      sourceUrl,
+      userSetting: get().splitConnections,
+      dynamicEnabled: get().dynamicConnections
+    });
+
     const options: Record<string, string | string[]> = {
       'check-certificate': 'true',
-      'split': splitCount,
-      'max-connection-per-server': splitCount,
-      'min-split-size': '1M'
+      'split': String(split),
+      'max-connection-per-server': String(maxConnectionPerServer),
+      'min-split-size': minSplitSize
     };
     if (headers.length > 0) {
       options['header'] = headers;
@@ -365,6 +374,23 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       if (!finalFilename && typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
         try {
           const res = await tauriFetch(url, { method: 'HEAD' });
+          const cl = res.headers.get('content-length');
+          if (cl && !resolvedFileSize) {
+            const parsed = parseInt(cl, 10);
+            if (!isNaN(parsed) && parsed > 0) {
+              resolvedFileSize = parsed;
+              const recomputed = calculateOptimalSplit({
+                fileSize: resolvedFileSize,
+                url,
+                sourceUrl,
+                userSetting: get().splitConnections,
+                dynamicEnabled: get().dynamicConnections
+              });
+              options['split'] = String(recomputed.split);
+              options['max-connection-per-server'] = String(recomputed.maxConnectionPerServer);
+              options['min-split-size'] = recomputed.minSplitSize;
+            }
+          }
           const dispHeader = res.headers.get('content-disposition');
           if (dispHeader) {
             const match = dispHeader.match(/filename="?([^"]+)"?/i);

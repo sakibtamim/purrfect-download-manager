@@ -260,9 +260,9 @@ export function ConfirmDownloadModal() {
 
     if (selectedFormat) {
       const headers = stagedDownload.headers || [];
-      await addDownload(urlToDownload, headers, finalDir, displayFilename, audioUrl, finalChecksum, stagedDownload.sourceUrl);
+      await addDownload(urlToDownload, headers, finalDir, displayFilename, audioUrl, finalChecksum, stagedDownload.sourceUrl, stagedDownload.fileSize);
     } else {
-      await addDownload(urlToDownload, stagedDownload.headers || [], finalDir, displayFilename, undefined, finalChecksum, stagedDownload.sourceUrl);
+      await addDownload(urlToDownload, stagedDownload.headers || [], finalDir, displayFilename, undefined, finalChecksum, stagedDownload.sourceUrl, stagedDownload.fileSize);
     }
     clearStagedDownload();
   };
