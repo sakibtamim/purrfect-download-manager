@@ -221,50 +221,33 @@ export default function SettingsPage() {
             />
           </div>
 
-          <div className="pt-4 border-t border-border space-y-3">
+          <div className="pt-4 border-t border-border flex items-center justify-between gap-4">
             <div>
-              <Label className="text-foreground/80">Speed Display Unit</Label>
-              <p className="text-sm text-muted-foreground">Choose whether download speeds are displayed in bytes or bits.</p>
+              <Label className="text-foreground/80">Speed Unit</Label>
+              <p className="text-sm text-muted-foreground">Display speeds in MegaBytes (MB/s) or Megabits (Mbps).</p>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+            <div className="flex items-center bg-muted/60 p-1 rounded-lg border border-border">
               <button
                 type="button"
                 onClick={() => setSpeedUnit('MBps')}
-                className={`flex flex-col items-start p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
                   speedUnit === 'MBps'
-                    ? 'border-primary bg-primary/5 glow-accent'
-                    : 'border-border bg-card hover:border-primary/30 hover:bg-accent/50'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                <div className="flex items-center justify-between w-full">
-                  <span className="text-sm font-semibold text-foreground">MB/s (MegaBytes/sec)</span>
-                  {speedUnit === 'MBps' && (
-                    <span className="w-2 h-2 rounded-full bg-primary" />
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Standard download rate in bytes (e.g. 12.5 MB/s)
-                </p>
+                MB/s
               </button>
-
               <button
                 type="button"
                 onClick={() => setSpeedUnit('Mbps')}
-                className={`flex flex-col items-start p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
                   speedUnit === 'Mbps'
-                    ? 'border-primary bg-primary/5 glow-accent'
-                    : 'border-border bg-card hover:border-primary/30 hover:bg-accent/50'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                <div className="flex items-center justify-between w-full">
-                  <span className="text-sm font-semibold text-foreground">Mbps (Megabits/sec)</span>
-                  {speedUnit === 'Mbps' && (
-                    <span className="w-2 h-2 rounded-full bg-primary" />
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Network bandwidth in bits (e.g. 100 Mbps, matches ISP & Speedtest)
-                </p>
+                Mbps
               </button>
             </div>
           </div>
