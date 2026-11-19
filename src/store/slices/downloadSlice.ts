@@ -17,6 +17,7 @@ interface CachedMeta {
   addedAt?: number;
   sourceUrl?: string;
   title?: string;
+  path?: string;
 }
 
 const mockMetaStore = new Map<string, unknown>();
@@ -30,6 +31,7 @@ export async function getMetaStore(): Promise<Store> {
       metaStoreCache = {
         get: async <T>(key: string) => (mockMetaStore.get(key) ?? null) as T | null,
         set: async (key: string, value: unknown) => { mockMetaStore.set(key, value); },
+        delete: async (key: string) => { mockMetaStore.delete(key); },
         save: async () => {}
       } as unknown as Store;
     }
@@ -150,6 +152,10 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
 
         dl.addedAt = cached.addedAt;
 
+        if (cached.path && dl.files && dl.files.length > 0) {
+          dl.files = dl.files.map(f => ({ ...f, path: cached.path! }));
+        }
+
         if (cached.sourceUrl || cached.title) {
           if (!metadataUpdates[dl.gid]) {
             metadataUpdates[dl.gid] = {
@@ -243,7 +249,28 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                     notify('Video Processing Complete', 'High-resolution video merged successfully.');
                     invoke('delete_downloaded_file', { path: vPath }).catch(console.error);
                     invoke('delete_downloaded_file', { path: aPath }).catch(console.error);
-                    set(state => ({ pendingMuxes: state.pendingMuxes.filter(m => m !== mux) }));
+                    aria2Client.removeDownloadResult(mux.audioGid).catch(console.warn);
+
+                    getMetaStore().then(async metaStore => {
+                      try {
+                        const cached = await metaStore.get<CachedMeta>(mux.videoGid) || { totalLength: '0', completedLength: '0' };
+                        await metaStore.set(mux.videoGid, { ...cached, path: finalPath, title: mux.finalFilename });
+                        await metaStore.delete(mux.audioGid);
+                        await metaStore.save();
+                      } catch (err) {
+                        console.warn('Failed to update metaStore after mux:', err);
+                      }
+                    });
+
+                    set(state => ({
+                      pendingMuxes: state.pendingMuxes.filter(m => m !== mux),
+                      completed: state.completed
+                        .filter(c => c.gid !== mux.audioGid)
+                        .map(c => c.gid === mux.videoGid ? {
+                          ...c,
+                          files: c.files.map(f => ({ ...f, path: finalPath }))
+                        } : c)
+                    }));
                   } else {
                     notify('Video Processing Failed', 'Failed to merge video and audio tracks.');
                     mux.status = 'error';
@@ -285,6 +312,10 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
   },
 
   addDownload: async (url: string, headers: string[] = [], dir?: string, filename?: string, audioUrl?: string, checksum?: DetectedChecksum | string, sourceUrl?: string, fileSize?: number) => {
+    if (url.includes('.m3u8') || url.includes('/hls_playlist/')) {
+      console.warn('Attempted to download HLS manifest directly with aria2:', url);
+    }
+
     let resolvedFileSize = fileSize;
     const { split, maxConnectionPerServer, minSplitSize } = calculateOptimalSplit({
       fileSize: resolvedFileSize,

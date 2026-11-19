@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatResolutionLabel } from './confirm-download-modal';
+import { formatResolutionLabel, resolveInitialDownloadSelection } from './confirm-download-modal';
 import { YtDlpFormat } from '@/lib/ytdlpClient';
 
 describe('formatResolutionLabel', () => {
@@ -108,5 +108,52 @@ describe('formatResolutionLabel', () => {
       url: 'https://example.com/audio'
     };
     expect(formatResolutionLabel(formatAudio)).toBe('audio only • Unknown Size • M4A');
+  });
+});
+
+describe('resolveInitialDownloadSelection', () => {
+  it('selects the first mediaFormat url and format size when mediaFormats are available', () => {
+    const staged = {
+      url: 'https://manifest.googlevideo.com/playlist/index.m3u8',
+      fileSize: 2 * 1024 * 1024,
+      mediaFormats: [
+        {
+          format_id: '137',
+          ext: 'mp4',
+          resolution: '1920x1080',
+          fileSize: 1587.4 * 1024 * 1024,
+          url: 'https://rr4---sn.googlevideo.com/videoplayback?itag=137'
+        },
+        {
+          format_id: '22',
+          ext: 'mp4',
+          resolution: '1280x720',
+          fileSize: 120 * 1024 * 1024,
+          url: 'https://rr4---sn.googlevideo.com/videoplayback?itag=22'
+        }
+      ]
+    };
+
+    const result = resolveInitialDownloadSelection(staged);
+    expect(result.selectedUrl).toBe('https://rr4---sn.googlevideo.com/videoplayback?itag=137');
+    expect(result.selectedUrl).not.toBe(staged.url);
+    expect(result.displaySize).toBe('1587.40 MB');
+  });
+
+  it('falls back to stagedDownload url and fileSize when mediaFormats is empty or absent', () => {
+    const stagedDirect = {
+      url: 'https://example.com/file.zip',
+      fileSize: 50 * 1024 * 1024,
+    };
+
+    const result = resolveInitialDownloadSelection(stagedDirect);
+    expect(result.selectedUrl).toBe('https://example.com/file.zip');
+    expect(result.displaySize).toBe('50.00 MB');
+
+    const stagedUnknown = {
+      url: 'https://example.com/unknown.bin',
+      fileSize: 0,
+    };
+    expect(resolveInitialDownloadSelection(stagedUnknown).displaySize).toBe('Unknown size');
   });
 });

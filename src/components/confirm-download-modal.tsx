@@ -54,6 +54,24 @@ export function formatResolutionLabel(format: YtDlpFormat): string {
   return `${label} • ${sizeStr} • ${format.ext.toUpperCase()}`;
 }
 
+export function resolveInitialDownloadSelection(staged: {
+  url: string;
+  fileSize?: number;
+  mediaFormats?: YtDlpFormat[];
+}): { selectedUrl: string; displaySize: string } {
+  const topFormat = staged.mediaFormats && staged.mediaFormats.length > 0 ? staged.mediaFormats[0] : null;
+  const selectedUrl = topFormat ? topFormat.url : staged.url;
+  let displaySize: string;
+  if (topFormat && topFormat.fileSize > 0) {
+    displaySize = `${(topFormat.fileSize / (1024 * 1024)).toFixed(2)} MB`;
+  } else if (staged.fileSize && staged.fileSize > 0) {
+    displaySize = `${(staged.fileSize / (1024 * 1024)).toFixed(2)} MB`;
+  } else {
+    displaySize = "Unknown size";
+  }
+  return { selectedUrl, displaySize };
+}
+
 export function ConfirmDownloadModal() {
   const stagedDownload = useAppStore((state) => state.stagedDownload);
   const clearStagedDownload = useAppStore((state) => state.clearStagedDownload);
@@ -94,7 +112,10 @@ export function ConfirmDownloadModal() {
       setSecurityStatus(apiKey ? 'scanning' : 'no-key');
       
       setThreatDetails('');
-      setSelectedFormatUrl(stagedDownload.url);
+
+      const { selectedUrl, displaySize: initialSize } = resolveInitialDownloadSelection(stagedDownload);
+      setSelectedFormatUrl(selectedUrl);
+      setDisplaySize(initialSize);
 
       let name = stagedDownload.filename || "";
       if (name) name = name.split(/[/\\]/).pop() || name;
@@ -104,18 +125,12 @@ export function ConfirmDownloadModal() {
         } catch { name = "Unknown"; }
       }
       setRawFilename(name || "Unknown");
-
-      if (stagedDownload.fileSize && stagedDownload.fileSize > 0) {
-        setDisplaySize(`${(stagedDownload.fileSize / (1024 * 1024)).toFixed(2)} MB`);
-      } else {
-        setDisplaySize("Unknown size");
-      }
     }
   }
 
   useEffect(() => {
     if (stagedDownload) {
-      if (!stagedDownload.fileSize || stagedDownload.fileSize <= 0) {
+      if ((!stagedDownload.fileSize || stagedDownload.fileSize <= 0) && (!stagedDownload.mediaFormats || stagedDownload.mediaFormats.length === 0)) {
         // Trigger background HEAD request to get real size and name
         tauriFetch(stagedDownload.url, { method: "HEAD" })
           .then(res => {
@@ -260,7 +275,7 @@ export function ConfirmDownloadModal() {
 
     if (selectedFormat) {
       const headers = stagedDownload.headers || [];
-      await addDownload(urlToDownload, headers, finalDir, displayFilename, audioUrl, finalChecksum, stagedDownload.sourceUrl, stagedDownload.fileSize);
+      await addDownload(urlToDownload, headers, finalDir, displayFilename, audioUrl, finalChecksum, stagedDownload.sourceUrl, selectedFormat.fileSize || stagedDownload.fileSize);
     } else {
       await addDownload(urlToDownload, stagedDownload.headers || [], finalDir, displayFilename, undefined, finalChecksum, stagedDownload.sourceUrl, stagedDownload.fileSize);
     }

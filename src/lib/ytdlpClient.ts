@@ -21,8 +21,9 @@ export interface YtDlpVideoInfo {
   formats: YtDlpFormat[];
 }
 
-interface RawFormat {
+export interface RawFormat {
   url?: string;
+  protocol?: string;
   filesize?: number;
   filesize_approx?: number;
   ext?: string;
@@ -36,6 +37,12 @@ interface RawFormat {
   height?: number;
 }
 
+export const isDirectHttp = (f: RawFormat): boolean => {
+  const proto = f.protocol || '';
+  const u = f.url || '';
+  return !proto.includes('m3u8') && !u.includes('.m3u8') && !u.includes('/hls_playlist/');
+};
+
 export const ytdlpClient = {
   /**
    * Extracts direct video stream URLs and metadata from a given URL using yt-dlp.
@@ -45,7 +52,7 @@ export const ytdlpClient = {
     
     // Build arguments. We use -J to dump JSON and not download the file itself here.
     const args = [
-      '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+      '-f', 'bestvideo[protocol^=http][ext=mp4]+bestaudio[protocol^=http][ext=m4a]/bestvideo[protocol^=http]+bestaudio[protocol^=http]/best[protocol^=http]/best',
       '-J',
       '--no-warnings',
       '--extractor-args',
@@ -75,39 +82,16 @@ export const ytdlpClient = {
       }
 
       const data = JSON.parse(output.stdout);
-      
-      // Determine the best direct URL. 
-      // yt-dlp JSON has 'url' or 'requested_downloads' array depending on format requested.
-      let directUrl = data.url;
-      let fileSize = data.filesize || data.filesize_approx || 0;
-      let ext = data.ext || 'mp4';
-
-      if (!directUrl && data.requested_downloads && data.requested_downloads.length > 0) {
-        const reqDownload = data.requested_downloads[0];
-        if (reqDownload.requested_formats && reqDownload.requested_formats.length > 0) {
-          directUrl = reqDownload.requested_formats[0].url;
-          fileSize = reqDownload.requested_formats.reduce((acc: number, f: RawFormat) => acc + (f.filesize || f.filesize_approx || 0), 0);
-          ext = reqDownload.ext || ext;
-        } else {
-          directUrl = reqDownload.url;
-          fileSize = reqDownload.filesize || reqDownload.filesize_approx || fileSize;
-          ext = reqDownload.ext || ext;
-        }
-      }
-
-      if (!directUrl) {
-        throw new Error('Could not find a direct stream URL in the yt-dlp response.');
-      }
 
       let availableFormats: YtDlpFormat[] = [];
       if (data.formats && Array.isArray(data.formats)) {
-        // Find best audio
+        // Find best audio that is direct HTTP
         const bestAudio = data.formats
-          .filter((f: RawFormat) => f.acodec !== 'none' && f.vcodec === 'none')
+          .filter((f: RawFormat) => f.acodec !== 'none' && f.vcodec === 'none' && isDirectHttp(f))
           .sort((a: RawFormat, b: RawFormat) => (b.abr || 0) - (a.abr || 0))[0];
 
         availableFormats = data.formats
-          .filter((f: RawFormat) => f.vcodec !== 'none' && f.url)
+          .filter((f: RawFormat) => f.vcodec !== 'none' && f.url && isDirectHttp(f))
           .map((f: RawFormat) => {
             const hasAudio = f.acodec !== 'none';
             // We force mp4 container for muxed results
@@ -141,6 +125,39 @@ export const ytdlpClient = {
           const heightB = parseInt(b.resolution.split('x')[1] || b.resolution.replace(/[^0-9]/g, '')) || 0;
           return heightB - heightA;
         });
+      }
+
+      // Determine the best direct URL.
+      // yt-dlp JSON has 'url' or 'requested_downloads' array depending on format requested.
+      let directUrl = (data.url && isDirectHttp({ url: data.url, protocol: data.protocol })) ? data.url : undefined;
+      let fileSize = data.filesize || data.filesize_approx || 0;
+      let ext = data.ext || 'mp4';
+
+      if (!directUrl && data.requested_downloads && data.requested_downloads.length > 0) {
+        const reqDownload = data.requested_downloads[0];
+        if (reqDownload.requested_formats && reqDownload.requested_formats.length > 0) {
+          const firstDirect = reqDownload.requested_formats.find((f: RawFormat) => isDirectHttp(f));
+          if (firstDirect) {
+            directUrl = firstDirect.url;
+            fileSize = reqDownload.requested_formats.reduce((acc: number, f: RawFormat) => acc + (f.filesize || f.filesize_approx || 0), 0);
+            ext = reqDownload.ext || ext;
+          }
+        } else if (isDirectHttp(reqDownload)) {
+          directUrl = reqDownload.url;
+          fileSize = reqDownload.filesize || reqDownload.filesize_approx || fileSize;
+          ext = reqDownload.ext || ext;
+        }
+      }
+
+      // Fallback: If directUrl is missing or not direct http, fallback to availableFormats[0]?.url
+      if (!directUrl && availableFormats.length > 0) {
+        directUrl = availableFormats[0].url;
+        fileSize = availableFormats[0].fileSize || fileSize;
+        ext = availableFormats[0].ext || ext;
+      }
+
+      if (!directUrl) {
+        throw new Error('Could not find a direct stream URL in the yt-dlp response.');
       }
 
       return {

@@ -149,4 +149,25 @@ describe('downloadSlice metadata tracking', () => {
     expect(capturedOptions?.['split']).toBe('32');
     expect(capturedOptions?.['max-connection-per-server']).toBe('16');
   });
+
+  it('logs warning when attempting to add HLS manifest (.m3u8)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(aria2Client, 'addUri').mockResolvedValue('gid-m3u8');
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().addDownload(
+      'https://manifest.googlevideo.com/playlist/index.m3u8',
+      [],
+      '/tmp',
+      'video.m3u8'
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Attempted to download HLS manifest directly with aria2:'),
+      'https://manifest.googlevideo.com/playlist/index.m3u8'
+    );
+  });
 });
