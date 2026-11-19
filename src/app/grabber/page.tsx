@@ -58,6 +58,7 @@ export default function GrabberPage() {
       
       stageDownload({
         url: mediaInfo.url,
+        sourceUrl: mediaUrl.trim(),
         headers: [],
         filename: filename,
         fileSize: mediaInfo.fileSize,

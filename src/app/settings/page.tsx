@@ -19,6 +19,7 @@ export default function SettingsPage() {
     defaultDownloadDir, setDefaultDownloadDir,
     maxConcurrentDownloads, setMaxConcurrentDownloads,
     splitConnections, setSplitConnections,
+    speedUnit, setSpeedUnit,
     autoStart, setAutoStart,
     isPlayfulMode, togglePlayfulMode,
     safeBrowsingApiKey, setSafeBrowsingApiKey
@@ -203,8 +204,8 @@ export default function SettingsPage() {
           <div className="pt-4 border-t border-border space-y-4">
             <div className="flex justify-between items-center">
               <div>
-                <Label className="text-foreground/80">Connections Per File (Split)</Label>
-                <p className="text-sm text-muted-foreground">How many pieces a single file is split into to maximize bandwidth.</p>
+                <Label className="text-foreground/80">Parallel Connections (Split)</Label>
+                <p className="text-sm text-muted-foreground">Number of parallel connections a download is split into for maximum throughput (1 to 32 streams).</p>
               </div>
               <span className="text-xl font-bold text-foreground bg-background px-4 py-1 rounded-lg border border-border">
                 {splitConnections}
@@ -213,11 +214,42 @@ export default function SettingsPage() {
             <Slider
               value={[splitConnections]}
               onValueChange={(vals) => setSplitConnections(typeof vals === 'number' ? vals : vals[0])}
-              max={16}
+              max={32}
               min={1}
               step={1}
               className="py-4"
             />
+          </div>
+
+          <div className="pt-4 border-t border-border flex items-center justify-between gap-4">
+            <div>
+              <Label className="text-foreground/80">Speed Unit</Label>
+              <p className="text-sm text-muted-foreground">Display speeds in MegaBytes (MB/s) or Megabits (Mbps).</p>
+            </div>
+            <div className="flex items-center bg-muted/60 p-1 rounded-lg border border-border">
+              <button
+                type="button"
+                onClick={() => setSpeedUnit('MBps')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                  speedUnit === 'MBps'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                MB/s
+              </button>
+              <button
+                type="button"
+                onClick={() => setSpeedUnit('Mbps')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                  speedUnit === 'Mbps'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Mbps
+              </button>
+            </div>
           </div>
         </section>
 
@@ -228,15 +260,27 @@ export default function SettingsPage() {
             <h2 className="text-lg font-semibold text-foreground">Browser Integration</h2>
           </div>
           
-          <div className="space-y-2">
-            <Label className="text-foreground/80">Chrome / Edge Extension</Label>
+          <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
               Install the companion extension to automatically intercept browser downloads and add a right-click &quot;Download with Purrfect DL&quot; context menu.
             </p>
-            <div className="mt-4 bg-background border border-border rounded-md p-4 text-sm text-foreground/80 space-y-3">
-              <p>1. Open your browser and navigate to <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">chrome://extensions</code> (or <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">edge://extensions</code>).</p>
-              <p>2. Enable <strong className="text-foreground">Developer Mode</strong> in the top right corner.</p>
-              <p>3. Click <strong className="text-foreground">Load unpacked</strong> and select the <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">extension</code> folder inside your PDM directory.</p>
+
+            <div className="space-y-2">
+              <Label className="text-foreground/80 font-medium">Firefox</Label>
+              <div className="bg-background border border-border rounded-md p-4 text-sm text-foreground/80 space-y-2">
+                <p>1. Open Firefox and navigate to <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">about:debugging#/runtime/this-firefox</code>.</p>
+                <p>2. Click <strong className="text-foreground">Load Temporary Add-on...</strong></p>
+                <p>3. Select the <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">manifest.json</code> file inside your PDM <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">extension</code> directory.</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-foreground/80 font-medium">Chrome / Brave / Edge</Label>
+              <div className="bg-background border border-border rounded-md p-4 text-sm text-foreground/80 space-y-2">
+                <p>1. Open your browser and navigate to <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">chrome://extensions</code> (or <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">brave://extensions</code>).</p>
+                <p>2. Enable <strong className="text-foreground">Developer Mode</strong> in the top right corner.</p>
+                <p>3. Click <strong className="text-foreground">Load unpacked</strong> and select the <code className="text-primary bg-primary/10 px-1 py-0.5 rounded">extension</code> folder inside your PDM directory.</p>
+              </div>
             </div>
           </div>
         </section>
@@ -251,7 +295,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between py-2">
             <div className="space-y-0.5">
               <Label className="text-foreground/80">Launch on Startup</Label>
-              <p className="text-sm text-muted-foreground">Automatically open Purrfect DL in the system tray when Windows boots.</p>
+              <p className="text-sm text-muted-foreground">Automatically open Purrfect DL in the system tray when system starts.</p>
             </div>
             <Switch
               checked={autoStart}

@@ -1,6 +1,5 @@
 use serde_json::Value;
 use std::fs;
-use std::io::Read;
 use std::thread;
 use tauri::{
     menu::{Menu, MenuItem, CheckMenuItem, PredefinedMenuItem},
@@ -12,14 +11,42 @@ use tauri_plugin_shell::ShellExt;
 use tiny_http::{Response, Server};
 
 #[tauri::command]
-fn delete_downloaded_file(path: String) -> Result<(), String> {
-    // Basic safety check to ensure it's an absolute path and exists before deleting
+fn delete_downloaded_file(app: tauri::AppHandle, path: String, custom_dir: Option<String>) -> Result<(), String> {
     let p = std::path::Path::new(&path);
-    if p.exists() && p.is_file() {
-        std::fs::remove_file(p).map_err(|e| e.to_string())
-    } else {
-        Err("File not found or is a directory".to_string())
+    let target = p.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    if !target.is_file() {
+        return Err("File not found or is a directory".to_string());
     }
+
+    let download_dir = app.path().download_dir().ok().and_then(|d| d.canonicalize().ok());
+    let app_data_dir = app.path().app_local_data_dir().ok().and_then(|d| d.canonicalize().ok());
+    let custom_target_dir = custom_dir.and_then(|cd| std::path::PathBuf::from(cd).canonicalize().ok());
+
+    let is_in_download = download_dir.map(|d| target.starts_with(&d)).unwrap_or(false);
+    let is_in_app_data = app_data_dir.map(|d| target.starts_with(&d)).unwrap_or(false);
+    let is_in_custom = custom_target_dir.map(|d| target.starts_with(&d)).unwrap_or(false);
+
+    if is_in_download || is_in_app_data || is_in_custom {
+        std::fs::remove_file(target).map_err(|e| e.to_string())
+    } else {
+        Err("Permission denied: Target file is outside allowed download directories".to_string())
+    }
+}
+
+#[tauri::command]
+fn reveal_in_folder(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err("File or folder does not exist".to_string());
+    }
+
+    // Native Linux / EndeavourOS desktop file manager reveal via xdg-open
+    let parent = if p.is_dir() { p } else { p.parent().unwrap_or(p) };
+    std::process::Command::new("xdg-open")
+        .arg(parent)
+        .spawn()
+        .map_err(|e| format!("Failed to open folder via xdg-open: {}", e))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -164,29 +191,53 @@ pub fn run() {
       let session_arg = format!("--save-session={}", session_file.to_string_lossy());
       let input_file_arg = format!("--input-file={}", session_file.to_string_lossy());
 
-      let sidecar_command = app.shell().sidecar("pdm-aria2c").unwrap()
-        .args([
-            "--enable-rpc", 
-            "--rpc-listen-all=false", 
-            "--rpc-listen-port=6800", 
-            "--rpc-allow-origin-all",
-            "--check-certificate=false",
-            "--save-session-interval=10",
-            "--continue=true",
-            &session_arg,
-            &input_file_arg,
-            &dir_arg,
-            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        ]);
-        
-      let (mut rx, mut _child) = sidecar_command.spawn().expect("Failed to spawn aria2c");
-      
-      tauri::async_runtime::spawn(async move {
-        let _child_keep_alive = _child;
-        while let Some(_event) = rx.recv().await {
-            // println!("aria2c event: {:?}", _event);
-        }
-      });
+      let current_pid = std::process::id();
+      let stop_with_process_arg = format!("--stop-with-process={}", current_pid);
+
+      let aria2_args = [
+          "--enable-rpc", 
+          "--rpc-listen-all=false", 
+          "--rpc-allow-origin-all=true",
+          "--rpc-listen-port=6800", 
+          "--check-certificate=true",
+          "--file-allocation=falloc",
+          "--save-session-interval=10",
+          "--continue=true",
+          "--split=32",
+          "--max-connection-per-server=16",
+          "--min-split-size=1M",
+          "--disk-cache=64M",
+          "--piece-length=1M",
+          &stop_with_process_arg,
+          &session_arg,
+          &input_file_arg,
+          &dir_arg,
+          "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+      ];
+
+      // Try bundled pdm-aria2c sidecar first; fall back to system aria2c if spawn fails
+      let sidecar_spawn = app.shell().sidecar("pdm-aria2c").and_then(|cmd| cmd.args(&aria2_args).spawn());
+      let final_spawn = match sidecar_spawn {
+          Ok(child) => Ok(child),
+          Err(err) => {
+              log::warn!("Bundled pdm-aria2c sidecar spawn failed ({}), falling back to system-aria2c...", err);
+              app.shell().command("system-aria2c").args(&aria2_args).spawn()
+          }
+      };
+
+      match final_spawn {
+          Ok((mut rx, _child)) => {
+              tauri::async_runtime::spawn(async move {
+                  let _child_keep_alive = _child;
+                  while let Some(_event) = rx.recv().await {
+                      // Keep receiver active
+                  }
+              });
+          }
+          Err(err) => {
+              eprintln!("Failed to spawn aria2 daemon: {}. Please ensure aria2 is installed via pacman -S aria2 or run pnpm setup.", err);
+          }
+      }
       
       let app_handle = app.handle().clone();
       thread::spawn(move || {
@@ -247,7 +298,7 @@ pub fn run() {
       
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists])
+    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists, reveal_in_folder])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

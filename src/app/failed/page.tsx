@@ -1,12 +1,12 @@
 "use client";
 
-import { useDownloadStore } from "@/store/downloadStore";
+import { useFailedDownloads, usePlayfulMode } from "@/store/selectors/downloadSelectors";
 import { DownloadCard } from "@/components/download-card";
 import { AlertCircle } from "lucide-react";
 
 export default function Failed() {
-  const failedDownloads = useDownloadStore(state => state.failed);
-  const isPlayfulMode = useDownloadStore(state => state.isPlayfulMode);
+  const failedDownloads = useFailedDownloads();
+  const isPlayfulMode = usePlayfulMode();
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">

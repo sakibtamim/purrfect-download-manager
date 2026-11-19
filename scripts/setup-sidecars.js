@@ -9,41 +9,17 @@ if (!fs.existsSync(binDir)) {
   fs.mkdirSync(binDir, { recursive: true });
 }
 
-// Map of sidecar binaries
+// Map of sidecar binaries for Linux (EndeavourOS / Arch Linux focus)
 const sidecarTargets = [
   // yt-dlp
-  { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe', name: 'pdm-yt-dlp-x86_64-pc-windows-msvc.exe' },
-  { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos', name: 'pdm-yt-dlp-x86_64-apple-darwin' },
-  { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos', name: 'pdm-yt-dlp-aarch64-apple-darwin' },
   { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux', name: 'pdm-yt-dlp-x86_64-unknown-linux-gnu' },
   { url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64', name: 'pdm-yt-dlp-aarch64-unknown-linux-gnu' },
   
   // ffmpeg
-  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/win32-x64', name: 'pdm-ffmpeg-x86_64-pc-windows-msvc.exe' },
-  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/darwin-x64', name: 'pdm-ffmpeg-x86_64-apple-darwin' },
-  { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/darwin-arm64', name: 'pdm-ffmpeg-aarch64-apple-darwin' },
   { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/linux-x64', name: 'pdm-ffmpeg-x86_64-unknown-linux-gnu' },
   { url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/linux-arm64', name: 'pdm-ffmpeg-aarch64-unknown-linux-gnu' },
 
   // aria2c
-  { 
-    url: 'https://github.com/aria2/aria2/releases/download/release-1.36.0/aria2-1.36.0-win-64bit-build1.zip', 
-    name: 'pdm-aria2c-x86_64-pc-windows-msvc.exe',
-    archive: true,
-    extractPath: 'aria2-1.36.0-win-64bit-build1/aria2c.exe'
-  },
-  { 
-    url: 'https://github.com/q741451/aria2c-macos-standalone-binary/releases/download/v1.0.0/aria2c-macos-x86_64.tar.gz', 
-    name: 'pdm-aria2c-x86_64-apple-darwin',
-    archive: true,
-    extractPath: 'aria2c'
-  },
-  { 
-    url: 'https://github.com/q741451/aria2c-macos-standalone-binary/releases/download/v1.0.0/aria2c-macos-arm64.tar.gz', 
-    name: 'pdm-aria2c-aarch64-apple-darwin',
-    archive: true,
-    extractPath: 'aria2c'
-  },
   { 
     url: 'https://github.com/P3TERX/Aria2-Pro-Core/releases/download/1.36.0_2021.08.22/aria2-1.36.0-static-linux-amd64.tar.gz', 
     name: 'pdm-aria2c-x86_64-unknown-linux-gnu',
@@ -138,21 +114,19 @@ function processTarget(target) {
 }
 
 async function main() {
-  console.log("Setting up Tauri sidecars...");
+  console.log("Setting up Tauri sidecars for Linux...");
   const platform = process.platform;
   const arch = process.arch;
 
-  let targetTriple = '';
-  if (platform === 'win32') {
-    targetTriple = 'x86_64-pc-windows-msvc';
-  } else if (platform === 'darwin') {
-    targetTriple = arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
-  } else if (platform === 'linux') {
-    targetTriple = arch === 'arm64' ? 'aarch64-unknown-linux-gnu' : 'x86_64-unknown-linux-gnu';
+  if (platform !== 'linux') {
+    console.log("[INFO] PDM is currently focused solely on Linux (EndeavourOS / Arch Linux). Skipping non-Linux platforms.");
+    return;
   }
 
+  const targetTriple = arch === 'arm64' ? 'aarch64-unknown-linux-gnu' : 'x86_64-unknown-linux-gnu';
+
   for (const target of sidecarTargets) {
-    if (targetTriple && !target.name.includes(targetTriple)) {
+    if (!target.name.includes(targetTriple)) {
       continue;
     }
     try {
@@ -161,6 +135,34 @@ async function main() {
       console.error(`Failed to setup ${target.name}:`, e.message);
     }
   }
+
+  // Also mirror to src-tauri/target/debug if directory exists (for immediate tauri dev execution)
+  const targetDebugDir = path.resolve(__dirname, '../src-tauri/target/debug');
+  if (fs.existsSync(targetDebugDir)) {
+    const mappings = [
+      { src: `pdm-aria2c-${targetTriple}`, dest: 'pdm-aria2c' },
+      { src: `pdm-ffmpeg-${targetTriple}`, dest: 'pdm-ffmpeg' },
+      { src: `pdm-yt-dlp-${targetTriple}`, dest: 'pdm-yt-dlp' }
+    ];
+    for (const m of mappings) {
+      const srcPath = path.join(binDir, m.src);
+      const destPath = path.join(targetDebugDir, m.dest);
+      if (fs.existsSync(srcPath)) {
+        try {
+          fs.copyFileSync(srcPath, destPath);
+          fs.chmodSync(destPath, 0o755);
+          console.log(`[MIRROR] ${m.dest} copied to target/debug`);
+        } catch (err) {
+          if (err.code === 'ETXTBSY') {
+            console.log(`[INFO] ${m.dest} is currently running in target/debug (skipped active process).`);
+          } else {
+            console.warn(`[WARN] Could not mirror ${m.dest}:`, err.message);
+          }
+        }
+      }
+    }
+  }
+
   console.log("Setup complete!");
 }
 
