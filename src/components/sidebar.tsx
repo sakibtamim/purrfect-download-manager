@@ -48,22 +48,15 @@ export function Sidebar() {
       isCollapsed ? "w-14" : "w-48"
     )}>
       <div className={cn("flex items-center border-b border-sidebar-border transition-all duration-300", isCollapsed ? "flex-col py-3 gap-2" : "px-3.5 py-3 justify-between")}>
-        <div className={cn("flex items-center", isCollapsed ? "justify-center" : "gap-2")}>
-          <div className="rounded-md flex items-center justify-center shrink-0">
-            <Image
-              src="/pdm_logo.png"
-              alt="PDM Logo"
-              width={64}
-              height={64}
-              priority
-              className="h-8 w-8 object-contain [image-rendering:-webkit-optimize-contrast]"
-            />
-          </div>
-          {!isCollapsed && (
-            <span className="font-semibold tracking-tight text-base text-foreground truncate">
-              PDM
-            </span>
-          )}
+        <div className="flex items-center justify-center shrink-0">
+          <Image
+            src="/pdm_logo.png"
+            alt="PDM Logo"
+            width={64}
+            height={64}
+            priority
+            className="h-8 w-8 object-contain [image-rendering:-webkit-optimize-contrast]"
+          />
         </div>
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
