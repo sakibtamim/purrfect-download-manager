@@ -1,10 +1,10 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useDownloadStore } from "@/store/downloadStore";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { ytdlpClient, YtDlpVideoInfo, YtDlpFormat } from "@/lib/ytdlpClient";
+import { ytdlpClient, YtDlpVideoInfo } from "@/lib/ytdlpClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -34,7 +34,6 @@ export default function GrabberPage() {
   const [mediaUrl, setMediaUrl] = useState("");
   const [isExtracting, setIsExtracting] = useState(false);
   const [mediaInfo, setMediaInfo] = useState<YtDlpVideoInfo | null>(null);
-  const [selectedFormat, setSelectedFormat] = useState<YtDlpFormat | null>(null);
   const [mediaError, setMediaError] = useState("");
 
   // Site Grabber State
@@ -49,15 +48,10 @@ export default function GrabberPage() {
     setIsExtracting(true);
     setMediaError("");
     setMediaInfo(null);
-    setSelectedFormat(null);
 
     try {
       const info = await ytdlpClient.extractVideoInfo(mediaUrl.trim());
       setMediaInfo(info);
-      if (info.formats && info.formats.length > 0) {
-        // Default to best format
-        setSelectedFormat(info.formats[0]);
-      }
     } catch (e: unknown) {
       setMediaError(
         e instanceof Error
@@ -72,7 +66,7 @@ export default function GrabberPage() {
   const handleDownloadMedia = () => {
     if (!mediaInfo) return;
     const sanitizedTitle = mediaInfo.title.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
-    const targetFormat = selectedFormat || (mediaInfo.formats && mediaInfo.formats[0]);
+    const targetFormat = mediaInfo.formats && mediaInfo.formats.length > 0 ? mediaInfo.formats[0] : null;
     const targetUrl = targetFormat?.url || mediaInfo.url;
     const targetExt = targetFormat?.ext || mediaInfo.ext || "mp4";
     const filename = `${sanitizedTitle}.${targetExt}`;
@@ -87,32 +81,8 @@ export default function GrabberPage() {
     });
 
     setMediaInfo(null);
-    setSelectedFormat(null);
     setMediaUrl("");
   };
-
-  // Distinct resolution options derived from formats
-  const resolutionChips = useMemo(() => {
-    if (!mediaInfo?.formats) return [];
-    const seen = new Set<string>();
-    const chips: YtDlpFormat[] = [];
-
-    // Sort formats from highest resolution to lowest
-    const sorted = [...mediaInfo.formats].sort((a, b) => {
-      const hA = a.height || parseInt(a.resolution) || 0;
-      const hB = b.height || parseInt(b.resolution) || 0;
-      return hB - hA;
-    });
-
-    for (const f of sorted) {
-      const label = f.height ? `${f.height}p` : f.resolution || f.ext;
-      if (!seen.has(label)) {
-        seen.add(label);
-        chips.push(f);
-      }
-    }
-    return chips.slice(0, 8); // Top 8 distinct resolutions
-  }, [mediaInfo]);
 
   // --- SITE GRABBER HANDLERS ---
   const handleScanSite = async () => {
@@ -356,38 +326,6 @@ export default function GrabberPage() {
                       <span className="uppercase text-[11px] font-mono">{mediaInfo.ext}</span>
                     </div>
                   </div>
-
-                  {/* Resolution Chips */}
-                  {resolutionChips.length > 0 && (
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Available Streams
-                      </span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {resolutionChips.map((format) => {
-                          const isSelected = selectedFormat?.format_id === format.format_id;
-                          const label = format.height ? `${format.height}p` : format.resolution || format.ext;
-                          return (
-                            <button
-                              key={format.format_id}
-                              type="button"
-                              onClick={() => setSelectedFormat(format)}
-                              aria-pressed={isSelected}
-                              aria-label={`Select stream ${label}`}
-                              className={cn(
-                                "px-2 py-0.5 rounded-md text-[11px] font-mono transition-colors border",
-                                isSelected
-                                  ? "bg-primary text-primary-foreground border-primary shadow-xs font-semibold"
-                                  : "bg-muted/40 text-muted-foreground border-border hover:text-foreground hover:bg-muted"
-                              )}
-                            >
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
 
                   <div className="pt-1">
                     <Button onClick={handleDownloadMedia} size="sm" className="h-8 gap-1.5 text-xs shadow-xs">
