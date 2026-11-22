@@ -54,6 +54,45 @@ fn check_downloaded_file_exists(path: String) -> bool {
     std::path::Path::new(&path).exists()
 }
 
+#[cfg(target_os = "linux")]
+fn ensure_linux_desktop_window_rules() {
+    let is_kde = std::env::var("XDG_CURRENT_DESKTOP")
+        .map(|d| d.to_uppercase().contains("KDE"))
+        .unwrap_or(false);
+
+    if is_kde {
+        std::thread::spawn(|| {
+            // Configure KWin Focus Stealing Prevention bypass rule for PurrfectDownloadManager
+            // so intercepted downloads reliably auto-pop, unminimize, and focus above browsers.
+            let _ = std::process::Command::new("kwriteconfig6")
+                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "Description", "Purrfect Download Manager Focus Rule"])
+                .status();
+            let _ = std::process::Command::new("kwriteconfig6")
+                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "wmclass", "PurrfectDownloadManager"])
+                .status();
+            let _ = std::process::Command::new("kwriteconfig6")
+                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "wmclassmatch", "1"])
+                .status();
+            let _ = std::process::Command::new("kwriteconfig6")
+                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "focusstealing", "0"])
+                .status();
+            let _ = std::process::Command::new("kwriteconfig6")
+                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "focusstealingrule", "2"])
+                .status();
+            let _ = std::process::Command::new("kwriteconfig6")
+                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "above", "true"])
+                .status();
+            let _ = std::process::Command::new("kwriteconfig6")
+                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "aboverule", "3"])
+                .status();
+
+            let _ = std::process::Command::new("qdbus6")
+                .args(["org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
+                .status();
+        });
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -72,6 +111,9 @@ pub fn run() {
       _ => {}
     })
     .setup(|app| {
+      #[cfg(target_os = "linux")]
+      ensure_linux_desktop_window_rules();
+
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
