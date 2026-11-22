@@ -34,10 +34,18 @@ fn set_taskbar_progress(
     window.set_progress_bar(state).map_err(|e| e.to_string())
 }
 
+struct TrayStatusItem(MenuItem<tauri::Wry>);
+
 #[tauri::command]
 fn update_tray_tooltip(app: tauri::AppHandle, tooltip: String) -> Result<(), String> {
     if let Some(tray) = app.tray_by_id("main") {
-        tray.set_tooltip(Some(tooltip)).map_err(|e| e.to_string())?;
+        let _ = tray.set_tooltip(Some(tooltip.clone()));
+    }
+    if let Some(item) = app.menu().and_then(|m| m.get("status")) {
+        let _ = item.as_menuitem().map(|mi| mi.set_text(tooltip.clone()));
+    }
+    if let Some(status_item) = app.try_state::<TrayStatusItem>() {
+        let _ = status_item.0.set_text(tooltip);
     }
     Ok(())
 }
@@ -91,9 +99,8 @@ fn activate_linux_window(app_handle: &tauri::AppHandle) {
     if let Some(window) = app_handle.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
-        let _ = window.set_always_on_top(true);
+        let _ = window.set_always_on_top(false);
         let _ = window.set_focus();
-        let _ = window.request_user_attention(Some(tauri::UserAttentionType::Critical));
     }
 
     let is_kde = std::env::var("XDG_CURRENT_DESKTOP")
@@ -156,9 +163,8 @@ fn raise_window(app_handle: tauri::AppHandle) {
     if let Some(window) = app_handle.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
-        let _ = window.set_always_on_top(true);
+        let _ = window.set_always_on_top(false);
         let _ = window.set_focus();
-        let _ = window.request_user_attention(Some(tauri::UserAttentionType::Critical));
     }
 }
 
@@ -220,10 +226,10 @@ Categories=Network;FileTransfer;\n";
                 .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "focusstealingrule", "2"])
                 .status();
             let _ = std::process::Command::new("kwriteconfig6")
-                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "above", "true"])
+                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "above", "--delete"])
                 .status();
             let _ = std::process::Command::new("kwriteconfig6")
-                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "aboverule", "3"])
+                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "aboverule", "--delete"])
                 .status();
 
             let _ = std::process::Command::new("qdbus6")
@@ -300,6 +306,8 @@ pub fn run() {
         )?;
       }
       
+      let status_i = MenuItem::with_id(app, "status", "Purrfect DL — Ready", false, None::<&str>)?;
+      app.manage(TrayStatusItem(status_i.clone()));
       let show_i = MenuItem::with_id(app, "show", "Open Dashboard", true, None::<&str>)?;
       let new_download_i = MenuItem::with_id(app, "new-download", "New Download", true, None::<&str>)?;
       let pause_all_i = MenuItem::with_id(app, "pause-all", "Pause All", true, None::<&str>)?;
@@ -315,6 +323,8 @@ pub fn run() {
       let separator = PredefinedMenuItem::separator(app)?;
       
       let menu = Menu::with_items(app, &[
+          &status_i,
+          &separator,
           &show_i, 
           &separator, 
           &new_download_i, 
@@ -531,9 +541,8 @@ pub fn run() {
                       if let Some(window) = app_handle.get_webview_window("main") {
                           let _ = window.unminimize();
                           let _ = window.show();
-                          let _ = window.set_always_on_top(true);
+                          let _ = window.set_always_on_top(false);
                           let _ = window.set_focus();
-                          let _ = window.request_user_attention(Some(tauri::UserAttentionType::Critical));
                       }
                       let _ = app_handle.emit("browser-download", json);
                   }

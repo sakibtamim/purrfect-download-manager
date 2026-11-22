@@ -43,7 +43,7 @@ export function AppInitializer() {
 
     const tooltip = active.length > 0
       ? `Purrfect DL: ${active.length} active (${formatSpeed(globalSpeed, speedUnit)})`
-      : 'Purrfect Download Manager - Ready';
+      : 'Purrfect DL — Ready';
     invoke('update_tray_tooltip', { tooltip }).catch(console.warn);
   }, [active, globalSpeed, speedUnit, showTaskbarProgress]);
 
