@@ -55,7 +55,7 @@ export function Sidebar() {
             width={64}
             height={64}
             priority
-            className="h-8 w-8 object-contain [image-rendering:-webkit-optimize-contrast]"
+            className="h-8 w-8 object-contain"
           />
         </div>
         <button
@@ -147,7 +147,7 @@ export function Sidebar() {
               alt="PDM Mascot"
               width={48}
               height={48}
-              className="h-6 w-6 opacity-40 grayscale object-contain [image-rendering:-webkit-optimize-contrast]"
+              className="h-6 w-6 opacity-40 grayscale object-contain"
             />
             <p className="text-[11px] text-muted-foreground font-medium leading-tight">
               {isPlayfulMode ? "Ready to catch bytes 🐾" : "System ready"}
