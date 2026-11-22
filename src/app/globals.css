@@ -195,3 +195,25 @@ html {
   box-shadow: 0 0 24px oklch(0.68 0.22 275 / 20%),
               0 0 6px oklch(0.68 0.22 275 / 15%);
 }
+
+/* ──────────────────────────────────────────────
+   Modern sleek scrollbars
+   ────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}

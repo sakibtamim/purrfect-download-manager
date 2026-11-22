@@ -102,128 +102,127 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
 
   return (
     <div className="w-full rounded-lg border border-border bg-card/60 overflow-hidden shadow-xs">
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs">
-          <thead className="bg-muted/40 text-muted-foreground border-b border-border font-medium select-none">
-            <tr>
-              <th className="py-2 px-3 min-w-[200px]">File Name</th>
-              <th className="py-2 px-2.5 w-24">Size</th>
-              <th className="py-2 px-2.5 min-w-[140px] w-40">Progress</th>
-              <th className="py-2 px-2.5 w-24">Speed</th>
-              <th className="py-2 px-2.5 w-20">ETA</th>
-              <th className="py-2 px-2.5 w-24">Status</th>
-              <th className="py-2 px-3 w-28 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/60">
-            {downloads.map((download) => {
-              const filePath = download.files[0]?.path || "Unknown File";
-              const rawName = filePath.includes("/")
-                ? filePath.split("/").pop()
-                : filePath.split("\\").pop() || "Unknown File";
-              const fileName = decodeFilename(rawName);
+      <table className="table-fixed w-full text-left text-xs">
+        <thead className="bg-muted/40 text-muted-foreground border-b border-border font-medium select-none">
+          <tr>
+            <th className="py-2 px-3 w-auto min-w-0">File Name</th>
+            <th className="py-2 px-2.5 w-20">Size</th>
+            <th className="py-2 px-2.5 w-24 sm:w-28">Progress</th>
+            <th className="py-2 px-2.5 w-20">Speed</th>
+            <th className="py-2 px-2.5 w-14 sm:w-16 hidden sm:table-cell">ETA</th>
+            <th className="py-2 px-2.5 w-20 sm:w-22">Status</th>
+            <th className="py-2 px-2.5 sm:px-3 w-16 sm:w-20 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border/60">
+          {downloads.map((download) => {
+            const filePath = download.files[0]?.path || "Unknown File";
+            const rawName = filePath.includes("/")
+              ? filePath.split("/").pop()
+              : filePath.split("\\").pop() || "Unknown File";
+            const fileName = decodeFilename(rawName);
 
-              const rawTotal = parseInt(download.totalLength, 10);
-              const rawCompleted = parseInt(download.completedLength, 10);
-              const fileTotal = download.files[0] ? parseInt(download.files[0].length, 10) : 0;
-              const fileCompleted = download.files[0] ? parseInt(download.files[0].completedLength, 10) : 0;
-              const totalLength = rawTotal > 0 ? rawTotal : fileTotal;
-              const completedLength = rawCompleted > 0 ? rawCompleted : fileCompleted;
-              const progress = totalLength > 0 ? (completedLength / totalLength) * 100 : 0;
-              const speed = parseInt(download.downloadSpeed, 10);
-              const isSelected = selectedDownloadId === download.gid;
-              const isMuxing = download.status === "muxing";
+            const rawTotal = parseInt(download.totalLength, 10);
+            const rawCompleted = parseInt(download.completedLength, 10);
+            const fileTotal = download.files[0] ? parseInt(download.files[0].length, 10) : 0;
+            const fileCompleted = download.files[0] ? parseInt(download.files[0].completedLength, 10) : 0;
+            const totalLength = rawTotal > 0 ? rawTotal : fileTotal;
+            const completedLength = rawCompleted > 0 ? rawCompleted : fileCompleted;
+            const progress = totalLength > 0 ? (completedLength / totalLength) * 100 : 0;
+            const speed = parseInt(download.downloadSpeed, 10);
+            const isSelected = selectedDownloadId === download.gid;
+            const isMuxing = download.status === "muxing";
 
-              let etaStr = "--";
-              if (download.status === "active" && speed > 0 && totalLength > completedLength) {
-                const remainingBytes = totalLength - completedLength;
-                const seconds = Math.floor(remainingBytes / speed);
-                if (isFinite(seconds)) {
-                  const h = Math.floor(seconds / 3600);
-                  const m = Math.floor((seconds % 3600) / 60);
-                  const s = seconds % 60;
-                  if (h > 0) etaStr = `${h}h ${m}m`;
-                  else if (m > 0) etaStr = `${m}m ${s}s`;
-                  else etaStr = `${s}s`;
-                }
+            let etaStr = "--";
+            if (download.status === "active" && speed > 0 && totalLength > completedLength) {
+              const remainingBytes = totalLength - completedLength;
+              const seconds = Math.floor(remainingBytes / speed);
+              if (isFinite(seconds)) {
+                const h = Math.floor(seconds / 3600);
+                const m = Math.floor((seconds % 3600) / 60);
+                const s = seconds % 60;
+                if (h > 0) etaStr = `${h}h ${m}m`;
+                else if (m > 0) etaStr = `${m}m ${s}s`;
+                else etaStr = `${s}s`;
               }
+            }
 
-              return (
-                <tr
-                  key={download.gid}
-                  onClick={() => setSelectedDownload(isSelected ? null : download.gid)}
-                  className={cn(
-                    "h-10 transition-colors cursor-pointer group",
-                    isSelected
-                      ? "bg-primary/10 hover:bg-primary/15"
-                      : "hover:bg-muted/40"
+            return (
+              <tr
+                key={download.gid}
+                onClick={() => setSelectedDownload(isSelected ? null : download.gid)}
+                className={cn(
+                  "h-10 transition-colors cursor-pointer group",
+                  isSelected
+                    ? "bg-primary/10 hover:bg-primary/15"
+                    : "hover:bg-muted/40"
+                )}
+              >
+                {/* File Name */}
+                <td className="py-1.5 px-3 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {getFileIcon(fileName || "")}
+                    <span className="font-medium text-foreground min-w-0 flex-1 truncate" title={fileName}>
+                      {fileName}
+                    </span>
+                  </div>
+                </td>
+
+                {/* Size */}
+                <td className="py-1.5 px-2.5 text-muted-foreground whitespace-nowrap">
+                  {formatBytes(completedLength)}
+                  {totalLength > 0 && (
+                    <span className="text-muted-foreground/60 text-[11px] block">
+                      of {formatBytes(totalLength)}
+                    </span>
                   )}
-                >
-                  {/* File Name */}
-                  <td className="py-1.5 px-3 max-w-[260px]">
-                    <div className="flex items-center gap-2 min-w-0">
-                      {getFileIcon(fileName || "")}
-                      <span className="font-medium text-foreground truncate" title={fileName}>
-                        {fileName}
-                      </span>
+                </td>
+
+                {/* Progress */}
+                <td className="py-1.5 px-2.5">
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[11px] text-muted-foreground font-mono">
+                      <span>{progress.toFixed(0)}%</span>
+                      {isMuxing && <span className="text-primary font-sans text-[10px]">Merging</span>}
                     </div>
-                  </td>
+                    <Progress value={progress} className="h-1 bg-muted" />
+                  </div>
+                </td>
 
-                  {/* Size */}
-                  <td className="py-1.5 px-2.5 text-muted-foreground whitespace-nowrap">
-                    {formatBytes(completedLength)}
-                    {totalLength > 0 && (
-                      <span className="text-muted-foreground/60 text-[11px] block">
-                        of {formatBytes(totalLength)}
-                      </span>
+                {/* Speed */}
+                <td className="py-1.5 px-2.5 whitespace-nowrap text-muted-foreground font-mono">
+                  {download.status === "active" && speed > 0 ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                      {formatSpeed(speed, speedUnit)}
+                    </span>
+                  ) : (
+                    "--"
+                  )}
+                </td>
+
+                {/* ETA */}
+                <td className="py-1.5 px-2.5 whitespace-nowrap text-muted-foreground font-mono text-[11px] hidden sm:table-cell">
+                  {etaStr}
+                </td>
+
+                {/* Status */}
+                <td className="py-1.5 px-2.5 whitespace-nowrap">
+                  <Badge
+                    variant={getStatusBadgeVariant(download.status)}
+                    className={cn(
+                      "text-[10px] px-1.5 py-0 font-normal",
+                      download.status === "active" && "bg-primary/15 text-primary border-primary/20",
+                      download.status === "paused" && "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20",
+                      download.status === "complete" && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                     )}
-                  </td>
+                  >
+                    {getStatusText(download.status)}
+                  </Badge>
+                </td>
 
-                  {/* Progress */}
-                  <td className="py-1.5 px-2.5">
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[11px] text-muted-foreground font-mono">
-                        <span>{progress.toFixed(0)}%</span>
-                        {isMuxing && <span className="text-primary font-sans text-[10px]">Merging</span>}
-                      </div>
-                      <Progress value={progress} className="h-1 bg-muted" />
-                    </div>
-                  </td>
-
-                  {/* Speed */}
-                  <td className="py-1.5 px-2.5 whitespace-nowrap text-muted-foreground font-mono">
-                    {download.status === "active" && speed > 0 ? (
-                      <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                        {formatSpeed(speed, speedUnit)}
-                      </span>
-                    ) : (
-                      "--"
-                    )}
-                  </td>
-
-                  {/* ETA */}
-                  <td className="py-1.5 px-2.5 whitespace-nowrap text-muted-foreground font-mono text-[11px]">
-                    {etaStr}
-                  </td>
-
-                  {/* Status */}
-                  <td className="py-1.5 px-2.5 whitespace-nowrap">
-                    <Badge
-                      variant={getStatusBadgeVariant(download.status)}
-                      className={cn(
-                        "text-[10px] px-1.5 py-0 font-normal",
-                        download.status === "active" && "bg-primary/15 text-primary border-primary/20",
-                        download.status === "paused" && "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20",
-                        download.status === "complete" && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                      )}
-                    >
-                      {getStatusText(download.status)}
-                    </Badge>
-                  </td>
-
-                  {/* Actions */}
-                  <td className="py-1.5 px-3 whitespace-nowrap text-right" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center justify-end gap-1">
+                {/* Actions */}
+                <td className="py-1.5 px-2.5 sm:px-3 whitespace-nowrap text-right" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-end gap-1">
                       {download.status === "active" && (
                         <Button
                           disabled={isMuxing}
@@ -326,7 +325,6 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
             })}
           </tbody>
         </table>
-      </div>
 
       <Dialog open={!!deleteTargetGid} onOpenChange={(openState) => !openState && setDeleteTargetGid(null)}>
         <DialogContent onClick={(e) => e.stopPropagation()}>
