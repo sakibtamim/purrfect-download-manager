@@ -53,9 +53,10 @@ export function Sidebar() {
             <Image
               src="/pdm_logo.png"
               alt="PDM Logo"
-              width={32}
-              height={32}
-              className="h-8 w-8 object-contain"
+              width={64}
+              height={64}
+              priority
+              className="h-8 w-8 object-contain [image-rendering:-webkit-optimize-contrast]"
             />
           </div>
           {!isCollapsed && (
@@ -151,9 +152,9 @@ export function Sidebar() {
             <Image
               src="/pdm_logo.png"
               alt="PDM Mascot"
-              width={24}
-              height={24}
-              className="h-6 w-6 opacity-40 grayscale object-contain"
+              width={48}
+              height={48}
+              className="h-6 w-6 opacity-40 grayscale object-contain [image-rendering:-webkit-optimize-contrast]"
             />
             <p className="text-[11px] text-muted-foreground font-medium leading-tight">
               {isPlayfulMode ? "Ready to catch bytes 🐾" : "System ready"}

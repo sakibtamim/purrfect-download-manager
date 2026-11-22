@@ -194,14 +194,20 @@ fn ensure_linux_desktop_window_rules() {
             .unwrap_or_else(|_| std::path::PathBuf::from(&home).join(".local/share"));
 
         let apps_dir = data_dir.join("applications");
-        let icons_dir = data_dir.join("icons/hicolor/128x128/apps");
-
         let _ = fs::create_dir_all(&apps_dir);
-        let _ = fs::create_dir_all(&icons_dir);
 
-        let icon_bytes = include_bytes!("../icons/128x128.png");
-        let _ = fs::write(icons_dir.join("PurrfectDownloadManager.png"), icon_bytes);
-        let _ = fs::write(icons_dir.join("com.purrfectsoftwareltd.pdm.png"), icon_bytes);
+        let icon_variants: [(&str, &[u8]); 3] = [
+            ("icons/hicolor/128x128/apps", include_bytes!("../icons/128x128.png")),
+            ("icons/hicolor/256x256/apps", include_bytes!("../icons/128x128@2x.png")),
+            ("icons/hicolor/512x512/apps", include_bytes!("../icons/icon.png")),
+        ];
+
+        for (rel_path, bytes) in icon_variants {
+            let target_dir = data_dir.join(rel_path);
+            let _ = fs::create_dir_all(&target_dir);
+            let _ = fs::write(target_dir.join("PurrfectDownloadManager.png"), bytes);
+            let _ = fs::write(target_dir.join("com.purrfectsoftwareltd.pdm.png"), bytes);
+        }
 
         let desktop_content = "[Desktop Entry]\n\
 Name=Purrfect Download Manager\n\
