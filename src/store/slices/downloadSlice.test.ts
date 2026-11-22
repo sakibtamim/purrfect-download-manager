@@ -2,8 +2,31 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { create, StoreApi } from 'zustand';
 import { createDownloadSlice, DownloadDataSlice } from './downloadSlice';
 import { createSettingsSlice, SettingsSlice } from './settingsSlice';
-import { DownloadState, PendingMux } from '../types';
+import { DownloadState, PendingMux, StagedDownload } from '../types';
 import { aria2Client } from '@/lib/aria2Client';
+import { UserAttentionType } from '@tauri-apps/api/window';
+
+const mockWindow = {
+  unminimize: vi.fn().mockResolvedValue(undefined),
+  show: vi.fn().mockResolvedValue(undefined),
+  setAlwaysOnTop: vi.fn().mockResolvedValue(undefined),
+  setFocus: vi.fn().mockResolvedValue(undefined),
+  requestUserAttention: vi.fn().mockResolvedValue(undefined),
+};
+
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => mockWindow,
+  UserAttentionType: {
+    Critical: 1,
+    Informational: 2,
+  },
+}));
+
+vi.mock('@tauri-apps/plugin-notification', () => ({
+  isPermissionGranted: vi.fn().mockResolvedValue(true),
+  requestPermission: vi.fn().mockResolvedValue('granted'),
+  sendNotification: vi.fn(),
+}));
 
 describe('settingsSlice defaults', () => {
   it('initializes splitConnections to 32 and speedUnit to MBps by default', () => {
@@ -310,5 +333,105 @@ describe('Unified dual-stream encapsulation and tandem controls', () => {
     expect(removeSpy).toHaveBeenCalledWith('vid-3');
     expect(removeSpy).toHaveBeenCalledWith('aud-3');
     expect(useTestStore.getState().pendingMuxes.some(m => m.videoGid === 'vid-3')).toBe(false);
+  });
+});
+
+describe('stageDownload and clearStagedDownload window elevation lifecycle', () => {
+  const originalWindow = (globalThis as unknown as { window?: unknown }).window;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (globalThis as unknown as { window?: unknown }).window = originalWindow;
+  });
+
+  const sampleStaged: StagedDownload = {
+    url: 'https://example.com/archive.tar.gz',
+    filename: 'archive.tar.gz',
+    headers: ['User-Agent: Mozilla/5.0'],
+  };
+
+  it('stores stagedDownload and clears state in non-Tauri environment', async () => {
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    expect(useTestStore.getState().stagedDownload).toBeNull();
+
+    await useTestStore.getState().stageDownload(sampleStaged);
+    expect(useTestStore.getState().stagedDownload).toEqual(sampleStaged);
+
+    await useTestStore.getState().clearStagedDownload();
+    expect(useTestStore.getState().stagedDownload).toBeNull();
+  });
+
+  it('unminimizes, shows, focuses, and elevates window without revoking alwaysOnTop while staged', async () => {
+    (globalThis as unknown as { window: unknown }).window = {
+      __TAURI_INTERNALS__: {},
+    };
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().stageDownload(sampleStaged);
+
+    expect(mockWindow.unminimize).toHaveBeenCalledTimes(1);
+    expect(mockWindow.show).toHaveBeenCalledTimes(1);
+    expect(mockWindow.setAlwaysOnTop).toHaveBeenCalledWith(true);
+    expect(mockWindow.setFocus).toHaveBeenCalledTimes(1);
+    expect(mockWindow.requestUserAttention).toHaveBeenCalledWith(UserAttentionType.Critical);
+
+    // Crucial check: setAlwaysOnTop(false) MUST NOT be called while download is still staged!
+    expect(mockWindow.setAlwaysOnTop).not.toHaveBeenCalledWith(false);
+    expect(useTestStore.getState().stagedDownload).toEqual(sampleStaged);
+  });
+
+  it('resets alwaysOnTop to false when clearStagedDownload is called', async () => {
+    (globalThis as unknown as { window: unknown }).window = {
+      __TAURI_INTERNALS__: {},
+    };
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().stageDownload(sampleStaged);
+    expect(mockWindow.setAlwaysOnTop).toHaveBeenCalledWith(true);
+    expect(mockWindow.setAlwaysOnTop).not.toHaveBeenCalledWith(false);
+
+    await useTestStore.getState().clearStagedDownload();
+    expect(mockWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
+    expect(useTestStore.getState().stagedDownload).toBeNull();
+  });
+
+  it('handles requestUserAttention rejection gracefully without throwing or blocking staging', async () => {
+    (globalThis as unknown as { window: unknown }).window = {
+      __TAURI_INTERNALS__: {},
+    };
+    mockWindow.requestUserAttention.mockRejectedValueOnce(new Error('Unsupported platform'));
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await expect(useTestStore.getState().stageDownload(sampleStaged)).resolves.not.toThrow();
+    expect(useTestStore.getState().stagedDownload).toEqual(sampleStaged);
+    expect(mockWindow.setAlwaysOnTop).toHaveBeenCalledWith(true);
+  });
+
+  it('handles window unminimize/focus failures gracefully without throwing', async () => {
+    (globalThis as unknown as { window: unknown }).window = {
+      __TAURI_INTERNALS__: {},
+    };
+    mockWindow.unminimize.mockRejectedValueOnce(new Error('Compositor error'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await expect(useTestStore.getState().stageDownload(sampleStaged)).resolves.not.toThrow();
+    expect(useTestStore.getState().stagedDownload).toEqual(sampleStaged);
+    expect(warnSpy).toHaveBeenCalledWith('Failed to focus window', expect.any(Error));
   });
 });

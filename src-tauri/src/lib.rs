@@ -286,6 +286,13 @@ pub fn run() {
                   request.as_reader().read_to_string(&mut content).unwrap_or_default();
                   
                   if let Ok(json) = serde_json::from_str::<Value>(&content) {
+                      if let Some(window) = app_handle.get_webview_window("main") {
+                          let _ = window.unminimize();
+                          let _ = window.show();
+                          let _ = window.set_always_on_top(true);
+                          let _ = window.set_focus();
+                          let _ = window.request_user_attention(Some(tauri::UserAttentionType::Critical));
+                      }
                       let _ = app_handle.emit("browser-download", json);
                   }
                   

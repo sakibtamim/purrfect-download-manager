@@ -3,7 +3,7 @@ import { aria2Client, Aria2Download } from '@/lib/aria2Client';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { Store, load } from '@tauri-apps/plugin-store';
 import { Command } from '@tauri-apps/plugin-shell';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getCurrentWindow, UserAttentionType } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
@@ -48,7 +48,7 @@ export interface DownloadDataSlice {
   downloadMetadata: Record<string, { sourceUrl?: string; title?: string }>;
 
   stageDownload: (download: StagedDownload) => Promise<void>;
-  clearStagedDownload: () => void;
+  clearStagedDownload: () => void | Promise<void>;
   fetchDownloads: () => Promise<void>;
   addDownload: (url: string, headers?: string[], dir?: string, filename?: string, audioUrl?: string, checksum?: DetectedChecksum | string, sourceUrl?: string, fileSize?: number) => Promise<void>;
   pauseDownload: (gid: string) => Promise<void>;
@@ -79,10 +79,11 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         await appWindow.unminimize();
         await appWindow.show();
         await appWindow.setAlwaysOnTop(true);
+        await appWindow.setFocus();
         try {
-          await appWindow.setFocus();
-        } finally {
-          await appWindow.setAlwaysOnTop(false);
+          await appWindow.requestUserAttention(UserAttentionType.Critical);
+        } catch {
+          // ignore if platform does not support user attention
         }
       }
     } catch (e) {
@@ -108,7 +109,17 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
     }
   },
 
-  clearStagedDownload: () => set({ stagedDownload: null }),
+  clearStagedDownload: async () => {
+    set({ stagedDownload: null });
+    try {
+      if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+        const appWindow = getCurrentWindow();
+        await appWindow.setAlwaysOnTop(false);
+      }
+    } catch (e) {
+      console.warn('Failed to reset always on top', e);
+    }
+  },
 
   fetchDownloads: async () => {
     try {
