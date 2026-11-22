@@ -370,6 +370,8 @@ export default function GrabberPage() {
                               key={format.format_id}
                               type="button"
                               onClick={() => setSelectedFormat(format)}
+                              aria-pressed={isSelected}
+                              aria-label={`Select stream ${label}`}
                               className={cn(
                                 "px-2 py-0.5 rounded-md text-[11px] font-mono transition-colors border",
                                 isSelected
@@ -400,7 +402,7 @@ export default function GrabberPage() {
 
       {/* SITE GRABBER TAB */}
       {activeTab === "site" && (
-        <div className="space-y-4">
+        <div role="tabpanel" id="panel-site" aria-labelledby="tab-site" className="space-y-4">
           {/* Unified Inline Input Group */}
           <div className="bg-card/70 border border-border rounded-xl p-4 space-y-3">
             <div className="flex flex-col sm:flex-row gap-2">
