@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useDownloadStore } from "@/store/downloadStore";
+import { useAppStore } from "@/store";
 import { open } from "@tauri-apps/plugin-dialog";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -9,11 +9,73 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { FolderOpen, CheckCircle2 } from "lucide-react";
+import { FolderOpen, CheckCircle2, ChevronDown } from "lucide-react";
 import { type ChecksumAlgorithm, type DetectedChecksum, validateChecksum } from "@/lib/utils";
+import { type YtDlpFormat } from "@/lib/ytdlpClient";
+
+export function formatResolutionLabel(format: YtDlpFormat): string {
+  let width = format.width;
+  let height = format.height;
+
+  if ((!width || !height) && format.resolution) {
+    const dimMatch = format.resolution.match(/(\d+)\s*[xX×]\s*(\d+)/);
+    if (dimMatch) {
+      width = parseInt(dimMatch[1], 10);
+      height = parseInt(dimMatch[2], 10);
+    } else {
+      const pMatch = format.resolution.match(/(\d+)p/i);
+      if (pMatch) {
+        height = parseInt(pMatch[1], 10);
+      }
+    }
+  }
+
+  let label: string;
+  if ((width && width >= 3840) || (height && height >= 2160)) {
+    label = '4K (2160p)';
+  } else if ((width && width >= 2560) || (height && height >= 1440)) {
+    label = '1440p (2K)';
+  } else if ((width && width >= 1920) || (height && height >= 1000)) {
+    label = '1080p (Full HD)';
+  } else if ((width && width >= 1280) || (height && height >= 700)) {
+    label = '720p (HD)';
+  } else if ((width && width >= 800) || (height && height >= 450)) {
+    label = '480p';
+  } else if ((width && width >= 600) || (height && height >= 300)) {
+    label = '360p';
+  } else {
+    label = format.resolution || 'Standard Quality';
+  }
+
+  const sizeStr = format.fileSize > 0 
+    ? `${(format.fileSize / (1024 * 1024)).toFixed(1)} MB` 
+    : 'Unknown Size';
+
+  return `${label} • ${sizeStr} • ${format.ext.toUpperCase()}`;
+}
+
+export function resolveInitialDownloadSelection(staged: {
+  url: string;
+  fileSize?: number;
+  mediaFormats?: YtDlpFormat[];
+}): { selectedUrl: string; displaySize: string } {
+  const topFormat = staged.mediaFormats && staged.mediaFormats.length > 0 ? staged.mediaFormats[0] : null;
+  const selectedUrl = topFormat ? topFormat.url : staged.url;
+  let displaySize: string;
+  if (topFormat && topFormat.fileSize > 0) {
+    displaySize = `${(topFormat.fileSize / (1024 * 1024)).toFixed(2)} MB`;
+  } else if (staged.fileSize && staged.fileSize > 0) {
+    displaySize = `${(staged.fileSize / (1024 * 1024)).toFixed(2)} MB`;
+  } else {
+    displaySize = "Unknown size";
+  }
+  return { selectedUrl, displaySize };
+}
 
 export function ConfirmDownloadModal() {
-  const { stagedDownload, clearStagedDownload, addDownload } = useDownloadStore();
+  const stagedDownload = useAppStore((state) => state.stagedDownload);
+  const clearStagedDownload = useAppStore((state) => state.clearStagedDownload);
+  const addDownload = useAppStore((state) => state.addDownload);
   const [saveDir, setSaveDir] = useState<string>("");
   const [rawFilename, setRawFilename] = useState<string>("Unknown");
   const [displayFilename, setDisplayFilename] = useState<string>("Unknown");
@@ -46,11 +108,14 @@ export function ConfirmDownloadModal() {
         setChecksumSource("");
       }
       
-      const apiKey = useDownloadStore.getState().safeBrowsingApiKey;
+      const apiKey = useAppStore.getState().safeBrowsingApiKey;
       setSecurityStatus(apiKey ? 'scanning' : 'no-key');
       
       setThreatDetails('');
-      setSelectedFormatUrl(stagedDownload.url);
+
+      const { selectedUrl, displaySize: initialSize } = resolveInitialDownloadSelection(stagedDownload);
+      setSelectedFormatUrl(selectedUrl);
+      setDisplaySize(initialSize);
 
       let name = stagedDownload.filename || "";
       if (name) name = name.split(/[/\\]/).pop() || name;
@@ -60,18 +125,12 @@ export function ConfirmDownloadModal() {
         } catch { name = "Unknown"; }
       }
       setRawFilename(name || "Unknown");
-
-      if (stagedDownload.fileSize && stagedDownload.fileSize > 0) {
-        setDisplaySize(`${(stagedDownload.fileSize / (1024 * 1024)).toFixed(2)} MB`);
-      } else {
-        setDisplaySize("Unknown size");
-      }
     }
   }
 
   useEffect(() => {
     if (stagedDownload) {
-      if (!stagedDownload.fileSize || stagedDownload.fileSize <= 0) {
+      if ((!stagedDownload.fileSize || stagedDownload.fileSize <= 0) && (!stagedDownload.mediaFormats || stagedDownload.mediaFormats.length === 0)) {
         // Trigger background HEAD request to get real size and name
         tauriFetch(stagedDownload.url, { method: "HEAD" })
           .then(res => {
@@ -103,7 +162,7 @@ export function ConfirmDownloadModal() {
       }
 
       // Perform Security Scan
-      const apiKey = useDownloadStore.getState().safeBrowsingApiKey;
+      const apiKey = useAppStore.getState().safeBrowsingApiKey;
       if (apiKey) {
         tauriFetch(`https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${apiKey}`, {
           method: "POST",
@@ -144,9 +203,9 @@ export function ConfirmDownloadModal() {
 
   useEffect(() => {
     let active = true;
-    const { getUniqueFilename } = useDownloadStore.getState();
+    const { getUniqueFilename } = useAppStore.getState();
     if (rawFilename) {
-      getUniqueFilename(rawFilename, saveDir || undefined).then(uniqueName => {
+      getUniqueFilename(rawFilename, saveDir || undefined).then((uniqueName: string) => {
         if (active) setDisplayFilename(uniqueName);
       }).catch(() => {
         if (active) setDisplayFilename(rawFilename);
@@ -215,12 +274,12 @@ export function ConfirmDownloadModal() {
     const finalChecksum = checksumDigest ? { algorithm: checksumAlgorithm, digest: checksumDigest, source: checksumSource || "manual" } as DetectedChecksum : undefined;
 
     if (selectedFormat) {
-        const headers = stagedDownload.headers || [];
-        await addDownload(urlToDownload, headers, finalDir, displayFilename, audioUrl, finalChecksum);
-      } else {
-        await addDownload(urlToDownload, stagedDownload.headers || [], finalDir, displayFilename, undefined, finalChecksum);
-      }
-      clearStagedDownload();
+      const headers = stagedDownload.headers || [];
+      await addDownload(urlToDownload, headers, finalDir, displayFilename, audioUrl, finalChecksum, stagedDownload.sourceUrl, selectedFormat.fileSize || stagedDownload.fileSize);
+    } else {
+      await addDownload(urlToDownload, stagedDownload.headers || [], finalDir, displayFilename, undefined, finalChecksum, stagedDownload.sourceUrl, stagedDownload.fileSize);
+    }
+    clearStagedDownload();
   };
 
   if (!stagedDownload) return null;
@@ -235,12 +294,20 @@ export function ConfirmDownloadModal() {
           </DialogDescription>
         </DialogHeader>
         
-        <div className="grid gap-4 py-4">
+        <div className="grid gap-4 py-4 min-w-0">
           <div className="space-y-1">
-            <Label className="text-muted-foreground text-xs uppercase">URL</Label>
-            <div className="text-xs font-mono break-all bg-background p-2 rounded border border-border max-h-24 overflow-y-auto" title={selectedFormatUrl || stagedDownload.url}>
+            <div className="flex items-center justify-between">
+              <Label className="text-muted-foreground text-xs uppercase">URL</Label>
+              <Badge variant="outline" className="text-[10px] py-0 h-4 font-normal text-muted-foreground">
+                {stagedDownload.sourceUrl ? "Source Page" : "Direct Stream"}
+              </Badge>
+            </div>
+            <div 
+              className="text-xs font-mono break-all bg-background p-2 rounded border border-border max-h-24 overflow-y-auto select-all" 
+              title={stagedDownload.sourceUrl || selectedFormatUrl || stagedDownload.url}
+            >
               {(() => {
-                const u = selectedFormatUrl || stagedDownload.url || "";
+                const u = stagedDownload.sourceUrl || selectedFormatUrl || stagedDownload.url || "";
                 return u.length > 80 ? u.substring(0, 50) + '...' + u.substring(u.length - 20) : u;
               })()}
             </div>
@@ -249,17 +316,21 @@ export function ConfirmDownloadModal() {
           {stagedDownload.mediaFormats && stagedDownload.mediaFormats.length > 0 && (
             <div className="space-y-1">
               <Label className="text-muted-foreground text-xs uppercase">Quality / Resolution</Label>
-              <select 
-                value={selectedFormatUrl}
-                onChange={handleFormatChange}
-                className="w-full bg-background border border-border text-foreground rounded-md p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
-              >
-                {stagedDownload.mediaFormats.map(format => (
-                  <option key={format.format_id} value={format.url}>
-                    {format.resolution} ({format.fileSize > 0 ? `${(format.fileSize / (1024 * 1024)).toFixed(1)} MB` : 'Unknown Size'}) - {format.ext.toUpperCase()}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <select 
+                  value={selectedFormatUrl}
+                  onChange={handleFormatChange}
+                  style={{ colorScheme: 'dark' }}
+                  className="w-full appearance-none bg-card border border-border text-foreground rounded-md px-3 py-2 pr-10 text-sm focus:ring-1 focus:ring-primary outline-none cursor-pointer"
+                >
+                  {stagedDownload.mediaFormats.map(format => (
+                    <option key={format.format_id} value={format.url} className="bg-card text-foreground py-1">
+                      {formatResolutionLabel(format)}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-4 h-4 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
             </div>
           )}
           
@@ -304,21 +375,25 @@ export function ConfirmDownloadModal() {
               )}
             </Label>
             <div className="flex gap-2">
-              <select 
-                value={checksumAlgorithm}
-                onChange={e => {
-                   setChecksumAlgorithm(e.target.value as ChecksumAlgorithm);
-                   setChecksumSource("manual");
-                }}
-                className="bg-background border border-border text-foreground text-sm rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="md5">MD5</option>
-                <option value="sha1">SHA-1</option>
-                <option value="sha224">SHA-224</option>
-                <option value="sha256">SHA-256</option>
-                <option value="sha384">SHA-384</option>
-                <option value="sha512">SHA-512</option>
-              </select>
+              <div className="relative shrink-0">
+                <select 
+                  value={checksumAlgorithm}
+                  onChange={e => {
+                     setChecksumAlgorithm(e.target.value as ChecksumAlgorithm);
+                     setChecksumSource("manual");
+                  }}
+                  style={{ colorScheme: 'dark' }}
+                  className="appearance-none bg-card border border-border text-foreground text-sm rounded-md pl-3 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
+                >
+                  <option value="md5" className="bg-card text-foreground">MD5</option>
+                  <option value="sha1" className="bg-card text-foreground">SHA-1</option>
+                  <option value="sha224" className="bg-card text-foreground">SHA-224</option>
+                  <option value="sha256" className="bg-card text-foreground">SHA-256</option>
+                  <option value="sha384" className="bg-card text-foreground">SHA-384</option>
+                  <option value="sha512" className="bg-card text-foreground">SHA-512</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
               <Input 
                 value={checksumDigest} 
                 onChange={(e) => {

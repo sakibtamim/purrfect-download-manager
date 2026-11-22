@@ -1,12 +1,12 @@
 "use client";
 
-import { useDownloadStore } from "@/store/downloadStore";
+import { useActiveDownloads, usePlayfulMode } from "@/store/selectors/downloadSelectors";
 import { DownloadCard } from "@/components/download-card";
 import { Cat } from "lucide-react";
 
 export default function Home() {
-  const activeDownloads = useDownloadStore(state => state.active);
-  const isPlayfulMode = useDownloadStore(state => state.isPlayfulMode);
+  const activeDownloads = useActiveDownloads();
+  const isPlayfulMode = usePlayfulMode();
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus } from "lucide-react";
+import { Plus, ChevronDown } from "lucide-react";
 import { useDownloadStore } from "@/store/downloadStore";
 import {
   Dialog,
@@ -105,18 +105,22 @@ export function AddDownloadModal() {
               />
             </div>
             <div className="flex gap-2">
-              <select 
-                value={checksumAlgorithm}
-                onChange={e => setChecksumAlgorithm(e.target.value as ChecksumAlgorithm)}
-                className="bg-background border border-border text-foreground text-sm rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="md5">MD5</option>
-                <option value="sha1">SHA-1</option>
-                <option value="sha224">SHA-224</option>
-                <option value="sha256">SHA-256</option>
-                <option value="sha384">SHA-384</option>
-                <option value="sha512">SHA-512</option>
-              </select>
+              <div className="relative shrink-0">
+                <select 
+                  value={checksumAlgorithm}
+                  onChange={e => setChecksumAlgorithm(e.target.value as ChecksumAlgorithm)}
+                  style={{ colorScheme: 'dark' }}
+                  className="appearance-none bg-card border border-border text-foreground text-sm rounded-md pl-3 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
+                >
+                  <option value="md5" className="bg-card text-foreground">MD5</option>
+                  <option value="sha1" className="bg-card text-foreground">SHA-1</option>
+                  <option value="sha224" className="bg-card text-foreground">SHA-224</option>
+                  <option value="sha256" className="bg-card text-foreground">SHA-256</option>
+                  <option value="sha384" className="bg-card text-foreground">SHA-384</option>
+                  <option value="sha512" className="bg-card text-foreground">SHA-512</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
               <Input
                 id="checksum"
                 type="text"

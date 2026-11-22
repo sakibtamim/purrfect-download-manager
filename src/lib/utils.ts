@@ -5,6 +5,35 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+export type SpeedUnit = 'MBps' | 'Mbps';
+
+export function formatSpeed(bytesPerSec: number | string, unit: SpeedUnit = 'MBps'): string {
+  const speed = typeof bytesPerSec === 'string' ? parseFloat(bytesPerSec) : bytesPerSec;
+  if (!speed || isNaN(speed) || speed <= 0) {
+    return unit === 'Mbps' ? '0 bps' : '0 B/s';
+  }
+
+  if (unit === 'Mbps') {
+    const bits = speed * 8;
+    const sizes = ['bps', 'Kbps', 'Mbps', 'Gbps'];
+    if (bits < 1000) {
+      return `${parseFloat(bits.toFixed(2))} bps`;
+    }
+    const i = Math.min(Math.floor(Math.log10(bits) / 3), sizes.length - 1);
+    const val = parseFloat((bits / Math.pow(1000, i)).toFixed(2));
+    return `${val} ${sizes[i]}`;
+  }
+
+  const k = 1024;
+  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+  if (speed < k) {
+    return `${parseFloat(speed.toFixed(2))} B/s`;
+  }
+  const i = Math.min(Math.floor(Math.log(speed) / Math.log(k)), sizes.length - 1);
+  const val = parseFloat((speed / Math.pow(k, i)).toFixed(2));
+  return `${val} ${sizes[i]}`;
+}
+
 export type FileCategory = "all" | "software" | "media" | "documents" | "archives" | "other";
 
 export function getFileCategory(fileName: string): FileCategory {

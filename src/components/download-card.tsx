@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useDownloadStore } from "@/store/downloadStore";
+import { useAppStore } from "@/store";
 import { Aria2Download } from "@/lib/aria2Client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -9,13 +9,24 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Play, Pause, X, FolderOpen, File, RefreshCw, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { open, Command } from "@tauri-apps/plugin-shell";
+import { open } from "@tauri-apps/plugin-shell";
+import { invoke } from "@tauri-apps/api/core";
+import { formatSpeed } from "@/lib/utils";
 
 export function DownloadCard({ download }: { download: Aria2Download }) {
-  const { isPlayfulMode, pauseDownload, resumeDownload, cancelDownload, addDownload, selectedDownloadId, setSelectedDownload, deleteDownload } = useDownloadStore();
+  const isPlayfulMode = useAppStore((state) => state.isPlayfulMode);
+  const speedUnit = useAppStore((state) => state.speedUnit);
+  const isSelected = useAppStore((state) => state.selectedDownloadId === download.gid);
+  const setSelectedDownload = useAppStore((state) => state.setSelectedDownload);
+  const pauseDownload = useAppStore((state) => state.pauseDownload);
+  const resumeDownload = useAppStore((state) => state.resumeDownload);
+  const cancelDownload = useAppStore((state) => state.cancelDownload);
+  const addDownload = useAppStore((state) => state.addDownload);
+  const deleteDownload = useAppStore((state) => state.deleteDownload);
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteLocalFile, setDeleteLocalFile] = useState(false);
+  const isMuxing = (download.status as string) === "muxing";
 
   const handleDelete = async () => {
     await deleteDownload(download.gid, deleteLocalFile);
@@ -53,6 +64,7 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
   const getStatusText = () => {
     if (isPlayfulMode) {
       switch (download.status) {
+        case "muxing": return "Merging your catch... 🎬";
         case "active": return "Your cat is on the hunt 🐾";
         case "paused": return "Cat is sleeping 💤";
         case "complete": return "Caught it! 😻";
@@ -63,6 +75,7 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
       }
     } else {
       switch (download.status) {
+        case "muxing": return "Merging Audio & Video... 🎬";
         case "active": return "Downloading";
         case "paused": return "Paused";
         case "complete": return "Completed";
@@ -93,6 +106,7 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
 
   const getStatusColor = () => {
     switch (download.status) {
+      case "muxing":
       case "active": return "bg-primary/10 text-primary border-primary/20";
       case "paused": return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20";
       case "complete": return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20";
@@ -104,6 +118,7 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
 
   const getLeftBorderColor = () => {
     switch (download.status) {
+      case "muxing":
       case "active": return "border-l-primary";
       case "paused": return "border-l-amber-500";
       case "complete": return "border-l-emerald-500";
@@ -116,8 +131,6 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
   // Derive filename from path
   const filePath = download.files[0]?.path || "Unknown File";
   const fileName = filePath.includes('/') ? filePath.split('/').pop() : filePath.split('\\').pop() || "Unknown File";
-
-  const isSelected = selectedDownloadId === download.gid;
 
   return (
     <Card 
@@ -164,12 +177,12 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
             
             <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
               {download.status === "active" && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-500/10" onClick={(e) => { e.stopPropagation(); pauseDownload(download.gid); }}>
+                <Button disabled={isMuxing} variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-500/10" onClick={(e) => { e.stopPropagation(); if (isMuxing) return; pauseDownload(download.gid); }}>
                   <Pause className="h-4 w-4" />
                 </Button>
               )}
               {download.status === "paused" && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-500/10" onClick={(e) => { e.stopPropagation(); resumeDownload(download.gid); }}>
+                <Button disabled={isMuxing} variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-500/10" onClick={(e) => { e.stopPropagation(); if (isMuxing) return; resumeDownload(download.gid); }}>
                   <Play className="h-4 w-4" />
                 </Button>
               )}
@@ -189,10 +202,9 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                     const filePath = download.files[0]?.path;
                     if (filePath) {
                       try {
-                        const normalizedPath = filePath.replace(/\//g, '\\');
-                        await Command.create('explorer', [`/select,${normalizedPath}`]).execute();
+                        await invoke('reveal_in_folder', { path: filePath });
                       } catch (err) {
-                        console.error("Explorer failed:", err);
+                        console.error("Reveal in folder failed:", err);
                         if (download.dir) open(download.dir).catch(console.error);
                       }
                     } else if (download.dir) {
@@ -236,11 +248,11 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
             </div>
           </div>
 
-          {(download.status === "active" || download.status === "paused" || download.status === "waiting") && (
+          {(download.status === "active" || download.status === "paused" || download.status === "waiting" || download.status === "muxing") && (
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-muted-foreground">
                 <div className="flex items-center gap-2">
-                  <span>{download.status === "active" ? `${formatBytes(speed)}/s` : '--'}</span>
+                  <span>{download.status === "active" ? formatSpeed(speed, speedUnit) : download.status === "muxing" ? "Merging..." : '--'}</span>
                   {download.status === "active" && speed > 0 && (
                     <span className="text-muted-foreground/60">
                       • {getETA()}

@@ -2,21 +2,21 @@
 
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { useDownloadStore } from "@/store/downloadStore";
+import { useAppStore } from "@/store";
 
 export function AppInitializer() {
   const pathname = usePathname();
-  const setSelectedDownload = useDownloadStore(state => state.setSelectedDownload);
+  const setSelectedDownload = useAppStore((state) => state.setSelectedDownload);
   
   useEffect(() => {
     setSelectedDownload(null);
   }, [pathname, setSelectedDownload]);
 
-  const fetchDownloads = useDownloadStore(state => state.fetchDownloads);
-  const stageDownload = useDownloadStore(state => state.stageDownload);
-  const initSettings = useDownloadStore(state => state.initSettings);
-  const pauseAllDownloads = useDownloadStore(state => state.pauseAllDownloads);
-  const resumeAllDownloads = useDownloadStore(state => state.resumeAllDownloads);
+  const fetchDownloads = useAppStore((state) => state.fetchDownloads);
+  const stageDownload = useAppStore((state) => state.stageDownload);
+  const initSettings = useAppStore((state) => state.initSettings);
+  const pauseAllDownloads = useAppStore((state) => state.pauseAllDownloads);
+  const resumeAllDownloads = useAppStore((state) => state.resumeAllDownloads);
 
   useEffect(() => {
     let active = true;
@@ -42,13 +42,17 @@ export function AppInitializer() {
     // Initialize Settings
     initSettings();
 
-    // Initial fetch
-    fetchDownloads();
-
-    // Poll every 1 second
-    const interval = setInterval(() => {
-      fetchDownloads();
-    }, 1000);
+    // Adaptive polling: 1s when downloads are active, 3s when idle to conserve system resources
+    let timer: NodeJS.Timeout;
+    let isRunning = true;
+    const poll = async () => {
+      if (!isRunning) return;
+      await fetchDownloads();
+      if (!isRunning) return;
+      const hasActive = useAppStore.getState().active.length > 0;
+      timer = setTimeout(poll, hasActive ? 1000 : 3000);
+    };
+    poll();
     
     // Listen for browser integration events
     let unlisten: (() => void) | undefined;
@@ -64,6 +68,7 @@ export function AppInitializer() {
                 
                 stageDownload({
                   url: payload.url,
+                  sourceUrl: typeof payload.referrer === 'string' && payload.referrer ? payload.referrer : (typeof payload.url === 'string' ? payload.url : undefined),
                   headers,
                   filename: typeof payload.filename === 'string' ? payload.filename : undefined,
                   fileSize: typeof payload.fileSize === 'number' ? payload.fileSize : undefined,
@@ -88,7 +93,8 @@ export function AppInitializer() {
     window.addEventListener('drop', handleDrop);
 
     return () => {
-      clearInterval(interval);
+      isRunning = false;
+      clearTimeout(timer);
       if (unlisten) unlisten();
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('drop', handleDrop);

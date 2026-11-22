@@ -1,6 +1,6 @@
 "use client";
 
-import { useDownloadStore } from "@/store/downloadStore";
+import { useActiveDownloads, useCompletedDownloads, useFailedDownloads, usePlayfulMode } from "@/store/selectors/downloadSelectors";
 import { DownloadCard } from "@/components/download-card";
 import { getFileCategory } from "@/lib/utils";
 import { useParams } from "next/navigation";
@@ -11,7 +11,10 @@ export function CategoryClient() {
   const params = useParams();
   const type = params.type as string;
   
-  const { active, completed, failed, isPlayfulMode } = useDownloadStore();
+  const active = useActiveDownloads();
+  const completed = useCompletedDownloads();
+  const failed = useFailedDownloads();
+  const isPlayfulMode = usePlayfulMode();
 
   const allDownloads = useMemo(() => {
     return [...active, ...completed, ...failed];

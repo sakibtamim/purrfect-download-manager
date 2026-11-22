@@ -1,0 +1,97 @@
+# Maintainer: Sakib <sakib@purrfectsoftwareltd.com>
+pkgname=purrfect-download-manager
+pkgver=0.1.1
+pkgrel=1
+pkgdesc="A fast, steady, lightweight modern download manager built with Tauri and Next.js"
+arch=('x86_64' 'aarch64')
+url="https://github.com/sakibtamim/purrfect-download-manager"
+license=('MIT')
+depends=(
+  'gtk3'
+  'webkit2gtk-4.1'
+  'libsoup3'
+  'libappindicator-gtk3'
+  'openssl'
+  'aria2'
+  'yt-dlp'
+  'ffmpeg'
+  'xdg-utils'
+  'hicolor-icon-theme'
+)
+optdepends=(
+  'python-curl_cffi: browser impersonation for yt-dlp stream downloads'
+  'atomicparsley: embed metadata and thumbnails into audio files'
+)
+makedepends=(
+  'cargo'
+  'nodejs>=20'
+  'pnpm'
+  'pkgconf'
+  'git'
+)
+provides=('purrfect-download-manager')
+conflicts=('purrfect-download-manager-bin')
+source=(
+  "$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+  "purrfect-download-manager.desktop"
+)
+# sha256sums are set to 'SKIP' during development and updated via 'updpkgsums' upon tagging a release
+sha256sums=(
+  'SKIP'
+  'SKIP'
+)
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export PNPM_HOME="$srcdir/pnpm-home"
+  pnpm fetch
+  pnpm install --frozen-lockfile --offline
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export PNPM_HOME="$srcdir/pnpm-home"
+  pnpm run build
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release --manifest-path src-tauri/Cargo.toml
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  
+  # 1. Install Tauri compiled desktop binary
+  install -Dm755 "src-tauri/target/release/PurrfectDownloadManager" \
+    "$pkgdir/usr/bin/purrfect-download-manager"
+  
+  # 2. Symlink convenient short CLI alias: pdm
+  ln -sf /usr/bin/purrfect-download-manager "$pkgdir/usr/bin/pdm"
+
+  # 3. Install XDG Desktop Entry
+  install -Dm644 "$srcdir/purrfect-download-manager.desktop" \
+    "$pkgdir/usr/share/applications/purrfect-download-manager.desktop"
+
+  # 4. Install Hicolor Icons across standard resolutions
+  if [ -f "src-tauri/icons/32x32.png" ]; then
+    install -Dm644 "src-tauri/icons/32x32.png" \
+      "$pkgdir/usr/share/icons/hicolor/32x32/apps/purrfect-download-manager.png"
+  fi
+  if [ -f "src-tauri/icons/128x128.png" ]; then
+    install -Dm644 "src-tauri/icons/128x128.png" \
+      "$pkgdir/usr/share/icons/hicolor/128x128/apps/purrfect-download-manager.png"
+  fi
+  if [ -f "src-tauri/icons/128x128@2x.png" ]; then
+    install -Dm644 "src-tauri/icons/128x128@2x.png" \
+      "$pkgdir/usr/share/icons/hicolor/256x256/apps/purrfect-download-manager.png"
+  fi
+  if [ -f "src-tauri/icons/icon.png" ]; then
+    install -Dm644 "src-tauri/icons/icon.png" \
+      "$pkgdir/usr/share/icons/hicolor/512x512/apps/purrfect-download-manager.png"
+  fi
+
+  # 5. Install License if present
+  if [ -f "LICENSE" ]; then
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  fi
+}

@@ -1,7 +1,7 @@
 // src/lib/aria2Client.ts
 export interface Aria2Download {
   gid: string;
-  status: "active" | "waiting" | "paused" | "error" | "complete" | "removed";
+  status: "active" | "waiting" | "paused" | "error" | "complete" | "removed" | "muxing";
   totalLength: string;
   completedLength: string;
   downloadSpeed: string;
@@ -17,10 +17,11 @@ export interface Aria2Download {
   bitfield?: string;
   numPieces?: string;
   connections?: string;
+  pieceLength?: string;
 }
 
 class Aria2Client {
-  private rpcUrl = "http://localhost:6800/jsonrpc";
+  private rpcUrl = "http://127.0.0.1:6800/jsonrpc";
   private idCount = 0;
 
   private async call<T>(method: string, params: unknown[] = []): Promise<T> {

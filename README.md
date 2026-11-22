@@ -24,7 +24,7 @@ A modern, lightning-fast desktop download manager built with **Tauri v2**, **Nex
 
 - **Google Safe Browsing Integration:** Automatically pings Google Safe Browsing before staging a download. If a malicious or phishing URL is detected, the UI turns hostile and physically prevents you from downloading the virus.
 - **System Tray Integration:** Runs quietly in the background. Clicking the "X" safely minimizes PDM to your tray instead of killing your downloads.
-- **Windows Autostart:** Optionally boots PDM silently on system startup so your downloads never stop.
+- **Autostart on Boot:** Optionally boots PDM silently in the system tray on startup so your downloads never stop.
 - **Professional Installer:** Bundled and released as a sleek, professional desktop installer via Tauri's bundler and GitHub Actions automation.
 - **Robust Port Hopping:** PDM's WebSocket communication elegantly scans port ranges to ensure your browser extension always connects smoothly, even if standard ports are blocked.
 - **Native OS Notifications:** Get pinged directly on your desktop when your downloads hit completion or fail.
