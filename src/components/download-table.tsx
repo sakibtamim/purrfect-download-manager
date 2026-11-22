@@ -32,6 +32,9 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
 
   const handleDelete = async () => {
     if (deleteTargetGid) {
+      if (selectedDownloadId === deleteTargetGid) {
+        setSelectedDownload(null);
+      }
       await deleteDownload(deleteTargetGid, deleteLocalFile);
       setDeleteTargetGid(null);
     }
@@ -150,9 +153,18 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
             return (
               <tr
                 key={download.gid}
+                tabIndex={0}
+                role="row"
+                aria-selected={isSelected}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedDownload(isSelected ? null : download.gid);
+                  }
+                }}
                 onClick={() => setSelectedDownload(isSelected ? null : download.gid)}
                 className={cn(
-                  "h-10 transition-colors cursor-pointer group",
+                  "h-10 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary",
                   isSelected
                     ? "bg-primary/10 hover:bg-primary/15"
                     : "hover:bg-muted/40"

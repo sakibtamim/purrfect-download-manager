@@ -96,7 +96,8 @@ function applyThemeChange(resolved: ResolvedTheme, updateState: () => void) {
         performUpdate();
       });
       return;
-    } catch {
+    } catch (err) {
+      console.debug("View transition fallback:", err);
       // Fallback if browser throws on transition invocation
     }
   }

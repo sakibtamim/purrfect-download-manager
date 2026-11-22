@@ -128,19 +128,20 @@ export default function GrabberPage() {
 
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, "text/html");
-      const baseUrl = new URL(siteUrl.trim()).origin;
+      const targetUrl = siteUrl.trim();
 
       const linksMap = new Map<string, GrabbedLink>();
 
       // Extract Images
       doc.querySelectorAll("img").forEach((img) => {
-        if (img.src) {
+        const rawSrc = img.getAttribute("src");
+        if (rawSrc) {
           try {
-            const url = new URL(img.src, baseUrl).href;
+            const url = new URL(rawSrc, targetUrl).href;
             linksMap.set(url, {
               url,
               type: "image",
-              text: img.alt || "Image",
+              text: img.getAttribute("alt") || img.alt || "Image",
               selected: true,
             });
           } catch {
@@ -151,10 +152,10 @@ export default function GrabberPage() {
 
       // Extract Videos
       doc.querySelectorAll("video, source").forEach((vid) => {
-        const src = (vid as HTMLVideoElement | HTMLSourceElement).src;
-        if (src) {
+        const rawSrc = vid.getAttribute("src");
+        if (rawSrc) {
           try {
-            const url = new URL(src, baseUrl).href;
+            const url = new URL(rawSrc, targetUrl).href;
             linksMap.set(url, {
               url,
               type: "video",
@@ -169,9 +170,10 @@ export default function GrabberPage() {
 
       // Extract Links
       doc.querySelectorAll("a").forEach((a) => {
-        if (a.href && !a.href.startsWith("javascript:") && !a.href.startsWith("mailto:")) {
+        const rawHref = a.getAttribute("href");
+        if (rawHref && !rawHref.startsWith("javascript:") && !rawHref.startsWith("mailto:")) {
           try {
-            const url = new URL(a.href, baseUrl).href;
+            const url = new URL(rawHref, targetUrl).href;
             if (!url.includes("#")) {
               linksMap.set(url, {
                 url,

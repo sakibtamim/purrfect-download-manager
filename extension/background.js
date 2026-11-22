@@ -257,7 +257,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       console.warn("Failed to retrieve cookies for context menu download:", e);
     }
 
-    const matchedHash = lookupHash(targetUrl, null, null);
+    const matchedHash = lookupHash(targetUrl, null, null, tab?.url);
 
     const payload = {
       url: targetUrl,

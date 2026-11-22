@@ -183,7 +183,9 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
         <div className="flex items-center justify-between px-3.5 h-12 border-b border-border shrink-0 bg-muted/20">
           <div role="tablist" aria-label="Inspector tabs" className="flex gap-1.5">
             <button 
+              id="tab-general"
               role="tab"
+              aria-controls="panel-general"
               aria-selected={currentTab === 'general'}
               className={`py-1 px-2.5 text-xs font-medium rounded-md transition-colors ${currentTab === 'general' ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}`}
               onClick={() => setActiveTab('general')}
@@ -191,7 +193,9 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
               General
             </button>
             <button 
+              id="tab-progress"
               role="tab"
+              aria-controls="panel-progress"
               aria-selected={currentTab === 'progress'}
               className={`py-1 px-2.5 text-xs font-medium rounded-md transition-colors ${currentTab === 'progress' ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}`}
               onClick={() => setActiveTab('progress')}
@@ -200,7 +204,9 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
             </button>
             {showConnections && (
               <button 
+                id="tab-connections"
                 role="tab"
+                aria-controls="panel-connections"
                 aria-selected={currentTab === 'connections'}
                 className={`py-1 px-2.5 text-xs font-medium rounded-md transition-colors ${currentTab === 'connections' ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}`}
                 onClick={() => setActiveTab('connections')}
@@ -221,7 +227,7 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {currentTab === 'general' && (
-          <div className="space-y-3.5">
+          <div id="panel-general" role="tabpanel" aria-labelledby="tab-general" className="space-y-3.5">
             <div className="flex items-start gap-3 bg-muted/20 p-3 rounded-lg border border-border">
               <div className="shrink-0 pt-0.5">
                 {getFileIcon()}
@@ -353,7 +359,7 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
           }
 
           return (
-            <div className="h-full flex flex-col min-h-0 space-y-3">
+            <div id="panel-progress" role="tabpanel" aria-labelledby="tab-progress" className="h-full flex flex-col min-h-0 space-y-3">
               {/* Overall Progress Metrics Header Card */}
               <div className="bg-muted/30 border border-border rounded-lg p-3 space-y-2.5 shrink-0">
                 <div className="flex items-center justify-between">
@@ -450,7 +456,7 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
           const numConn = parseInt(connCount, 10);
 
           return (
-            <div className="h-full flex flex-col min-h-0 space-y-3">
+            <div id="panel-connections" role="tabpanel" aria-labelledby="tab-connections" className="h-full flex flex-col min-h-0 space-y-3">
               {/* Top summary badges */}
               <div className="flex flex-wrap items-center gap-3 shrink-0">
                 <div className="bg-muted/30 border border-border rounded-lg px-3 py-1.5 flex items-center gap-2">

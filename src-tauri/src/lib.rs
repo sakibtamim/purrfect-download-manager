@@ -4,12 +4,35 @@ use std::thread;
 use tauri::{
     menu::{Menu, MenuItem, CheckMenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
+    window::{ProgressBarState, ProgressBarStatus},
     Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_store::StoreExt;
 use tiny_http::{Response, Server};
+
+#[tauri::command]
+fn set_taskbar_progress(
+    window: tauri::WebviewWindow,
+    progress: Option<u64>,
+    status: Option<String>,
+) -> Result<(), String> {
+    let progress_status = match status.as_deref() {
+        Some("error") => Some(ProgressBarStatus::Error),
+        Some("indeterminate") => Some(ProgressBarStatus::Indeterminate),
+        Some("paused") => Some(ProgressBarStatus::Paused),
+        Some("none") => Some(ProgressBarStatus::None),
+        _ => Some(ProgressBarStatus::Normal),
+    };
+
+    let state = ProgressBarState {
+        progress,
+        status: progress_status,
+    };
+
+    window.set_progress_bar(state).map_err(|e| e.to_string())
+}
 
 #[tauri::command]
 fn update_tray_tooltip(app: tauri::AppHandle, tooltip: String) -> Result<(), String> {
@@ -237,11 +260,37 @@ pub fn run() {
             app.exit(0);
         }
       }
+      WindowEvent::Resized(_) => {
+          let app = window.app_handle();
+          let minimize_to_tray = app
+              .store("settings.json")
+              .ok()
+              .and_then(|store| store.get("minimizeToTray"))
+              .and_then(|v| v.as_bool())
+              .unwrap_or(false);
+
+          if minimize_to_tray && window.is_minimized().unwrap_or(false) {
+              let _ = window.hide();
+          }
+      }
       _ => {}
     })
     .setup(|app| {
       #[cfg(target_os = "linux")]
       ensure_linux_desktop_window_rules();
+
+      let start_minimized = app
+          .store("settings.json")
+          .ok()
+          .and_then(|store| store.get("startMinimized"))
+          .and_then(|v| v.as_bool())
+          .unwrap_or(false);
+
+      if start_minimized {
+          if let Some(window) = app.get_webview_window("main") {
+              let _ = window.hide();
+          }
+      }
 
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -498,7 +547,7 @@ pub fn run() {
       
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists, reveal_in_folder, raise_window, update_tray_tooltip])
+    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists, reveal_in_folder, raise_window, update_tray_tooltip, set_taskbar_progress])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
