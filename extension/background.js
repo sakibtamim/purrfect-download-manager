@@ -69,7 +69,7 @@ function lookupHash(downloadUrl, finalUrl, filename, referrer) {
     const parsed = new URL(downloadUrl);
     hash = sniffedHashes.get(parsed.origin + parsed.pathname);
     if (hash) return hash;
-  } catch (_) { /* ignore */ }
+  } catch { /* ignore */ }
 
   if (finalUrl) {
     try {
@@ -98,7 +98,7 @@ function lookupHash(downloadUrl, finalUrl, filename, referrer) {
       const parsed = new URL(referrer);
       hash = sniffedHashes.get(parsed.origin + parsed.pathname);
       if (hash) return hash;
-    } catch (_) { /* ignore */ }
+    } catch { /* ignore */ }
   }
 
   return null;
@@ -128,28 +128,38 @@ async function sendToPDM(endpoint, payload) {
   return false;
 }
 
-chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
-  // If we already sent it, or it's not interceptable, ignore.
-  if (downloadItem.state !== "in_progress") {
-    suggest();
+function isSupportedDownloadUrl(url) {
+  if (!url || typeof url !== "string") return false;
+  return /^(https?|ftp):\/\//i.test(url.trim());
+}
+
+async function handleDownloadInterception(downloadItem, suggestCallback) {
+  if (typeof suggestCallback === "function") {
+    try {
+      suggestCallback();
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!downloadItem || !isSupportedDownloadUrl(downloadItem.url)) {
     return;
   }
 
-  // Check if interception is enabled
-  if (!pdmEnabled) {
-    suggest();
-    return;
-  }
-
-  // We immediately pause and cancel the browser's native download
-  chrome.downloads.cancel(downloadItem.id, async () => {
-    suggest(); // Free up the Chrome download pipeline
-    
-    // We need to fetch the cookies for the URL
-    const urlObj = new URL(downloadItem.url);
-    const cookies = await chrome.cookies.getAll({ domain: urlObj.hostname });
-    
-    const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+  try {
+    let cookieString = "";
+    try {
+      let cookies = await chrome.cookies.getAll({ url: downloadItem.url });
+      if (!cookies || cookies.length === 0) {
+        const urlObj = new URL(downloadItem.url);
+        cookies = await chrome.cookies.getAll({ domain: urlObj.hostname });
+      }
+      if (cookies && cookies.length > 0) {
+        cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+      }
+    } catch (e) {
+      console.warn("Failed to retrieve cookies for download:", e);
+    }
 
     const cleanFilename = downloadItem.filename ? downloadItem.filename.split(/[/\\]/).pop() : "";
     const matchedHash = lookupHash(downloadItem.url, downloadItem.finalUrl, cleanFilename, downloadItem.referrer);
@@ -174,10 +184,41 @@ chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
         message: "Failed to send download to PDM. Make sure the app is running!"
       });
     }
+  } catch (err) {
+    console.error("Error handling download interception:", err);
+  }
+}
+
+if (chrome.downloads?.onDeterminingFilename) {
+  // Chromium engine (Chrome, Brave, Edge, Opera)
+  chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
+    if (downloadItem.state !== "in_progress" || !pdmEnabled || !isSupportedDownloadUrl(downloadItem.url)) {
+      suggest();
+      return;
+    }
+    chrome.downloads.cancel(downloadItem.id, async () => {
+      if (chrome.runtime.lastError) { /* ignore cancel failure */ }
+      suggest();
+      await handleDownloadInterception(downloadItem);
+    });
+    return true;
   });
-  
-  return true; // Keep the message channel open for the async cancel callback
-});
+} else if (chrome.downloads?.onCreated) {
+  // Gecko engine (Mozilla Firefox)
+  chrome.downloads.onCreated.addListener(async (downloadItem) => {
+    if (!pdmEnabled || (downloadItem.state && downloadItem.state !== "in_progress") || !isSupportedDownloadUrl(downloadItem.url)) {
+      return;
+    }
+    // Cancel native browser download and erase from Firefox download manager history
+    try {
+      await chrome.downloads.cancel(downloadItem.id);
+      await chrome.downloads.erase({ id: downloadItem.id });
+    } catch (e) {
+      console.warn("Could not cancel/erase Firefox download:", e);
+    }
+    await handleDownloadInterception(downloadItem);
+  });
+}
 
 chrome.runtime.onInstalled.addListener((details) => {
   // Default to enabled on install
@@ -185,24 +226,36 @@ chrome.runtime.onInstalled.addListener((details) => {
     chrome.storage.local.set({ pdm_enabled: true });
   }
 
-  chrome.contextMenus.create({
-    id: "pdm-download",
-    title: "Download with Purrfect Download Manager",
-    contexts: ["link", "image", "video", "audio"]
+  chrome.contextMenus.removeAll(() => {
+    if (chrome.runtime.lastError) { /* ignore */ }
+    chrome.contextMenus.create({
+      id: "pdm-download",
+      title: "Download with Purrfect Download Manager",
+      contexts: ["link", "image", "video", "audio"]
+    }, () => {
+      if (chrome.runtime.lastError) { /* ignore */ }
+    });
   });
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "pdm-download") {
     const targetUrl = info.linkUrl || info.srcUrl || info.pageUrl;
-    if (!targetUrl) return;
+    if (!targetUrl || !isSupportedDownloadUrl(targetUrl)) return;
 
     let cookieString = "";
     try {
-      const urlObj = new URL(targetUrl);
-      const cookies = await chrome.cookies.getAll({ domain: urlObj.hostname });
-      cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-    } catch {}
+      let cookies = await chrome.cookies.getAll({ url: targetUrl });
+      if (!cookies || cookies.length === 0) {
+        const urlObj = new URL(targetUrl);
+        cookies = await chrome.cookies.getAll({ domain: urlObj.hostname });
+      }
+      if (cookies && cookies.length > 0) {
+        cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+      }
+    } catch (e) {
+      console.warn("Failed to retrieve cookies for context menu download:", e);
+    }
 
     const matchedHash = lookupHash(targetUrl, null, null);
 
