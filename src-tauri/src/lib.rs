@@ -100,6 +100,9 @@ fn activate_linux_window(app_handle: &tauri::AppHandle) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_always_on_top(false);
+        // Tao/WebKitGTK Wayland surface hitbox refresh
+        let _ = window.set_resizable(false);
+        let _ = window.set_resizable(true);
         let _ = window.set_focus();
     }
 
@@ -250,6 +253,13 @@ pub fn run() {
     .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_fs::init())
     .on_window_event(|window, event| match event {
+      WindowEvent::Focused(true) => {
+          #[cfg(target_os = "linux")]
+          {
+              let _ = window.set_resizable(false);
+              let _ = window.set_resizable(true);
+          }
+      }
       WindowEvent::CloseRequested { api, .. } => {
         let app = window.app_handle();
         let close_to_tray = app
