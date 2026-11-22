@@ -65,6 +65,11 @@ export function AppInitializer() {
         listen('tray-resume-all', () => resumeAllDownloads()).then(f => {
           if (active) unlistens.push(f); else f();
         }).catch(console.warn);
+        listen<boolean>('tray-autostart-changed', (event) => {
+          useAppStore.setState({ autoStart: event.payload });
+        }).then(f => {
+          if (active) unlistens.push(f); else f();
+        }).catch(console.warn);
       });
     }
     return () => {

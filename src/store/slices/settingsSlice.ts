@@ -104,6 +104,12 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
       showTaskbarProgress,
     });
 
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      import('@tauri-apps/api/core').then(({ invoke }) => {
+        invoke('sync_tray_autostart', { enabled: autoStartEnabled }).catch(console.warn);
+      });
+    }
+
     try {
       await aria2Client.changeGlobalOption({
         'max-concurrent-downloads': maxConcurrent.toString(),
@@ -173,6 +179,10 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
         await disableAutostart();
       }
       set({ autoStart: enabled });
+      if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+        const { invoke } = await import('@tauri-apps/api/core');
+        invoke('sync_tray_autostart', { enabled }).catch(console.warn);
+      }
     } catch (e) {
       console.error('Failed to toggle autostart', e);
     }

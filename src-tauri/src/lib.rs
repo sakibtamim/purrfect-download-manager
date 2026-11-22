@@ -35,6 +35,15 @@ fn set_taskbar_progress(
 }
 
 struct TrayStatusItem(MenuItem<tauri::Wry>);
+struct TrayStartOnBootItem(CheckMenuItem<tauri::Wry>);
+
+#[tauri::command]
+fn sync_tray_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    if let Some(item) = app.try_state::<TrayStartOnBootItem>() {
+        let _ = item.0.set_checked(enabled);
+    }
+    Ok(())
+}
 
 #[tauri::command]
 fn update_tray_tooltip(app: tauri::AppHandle, tooltip: String) -> Result<(), String> {
@@ -327,6 +336,7 @@ pub fn run() {
       let autostart_manager = app.autolaunch();
       let is_autostart = autostart_manager.is_enabled().unwrap_or(false);
       let start_on_boot_i = CheckMenuItem::with_id(app, "start-on-boot", "Start on Boot", true, is_autostart, None::<&str>)?;
+      app.manage(TrayStartOnBootItem(start_on_boot_i.clone()));
       
       let quit_i = MenuItem::with_id(app, "quit", "Exit", true, None::<&str>)?;
       
@@ -390,13 +400,15 @@ pub fn run() {
                     "start-on-boot" => {
                         let autostart_manager = app.autolaunch();
                         let current = autostart_manager.is_enabled().unwrap_or(false);
+                        let new_state = !current;
                         let success = if current {
                             autostart_manager.disable().is_ok()
                         } else {
                             autostart_manager.enable().is_ok()
                         };
                         if success {
-                            let _ = start_on_boot_i.set_checked(!current);
+                            let _ = start_on_boot_i.set_checked(new_state);
+                            let _ = app.emit("tray-autostart-changed", new_state);
                         }
                     }
                     _ => {}
@@ -566,7 +578,7 @@ pub fn run() {
       
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists, reveal_in_folder, raise_window, update_tray_tooltip, set_taskbar_progress])
+    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists, reveal_in_folder, raise_window, update_tray_tooltip, set_taskbar_progress, sync_tray_autostart])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
