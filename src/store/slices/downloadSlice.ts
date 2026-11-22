@@ -7,7 +7,7 @@ import { getCurrentWindow, UserAttentionType } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-import { formatChecksum, type DetectedChecksum } from '@/lib/utils';
+import { formatChecksum, decodeFilename, parseContentDispositionFilename, type DetectedChecksum } from '@/lib/utils';
 import { calculateOptimalSplit } from '@/lib/networkOptimizer';
 import { DownloadState, StagedDownload } from '../types';
 
@@ -490,7 +490,7 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         }
       }
     } else {
-      let finalFilename = filename;
+      let finalFilename = filename ? decodeFilename(filename) : undefined;
 
       if (!finalFilename && typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
         try {
@@ -514,20 +514,24 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
           }
           const dispHeader = res.headers.get('content-disposition');
           if (dispHeader) {
-            const match = dispHeader.match(/filename="?([^"]+)"?/i);
-            if (match && match[1]) {
-              finalFilename = match[1].split(/[\/\\]/).pop() || undefined;
+            const parsed = parseContentDispositionFilename(dispHeader);
+            if (parsed) {
+              finalFilename = parsed;
             }
           }
           if (!finalFilename) {
             const pathname = new URL(res.url || url).pathname;
-            finalFilename = pathname.split('/').pop() || undefined;
+            const extracted = pathname.split('/').pop();
+            finalFilename = extracted ? decodeFilename(extracted) : undefined;
           }
         } catch (e) {
           console.warn('Failed to fetch HEAD for filename', e);
           try {
-            finalFilename = new URL(url).pathname.split('/').pop() || undefined;
-          } catch {}
+            const fallback = new URL(url).pathname.split('/').pop();
+            finalFilename = fallback ? decodeFilename(fallback) : undefined;
+          } catch (err) {
+            console.warn('Failed to parse fallback URL for filename', err);
+          }
         }
       }
 

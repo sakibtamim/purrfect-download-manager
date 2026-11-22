@@ -11,7 +11,7 @@ import { Play, Pause, X, FolderOpen, File, RefreshCw, Trash2 } from "lucide-reac
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
-import { formatSpeed } from "@/lib/utils";
+import { formatSpeed, decodeFilename } from "@/lib/utils";
 
 export function DownloadCard({ download }: { download: Aria2Download }) {
   const isPlayfulMode = useAppStore((state) => state.isPlayfulMode);
@@ -130,7 +130,8 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
 
   // Derive filename from path
   const filePath = download.files[0]?.path || "Unknown File";
-  const fileName = filePath.includes('/') ? filePath.split('/').pop() : filePath.split('\\').pop() || "Unknown File";
+  const rawName = filePath.includes('/') ? filePath.split('/').pop() : filePath.split('\\').pop() || "Unknown File";
+  const fileName = decodeFilename(rawName);
 
   return (
     <Card 

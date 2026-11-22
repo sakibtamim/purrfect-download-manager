@@ -10,7 +10,7 @@ import { Play, Pause, X, FolderOpen, File, RefreshCw, Trash2, Film, Music, Archi
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
-import { formatSpeed, cn } from "@/lib/utils";
+import { formatSpeed, decodeFilename, cn } from "@/lib/utils";
 
 interface DownloadTableProps {
   downloads: Aria2Download[];
@@ -118,9 +118,10 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
           <tbody className="divide-y divide-border/60">
             {downloads.map((download) => {
               const filePath = download.files[0]?.path || "Unknown File";
-              const fileName = filePath.includes("/")
+              const rawName = filePath.includes("/")
                 ? filePath.split("/").pop()
                 : filePath.split("\\").pop() || "Unknown File";
+              const fileName = decodeFilename(rawName);
 
               const rawTotal = parseInt(download.totalLength, 10);
               const rawCompleted = parseInt(download.completedLength, 10);

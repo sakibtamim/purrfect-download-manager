@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { FolderOpen, CheckCircle2, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert, Shield } from "lucide-react";
-import { type ChecksumAlgorithm, type DetectedChecksum, validateChecksum } from "@/lib/utils";
+import { type ChecksumAlgorithm, type DetectedChecksum, validateChecksum, decodeFilename, parseContentDispositionFilename } from "@/lib/utils";
 import { type YtDlpFormat } from "@/lib/ytdlpClient";
 
 export function formatResolutionLabel(format: YtDlpFormat): string {
@@ -123,10 +123,11 @@ export function ConfirmDownloadModal() {
       setDisplaySize(initialSize);
 
       let name = stagedDownload.filename || "";
-      if (name) name = name.split(/[/\\]/).pop() || name;
+      if (name) name = decodeFilename(name);
       else if (stagedDownload.url) {
         try {
-          name = new URL(stagedDownload.url).pathname.split('/').pop() || "Unknown";
+          const raw = new URL(stagedDownload.url).pathname.split('/').pop() || "Unknown";
+          name = decodeFilename(raw);
         } catch { name = "Unknown"; }
       }
       setRawFilename(name || "Unknown");
@@ -157,9 +158,9 @@ export function ConfirmDownloadModal() {
             
             const dispHeader = res.headers.get("content-disposition");
             if (dispHeader) {
-              const match = dispHeader.match(/filename="?([^"]+)"?/i);
-              if (match && match[1]) {
-                setRawFilename(match[1].split(/[\/\\]/).pop() || "Unknown");
+              const parsedName = parseContentDispositionFilename(dispHeader);
+              if (parsedName) {
+                setRawFilename(parsedName);
               }
             }
           })
