@@ -75,6 +75,11 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
 
     try {
       if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+        try {
+          await invoke('raise_window');
+        } catch {
+          // fallback
+        }
         const appWindow = getCurrentWindow();
         await appWindow.unminimize();
         await appWindow.show();

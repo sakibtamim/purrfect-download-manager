@@ -55,13 +55,121 @@ fn check_downloaded_file_exists(path: String) -> bool {
 }
 
 #[cfg(target_os = "linux")]
-fn ensure_linux_desktop_window_rules() {
+fn activate_linux_window(app_handle: &tauri::AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_always_on_top(true);
+        let _ = window.set_focus();
+        let _ = window.request_user_attention(Some(tauri::UserAttentionType::Critical));
+    }
+
     let is_kde = std::env::var("XDG_CURRENT_DESKTOP")
         .map(|d| d.to_uppercase().contains("KDE"))
         .unwrap_or(false);
 
     if is_kde {
         std::thread::spawn(|| {
+            let script_content = r#"
+for (var i = 0; i < workspace.windowList().length; i++) {
+    var w = workspace.windowList()[i];
+    if (w.resourceClass === 'PurrfectDownloadManager' || (w.caption && w.caption.indexOf('Purrfect Download Manager') !== -1)) {
+        w.minimized = false;
+        workspace.activeWindow = w;
+        break;
+    }
+}
+"#;
+            let temp_path = std::env::temp_dir().join(format!("pdm_raise_{}.js", std::process::id()));
+            if fs::write(&temp_path, script_content).is_ok() {
+                let temp_path_str = temp_path.to_string_lossy().to_string();
+                let load_output = std::process::Command::new("qdbus6")
+                    .args(["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.loadScript", &temp_path_str])
+                    .output();
+
+                if let Ok(output) = load_output {
+                    let script_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !script_id.is_empty() {
+                        let _ = std::process::Command::new("qdbus6")
+                            .args(["org.kde.KWin", &format!("/Scripting/Script{}", script_id), "org.kde.kwin.Script.run"])
+                            .status();
+                    }
+                    let _ = std::process::Command::new("qdbus6")
+                        .args(["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.start"])
+                        .status();
+
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+
+                    if !script_id.is_empty() {
+                        let _ = std::process::Command::new("qdbus6")
+                            .args(["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", &script_id])
+                            .status();
+                    }
+                    let _ = std::process::Command::new("qdbus6")
+                        .args(["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", &temp_path_str])
+                        .status();
+                }
+                let _ = fs::remove_file(temp_path);
+            }
+        });
+    }
+}
+
+#[tauri::command]
+fn raise_window(app_handle: tauri::AppHandle) {
+    #[cfg(target_os = "linux")]
+    activate_linux_window(&app_handle);
+
+    #[cfg(not(target_os = "linux"))]
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_always_on_top(true);
+        let _ = window.set_focus();
+        let _ = window.request_user_attention(Some(tauri::UserAttentionType::Critical));
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn ensure_linux_desktop_window_rules() {
+    let is_kde = std::env::var("XDG_CURRENT_DESKTOP")
+        .map(|d| d.to_uppercase().contains("KDE"))
+        .unwrap_or(false);
+
+    std::thread::spawn(move || {
+        // Install .desktop and icon files in user-space so Wayland matches app_id
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let data_dir = std::env::var("XDG_DATA_HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::path::PathBuf::from(&home).join(".local/share"));
+
+        let apps_dir = data_dir.join("applications");
+        let icons_dir = data_dir.join("icons/hicolor/128x128/apps");
+
+        let _ = fs::create_dir_all(&apps_dir);
+        let _ = fs::create_dir_all(&icons_dir);
+
+        let icon_bytes = include_bytes!("../icons/128x128.png");
+        let _ = fs::write(icons_dir.join("PurrfectDownloadManager.png"), icon_bytes);
+        let _ = fs::write(icons_dir.join("com.purrfectsoftwareltd.pdm.png"), icon_bytes);
+
+        let desktop_content = "[Desktop Entry]\n\
+Name=Purrfect Download Manager\n\
+Comment=Fast and aesthetic download manager\n\
+Exec=PurrfectDownloadManager\n\
+Icon=PurrfectDownloadManager\n\
+Type=Application\n\
+StartupWMClass=PurrfectDownloadManager\n\
+Terminal=false\n\
+Categories=Network;FileTransfer;\n";
+
+        let _ = fs::write(apps_dir.join("PurrfectDownloadManager.desktop"), desktop_content);
+        let _ = fs::write(apps_dir.join("com.purrfectsoftwareltd.pdm.desktop"), desktop_content);
+
+        let _ = std::process::Command::new("kbuildsycoca6").status();
+        let _ = std::process::Command::new("update-desktop-database").arg(&apps_dir).status();
+
+        if is_kde {
             // Configure KWin Focus Stealing Prevention bypass rule for PurrfectDownloadManager
             // so intercepted downloads reliably auto-pop, unminimize, and focus above browsers.
             let _ = std::process::Command::new("kwriteconfig6")
@@ -89,8 +197,8 @@ fn ensure_linux_desktop_window_rules() {
             let _ = std::process::Command::new("qdbus6")
                 .args(["org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
                 .status();
-        });
-    }
+        }
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -159,6 +267,10 @@ pub fn run() {
                 match event.id.as_ref() {
                     "quit" => app.exit(0),
                     "show" => {
+                        #[cfg(target_os = "linux")]
+                        activate_linux_window(app);
+
+                        #[cfg(not(target_os = "linux"))]
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.unminimize();
                             let _ = window.show();
@@ -167,6 +279,10 @@ pub fn run() {
                     }
                     "new-download" => {
                         let _ = app.emit("tray-new-download", ());
+                        #[cfg(target_os = "linux")]
+                        activate_linux_window(app);
+
+                        #[cfg(not(target_os = "linux"))]
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.unminimize();
                             let _ = window.show();
@@ -209,9 +325,15 @@ pub fn run() {
                     if is_visible {
                         let _ = window.hide();
                     } else {
-                        let _ = window.unminimize();
-                        let _ = window.show();
-                        let _ = window.set_focus();
+                        #[cfg(target_os = "linux")]
+                        activate_linux_window(tray.app_handle());
+
+                        #[cfg(not(target_os = "linux"))]
+                        {
+                            let _ = window.unminimize();
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
                     }
                 }
             }
@@ -305,6 +427,10 @@ pub fn run() {
                   let _ = request.respond(Response::from_string("OK"));
                   continue;
               } else if request.method().as_str() == "GET" && request.url() == "/show" {
+                  #[cfg(target_os = "linux")]
+                  activate_linux_window(&app_handle);
+
+                  #[cfg(not(target_os = "linux"))]
                   if let Some(window) = app_handle.get_webview_window("main") {
                       let _ = window.unminimize();
                       let _ = window.show();
@@ -328,6 +454,10 @@ pub fn run() {
                   request.as_reader().read_to_string(&mut content).unwrap_or_default();
                   
                   if let Ok(json) = serde_json::from_str::<Value>(&content) {
+                      #[cfg(target_os = "linux")]
+                      activate_linux_window(&app_handle);
+
+                      #[cfg(not(target_os = "linux"))]
                       if let Some(window) = app_handle.get_webview_window("main") {
                           let _ = window.unminimize();
                           let _ = window.show();
@@ -347,7 +477,7 @@ pub fn run() {
       
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists, reveal_in_folder])
+    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists, reveal_in_folder, raise_window])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

@@ -5,6 +5,11 @@ import { createSettingsSlice, SettingsSlice } from './settingsSlice';
 import { DownloadState, PendingMux, StagedDownload } from '../types';
 import { aria2Client } from '@/lib/aria2Client';
 import { UserAttentionType } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn().mockResolvedValue(undefined),
+}));
 
 const mockWindow = {
   unminimize: vi.fn().mockResolvedValue(undefined),
@@ -375,6 +380,7 @@ describe('stageDownload and clearStagedDownload window elevation lifecycle', () 
 
     await useTestStore.getState().stageDownload(sampleStaged);
 
+    expect(invoke).toHaveBeenCalledWith('raise_window');
     expect(mockWindow.unminimize).toHaveBeenCalledTimes(1);
     expect(mockWindow.show).toHaveBeenCalledTimes(1);
     expect(mockWindow.setAlwaysOnTop).toHaveBeenCalledWith(true);
@@ -433,5 +439,22 @@ describe('stageDownload and clearStagedDownload window elevation lifecycle', () 
     await expect(useTestStore.getState().stageDownload(sampleStaged)).resolves.not.toThrow();
     expect(useTestStore.getState().stagedDownload).toEqual(sampleStaged);
     expect(warnSpy).toHaveBeenCalledWith('Failed to focus window', expect.any(Error));
+  });
+
+  it('handles invoke(raise_window) failure gracefully and continues window elevation', async () => {
+    (globalThis as unknown as { window: unknown }).window = {
+      __TAURI_INTERNALS__: {},
+    };
+    vi.mocked(invoke).mockRejectedValueOnce(new Error('KWin DBus unavailable'));
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await expect(useTestStore.getState().stageDownload(sampleStaged)).resolves.not.toThrow();
+    expect(mockWindow.unminimize).toHaveBeenCalledTimes(1);
+    expect(mockWindow.show).toHaveBeenCalledTimes(1);
+    expect(mockWindow.setAlwaysOnTop).toHaveBeenCalledWith(true);
+    expect(useTestStore.getState().stagedDownload).toEqual(sampleStaged);
   });
 });
