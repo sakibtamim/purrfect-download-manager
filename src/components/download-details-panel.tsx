@@ -52,6 +52,16 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
     return () => { isMounted = false; };
   }, [selectedDownloadId]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedDownload(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [setSelectedDownload]);
+
   if (!download) {
     return null;
   }
@@ -70,13 +80,13 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
   
   const getFileIcon = () => {
     switch(ext) {
-      case 'zip': case 'rar': case '7z': case 'tar': case 'gz': return <FileArchive className="h-16 w-16 text-amber-500" />;
-      case 'png': case 'jpg': case 'jpeg': case 'gif': case 'webp': case 'svg': return <FileImage className="h-16 w-16 text-emerald-500" />;
-      case 'mp3': case 'wav': case 'ogg': case 'flac': case 'm4a': return <FileAudio className="h-16 w-16 text-purple-500" />;
-      case 'mp4': case 'mkv': case 'avi': case 'webm': case 'mov': return <FileVideo className="h-16 w-16 text-blue-500" />;
-      case 'pdf': case 'txt': case 'doc': case 'docx': case 'md': return <FileText className="h-16 w-16 text-slate-500" />;
-      case 'js': case 'ts': case 'json': case 'html': case 'css': case 'rs': return <FileCode className="h-16 w-16 text-yellow-500" />;
-      default: return <FileBox className="h-16 w-16 text-primary" />;
+      case 'zip': case 'rar': case '7z': case 'tar': case 'gz': return <FileArchive className="h-9 w-9 text-amber-500" />;
+      case 'png': case 'jpg': case 'jpeg': case 'gif': case 'webp': case 'svg': return <FileImage className="h-9 w-9 text-emerald-500" />;
+      case 'mp3': case 'wav': case 'ogg': case 'flac': case 'm4a': return <FileAudio className="h-9 w-9 text-purple-500" />;
+      case 'mp4': case 'mkv': case 'avi': case 'webm': case 'mov': return <FileVideo className="h-9 w-9 text-blue-500" />;
+      case 'pdf': case 'txt': case 'doc': case 'docx': case 'md': return <FileText className="h-9 w-9 text-slate-500" />;
+      case 'js': case 'ts': case 'json': case 'html': case 'css': case 'rs': return <FileCode className="h-9 w-9 text-yellow-500" />;
+      default: return <FileBox className="h-9 w-9 text-primary" />;
     }
   };
 
@@ -155,81 +165,112 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
   const displayUrl = sourceUrl || rawUrl;
 
   return (
-    <div className="flex flex-col bg-card border-t border-border shadow-[0_-4px_20px_rgba(0,0,0,0.05)] w-full h-80 shrink-0 animate-in slide-in-from-bottom-full duration-200">
-      <div className="flex items-center justify-between px-4 border-b border-border">
-        <div className="flex gap-4">
-          <button 
-            className={`py-3 px-2 text-sm font-medium border-b-2 transition-colors ${currentTab === 'general' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-            onClick={() => setActiveTab('general')}
-          >
-            General
-          </button>
-          <button 
-            className={`py-3 px-2 text-sm font-medium border-b-2 transition-colors ${currentTab === 'progress' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-            onClick={() => setActiveTab('progress')}
-          >
-            Progress
-          </button>
-          {showConnections && (
+    <>
+      {/* Backdrop */}
+      <div 
+        className="fixed inset-0 bg-background/50 backdrop-blur-[2px] z-40 transition-opacity animate-in fade-in duration-200"
+        onClick={() => setSelectedDownload(null)}
+      />
+
+      {/* Slide-over Drawer */}
+      <aside 
+        role="dialog"
+        aria-modal="true"
+        aria-label="Download Details Inspector"
+        className="fixed top-0 right-0 h-full w-[420px] max-w-[92vw] z-50 bg-card border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right duration-200 ease-out"
+      >
+        <div className="flex items-center justify-between px-3.5 h-12 border-b border-border shrink-0 bg-muted/20">
+          <div role="tablist" aria-label="Inspector tabs" className="flex gap-1.5">
             <button 
-              className={`py-3 px-2 text-sm font-medium border-b-2 transition-colors ${currentTab === 'connections' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-              onClick={() => setActiveTab('connections')}
+              role="tab"
+              aria-selected={currentTab === 'general'}
+              className={`py-1 px-2.5 text-xs font-medium rounded-md transition-colors ${currentTab === 'general' ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}`}
+              onClick={() => setActiveTab('general')}
             >
-              Connections
+              General
             </button>
-          )}
+            <button 
+              role="tab"
+              aria-selected={currentTab === 'progress'}
+              className={`py-1 px-2.5 text-xs font-medium rounded-md transition-colors ${currentTab === 'progress' ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}`}
+              onClick={() => setActiveTab('progress')}
+            >
+              Progress
+            </button>
+            {showConnections && (
+              <button 
+                role="tab"
+                aria-selected={currentTab === 'connections'}
+                className={`py-1 px-2.5 text-xs font-medium rounded-md transition-colors ${currentTab === 'connections' ? 'bg-primary/10 text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}`}
+                onClick={() => setActiveTab('connections')}
+              >
+                Connections
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon-xs" className="h-7 w-7 text-muted-foreground hover:text-red-500 hover:bg-red-500/10" title="Remove Download" aria-label="Remove download" onClick={() => setIsDeleteDialogOpen(true)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon-xs" className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted" title="Close Panel (Esc)" aria-label="Close panel" onClick={() => setSelectedDownload(null)}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-500 hover:bg-red-500/10" title="Remove Download" onClick={() => setIsDeleteDialogOpen(true)}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => setSelectedDownload(null)}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {currentTab === 'general' && (
-          <div className="flex gap-6">
-            <div className="shrink-0 pt-2 flex items-start justify-center">
-              {getFileIcon()}
+          <div className="space-y-3.5">
+            <div className="flex items-start gap-3 bg-muted/20 p-3 rounded-lg border border-border">
+              <div className="shrink-0 pt-0.5">
+                {getFileIcon()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-sm font-semibold text-foreground break-all line-clamp-2" title={fileName || ""}>{fileName}</h2>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                    {getStatusText(download.status)}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {progress.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
             </div>
-            <div className="flex-1 min-w-0 space-y-4">
-              <div>
-                <h2 className="text-xl font-semibold text-foreground line-clamp-2 break-all" title={fileName || ""}>{fileName}</h2>
-                {(download.status === "active" || download.status === "paused" || download.status === "waiting") && (
-                  <div className="mt-2 space-y-1">
-                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                      <span>{download.status === "active" && speed > 0 ? getETA() : getStatusText(download.status)}</span>
-                      <span>{progress.toFixed(1)}%</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full ${download.status === 'paused' ? 'bg-amber-500' : 'bg-primary'} transition-all duration-300 ease-out`}
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
 
-              <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm mt-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground w-20">Speed:</span>
-                  <span className="text-foreground">{download.status === 'active' ? formatSpeed(speed, speedUnit) : '--'}</span>
+            {(download.status === "active" || download.status === "paused" || download.status === "waiting") && (
+              <div className="space-y-1.5 bg-muted/20 p-3 rounded-lg border border-border">
+                <div className="flex justify-between text-xs text-muted-foreground mb-1 font-mono">
+                  <span>{download.status === "active" && speed > 0 ? getETA() : getStatusText(download.status)}</span>
+                  <span>{formatBytes(completedLength)} / {formatBytes(totalLength)}</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground w-24">Downloaded:</span>
-                  <span className="text-foreground">{formatBytes(completedLength)} of {formatBytes(totalLength)}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground w-20">Added at:</span>
-                  <span className="text-foreground">{formatAddedAt(download.addedAt)}</span>
+                <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full ${download.status === 'paused' ? 'bg-amber-500' : 'bg-primary'} transition-all duration-300 ease-out`}
+                    style={{ width: `${progress}%` }}
+                  />
                 </div>
               </div>
-              
-              <div className="space-y-2 text-sm pt-2 w-full min-w-0">
+            )}
+
+            <div className="space-y-2 text-xs bg-muted/20 p-3 rounded-lg border border-border">
+              <div className="flex justify-between items-center py-1 border-b border-border/50">
+                <span className="text-muted-foreground">Speed</span>
+                <span className="font-mono font-medium text-foreground">{download.status === 'active' ? formatSpeed(speed, speedUnit) : '--'}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-border/50">
+                <span className="text-muted-foreground">Downloaded</span>
+                <span className="font-mono font-medium text-foreground">{formatBytes(completedLength)} of {formatBytes(totalLength)}</span>
+              </div>
+              <div className="flex justify-between items-center py-1">
+                <span className="text-muted-foreground">Added at</span>
+                <span className="font-mono text-foreground">{formatAddedAt(download.addedAt)}</span>
+              </div>
+            </div>
+
+            <div className="space-y-2 text-xs bg-muted/20 p-3 rounded-lg border border-border">
+              <div className="space-y-1">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">File Location</span>
                 <button type="button" className="flex gap-2 items-center group cursor-pointer w-full text-left min-w-0" onClick={async () => {
                   const fp = download.files[0]?.path;
                   if (fp) {
@@ -242,22 +283,19 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
                     open(download.dir).catch(console.error);
                   }
                 }}>
-                  <FolderOpen className="h-4 w-4 text-muted-foreground group-hover:text-primary shrink-0 transition-colors" />
-                  <span className="text-muted-foreground group-hover:text-primary transition-colors truncate flex-1 min-w-0" title={filePath}>
+                  <FolderOpen className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0 transition-colors" />
+                  <span className="text-muted-foreground group-hover:text-primary transition-colors truncate flex-1 min-w-0 text-xs" title={filePath}>
                     {filePath}
                   </span>
                 </button>
-                <div className="flex gap-2 items-center min-w-0">
-                  <span className="text-primary text-xs font-bold uppercase tracking-wider shrink-0 w-8">URL</span>
-                  {sourceUrl && (
-                    <Badge variant="outline" className="text-[10px] py-0 h-4 shrink-0 border-primary/30 text-primary">
-                      Source Page
-                    </Badge>
-                  )}
-                  <a href={displayUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate block flex-1 min-w-0" title={displayUrl}>
-                    {displayUrl}
-                  </a>
-                </div>
+              </div>
+
+              <div className="space-y-1 pt-2 border-t border-border/50">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">URL</span>
+                <a href={displayUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate block text-xs" title={displayUrl}>
+                  {displayUrl}
+                </a>
+              </div>
                 {checksumOpt && (() => {
                   const parts = checksumOpt.split('=');
                   const algo = parts[0]?.toUpperCase() || 'HASH';
@@ -282,7 +320,6 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
                 })()}
               </div>
             </div>
-          </div>
         )}
 
         {currentTab === 'progress' && (() => {
@@ -552,6 +589,7 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+      </aside>
+    </>
   );
 }

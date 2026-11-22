@@ -45,35 +45,37 @@ export function Sidebar() {
   return (
     <div className={cn(
       "flex h-full flex-col bg-sidebar/80 glass border-r border-sidebar-border text-sidebar-foreground transition-all duration-300",
-      isCollapsed ? "w-20" : "w-64"
+      isCollapsed ? "w-14" : "w-48"
     )}>
-      <div className={cn("flex items-center border-b border-sidebar-border transition-all duration-300", isCollapsed ? "flex-col py-6 gap-4" : "p-6 justify-between")}>
-        <div className={cn("flex items-center", isCollapsed ? "justify-center" : "gap-2.5")}>
-          <div className="p-1.5 rounded-lg flex items-center justify-center shrink-0">
+      <div className={cn("flex items-center border-b border-sidebar-border transition-all duration-300", isCollapsed ? "flex-col py-3 gap-2" : "px-3.5 py-3 justify-between")}>
+        <div className={cn("flex items-center", isCollapsed ? "justify-center" : "gap-2")}>
+          <div className="rounded-md flex items-center justify-center shrink-0">
             <Image
               src="/pdm_logo.png"
               alt="PDM Logo"
-              width={40}
-              height={40}
-              className="h-10 w-10 object-contain"
+              width={32}
+              height={32}
+              className="h-8 w-8 object-contain"
             />
           </div>
           {!isCollapsed && (
-            <span className="font-semibold tracking-tight text-lg text-foreground truncate">
+            <span className="font-semibold tracking-tight text-base text-foreground truncate">
               PDM
             </span>
           )}
         </div>
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          className="p-1 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
           title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+          aria-label={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+          aria-expanded={!isCollapsed}
         >
-          {isCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
+          {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto space-y-6 p-4 overflow-x-hidden">
+      <nav className="flex-1 overflow-y-auto space-y-4 p-2 overflow-x-hidden">
         <div className="space-y-1">
           {navItems.map((item) => {
             const isActive = pathname === item.href;
@@ -83,17 +85,16 @@ export function Sidebar() {
                 href={item.href}
                 title={isCollapsed ? item.name : undefined}
                 className={cn(
-                  "flex items-center rounded-lg py-2.5 text-sm font-medium transition-all duration-200",
-                  isCollapsed ? "justify-center px-0" : "gap-3 px-3",
+                  "flex items-center rounded-lg py-1.5 text-xs font-medium transition-all duration-200",
+                  isCollapsed ? "justify-center px-0" : "gap-2 px-2.5",
                   isActive
-                    ? "bg-primary/10 text-primary"
+                    ? "bg-primary/10 text-primary font-semibold"
                     : "text-muted-foreground hover:bg-accent hover:text-foreground",
                 )}
               >
                 <item.icon
                   className={cn(
-                    "shrink-0 transition-colors",
-                    isCollapsed ? "h-5 w-5" : "h-4 w-4",
+                    "shrink-0 transition-colors h-4 w-4",
                     isActive ? "text-primary" : "",
                   )}
                 />
@@ -108,11 +109,11 @@ export function Sidebar() {
 
         <div>
           {!isCollapsed && (
-            <h4 className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60 mb-2 truncate mt-6">
+            <h4 className="px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1 truncate mt-4">
               Categories
             </h4>
           )}
-          {isCollapsed && <div className="mt-6 mb-2 border-t border-border mx-4" />}
+          {isCollapsed && <div className="mt-4 mb-2 border-t border-border mx-2" />}
           <div className="space-y-1">
             {categories.map((cat) => {
               const href = `/category/${cat.name.toLowerCase()}`;
@@ -123,17 +124,16 @@ export function Sidebar() {
                   href={href}
                   title={isCollapsed ? cat.name : undefined}
                   className={cn(
-                    "flex items-center rounded-lg py-2 text-sm font-medium transition-all duration-200",
-                    isCollapsed ? "justify-center px-0" : "gap-3 px-3",
+                    "flex items-center rounded-lg py-1.5 text-xs font-medium transition-all duration-200",
+                    isCollapsed ? "justify-center px-0" : "gap-2 px-2.5",
                     isActive
-                      ? "bg-accent text-foreground"
+                      ? "bg-accent text-foreground font-semibold"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                   )}
                 >
                   <cat.icon
                     className={cn(
-                      "shrink-0 transition-colors",
-                      isCollapsed ? "h-5 w-5" : "h-4 w-4",
+                      "shrink-0 transition-colors h-4 w-4",
                       isActive ? "text-primary" : "text-muted-foreground/70",
                     )}
                   />
@@ -145,17 +145,17 @@ export function Sidebar() {
         </div>
       </nav>
 
-      <div className="p-4 border-t border-sidebar-border">
+      <div className="p-2.5 border-t border-sidebar-border">
         {!isCollapsed && (
-          <div className="flex flex-col items-center justify-center space-y-2 rounded-xl bg-muted/50 p-4 text-center">
+          <div className="flex flex-col items-center justify-center space-y-1.5 rounded-lg bg-muted/40 p-2 text-center">
             <Image
               src="/pdm_logo.png"
               alt="PDM Mascot"
-              width={32}
-              height={32}
-              className="h-8 w-8 opacity-40 grayscale mb-1 object-contain"
+              width={24}
+              height={24}
+              className="h-6 w-6 opacity-40 grayscale object-contain"
             />
-            <p className="text-xs text-muted-foreground font-medium">
+            <p className="text-[11px] text-muted-foreground font-medium leading-tight">
               {isPlayfulMode ? "Ready to catch bytes 🐾" : "System ready"}
             </p>
           </div>

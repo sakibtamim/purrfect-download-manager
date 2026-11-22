@@ -8,7 +8,16 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_store::StoreExt;
 use tiny_http::{Response, Server};
+
+#[tauri::command]
+fn update_tray_tooltip(app: tauri::AppHandle, tooltip: String) -> Result<(), String> {
+    if let Some(tray) = app.tray_by_id("main") {
+        tray.set_tooltip(Some(tooltip)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
 
 #[tauri::command]
 fn delete_downloaded_file(app: tauri::AppHandle, path: String, custom_dir: Option<String>) -> Result<(), String> {
@@ -213,8 +222,20 @@ pub fn run() {
     .plugin(tauri_plugin_fs::init())
     .on_window_event(|window, event| match event {
       WindowEvent::CloseRequested { api, .. } => {
-        window.hide().unwrap();
-        api.prevent_close();
+        let app = window.app_handle();
+        let close_to_tray = app
+            .store("settings.json")
+            .ok()
+            .and_then(|store| store.get("closeToTray"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        if close_to_tray {
+            window.hide().unwrap();
+            api.prevent_close();
+        } else {
+            app.exit(0);
+        }
       }
       _ => {}
     })
@@ -258,7 +279,7 @@ pub fn run() {
           &quit_i
       ])?;
       
-      let _tray = TrayIconBuilder::new()
+      let _tray = TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
         .on_menu_event({
@@ -477,7 +498,7 @@ pub fn run() {
       
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists, reveal_in_folder, raise_window])
+    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists, reveal_in_folder, raise_window, update_tray_tooltip])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

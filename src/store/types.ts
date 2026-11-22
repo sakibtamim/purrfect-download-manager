@@ -1,9 +1,11 @@
 import { YtDlpFormat } from '@/lib/ytdlpClient';
 import { DetectedChecksum } from '@/lib/utils';
-import { UISlice } from './slices/uiSlice';
+import { UISlice, ViewMode } from './slices/uiSlice';
 import { SettingsSlice } from './slices/settingsSlice';
 import { MuxSlice } from './slices/muxSlice';
 import { DownloadDataSlice } from './slices/downloadSlice';
+
+export type { ViewMode };
 
 export interface StagedDownload {
   url: string;

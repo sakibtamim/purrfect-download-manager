@@ -10,7 +10,7 @@ import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { FolderOpen, HardDrive, Rocket, Activity, Cat, Globe, Moon, Sun, Monitor, Palette } from "lucide-react";
+import { FolderOpen, HardDrive, Rocket, Activity, Cat, Globe, Moon, Sun, Monitor, Palette, AppWindow } from "lucide-react";
 
 type ThemeMode = 'dark' | 'light' | 'system';
 
@@ -22,7 +22,11 @@ export default function SettingsPage() {
     speedUnit, setSpeedUnit,
     autoStart, setAutoStart,
     isPlayfulMode, togglePlayfulMode,
-    safeBrowsingApiKey, setSafeBrowsingApiKey
+    safeBrowsingApiKey, setSafeBrowsingApiKey,
+    closeToTray, setCloseToTray,
+    minimizeToTray, setMinimizeToTray,
+    startMinimized, setStartMinimized,
+    showTaskbarProgress, setShowTaskbarProgress,
   } = useDownloadStore();
 
   const { theme, setTheme } = useThemeStore();
@@ -158,10 +162,12 @@ export default function SettingsPage() {
           </div>
           
           <div className="space-y-2">
-            <Label className="text-foreground/80">Default Download Directory</Label>
+            <Label htmlFor="default-download-dir" className="text-foreground/80">Default Download Directory</Label>
             <p className="text-sm text-muted-foreground">Where files will be saved if you don&apos;t pick a location manually.</p>
             <div className="flex gap-2 mt-2">
               <Input 
+                id="default-download-dir"
+                aria-label="Default Download Directory"
                 value={defaultDownloadDir || "OS Default Downloads"} 
                 readOnly
                 className="bg-background border-border text-foreground/80 font-medium"
@@ -315,6 +321,61 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* System Tray & Taskbar */}
+        <section className="space-y-4 bg-card/60 border border-border rounded-xl p-6">
+          <div className="flex items-center gap-2 mb-4 text-cyan-500 dark:text-cyan-400">
+            <AppWindow className="h-5 w-5" />
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">System Tray &amp; Taskbar</h2>
+              <p className="text-xs text-muted-foreground">Configure background behavior and desktop integration.</p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between py-2">
+            <div className="space-y-0.5">
+              <Label className="text-foreground/80">Close to System Tray</Label>
+              <p className="text-sm text-muted-foreground">Keep app running in system tray when close button (✕) is clicked</p>
+            </div>
+            <Switch
+              checked={closeToTray}
+              onCheckedChange={setCloseToTray}
+            />
+          </div>
+
+          <div className="flex items-center justify-between py-2 pt-4 border-t border-border">
+            <div className="space-y-0.5">
+              <Label className="text-foreground/80">Minimize to System Tray</Label>
+              <p className="text-sm text-muted-foreground">Hide application from taskbar when minimized</p>
+            </div>
+            <Switch
+              checked={minimizeToTray}
+              onCheckedChange={setMinimizeToTray}
+            />
+          </div>
+
+          <div className="flex items-center justify-between py-2 pt-4 border-t border-border">
+            <div className="space-y-0.5">
+              <Label className="text-foreground/80">Start Minimized</Label>
+              <p className="text-sm text-muted-foreground">Launch quietly in the background on startup</p>
+            </div>
+            <Switch
+              checked={startMinimized}
+              onCheckedChange={setStartMinimized}
+            />
+          </div>
+
+          <div className="flex items-center justify-between py-2 pt-4 border-t border-border">
+            <div className="space-y-0.5">
+              <Label className="text-foreground/80">Taskbar Download Progress</Label>
+              <p className="text-sm text-muted-foreground">Show live progress on the OS taskbar icon</p>
+            </div>
+            <Switch
+              checked={showTaskbarProgress}
+              onCheckedChange={setShowTaskbarProgress}
+            />
+          </div>
+        </section>
+
         {/* Security & Antivirus */}
         <section className="space-y-4 bg-card/60 border border-border rounded-xl p-6">
           <div className="flex items-center gap-2 mb-4 text-red-500 dark:text-red-400">
@@ -323,13 +384,15 @@ export default function SettingsPage() {
           </div>
           
           <div className="space-y-2">
-            <Label className="text-foreground/80">Google Safe Browsing API Key</Label>
+            <Label htmlFor="safe-browsing-api-key" className="text-foreground/80">Google Safe Browsing API Key</Label>
             <p className="text-sm text-muted-foreground">
               Provide an API key to automatically scan URLs for malware and phishing before downloading. 
               Leave blank to disable security scanning.
             </p>
             <div className="mt-2 flex gap-2">
               <Input 
+                id="safe-browsing-api-key"
+                aria-label="Google Safe Browsing API Key"
                 type="password"
                 value={tempApiKey}
                 onChange={(e) => {
