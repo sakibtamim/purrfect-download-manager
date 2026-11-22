@@ -17,24 +17,27 @@ A modern, lightning-fast desktop download manager built with **Tauri v2**, **Nex
 - **The Site Grabber:** Paste a target website URL into the Web Tools tab. PDM rips the HTML directly bypassing CORS, extracts every single image, video, and document link, and allows you to bulk download them all in a single click.
 - **Native YouTube Downloader:** Paste a YouTube, Twitter, or TikTok link into the Web Tools tab. PDM runs `pdm-yt-dlp` in the background (configured with anti-bot evasion variables) to extract the absolute direct `.mp4` stream and pushes it to `pdm-aria2c` for high-speed queue downloading.
 - **True 4K Unlocked:** Standard downloaders cap out at 720p on YouTube. PDM intelligently detects high-res, separated video and audio tracks, downloads them concurrently via `pdm-aria2c`, and silently spins up a bundled `pdm-ffmpeg` process to perfectly mux them into pristine 1080p, 1440p, or 4K `.mp4` files.
-- **Browser Interceptor Extension:** Ships with a Chromium extension that intercepts all browser downloads and seamlessly pipes the metadata (URL, Filename, Size, Headers, and Cookies) directly into the PDM queue.
+- **Browser Interceptor Extension:** Ships with a modern Manifest V3 extension featuring dual-engine compatibility for Chromium-based browsers and Mozilla Firefox (Gecko). Seamlessly intercepts browser downloads and pipes complete metadata (URL, filename, size, headers, and cookies) directly into the PDM queue.
 - **Context Menus:** Right-click any link, image, or video in your browser and select "Download with Purrfect DL" to queue it instantly.
 
-### Security & Integrations
+### Desktop & System Integration
 
+- **OS Taskbar Integration:** Displays real-time download progress directly on the native OS taskbar and dock icon progress indicator, reflecting active transfer ratios, paused states, and errors.
+- **System Tray & Live Status Menu:** Runs quietly in the background. Features a dynamic tray context menu displaying active transfer speeds, remaining download counts, quick pause/resume controls, and show/hide window toggling. Clicking the "X" safely minimizes PDM to the tray.
+- **Bidirectional Autostart & Launch Preferences:** Optionally boots PDM silently minimized in the system tray on startup, backed by bidirectional autostart synchronization between the settings UI and native desktop tray menus.
 - **Google Safe Browsing Integration:** Automatically pings Google Safe Browsing before staging a download. If a malicious or phishing URL is detected, the UI turns hostile and physically prevents you from downloading the virus.
-- **System Tray Integration:** Runs quietly in the background. Clicking the "X" safely minimizes PDM to your tray instead of killing your downloads.
-- **Autostart on Boot:** Optionally boots PDM silently in the system tray on startup so your downloads never stop.
 - **Professional Installer:** Bundled and released as a sleek, professional desktop installer via Tauri's bundler and GitHub Actions automation.
 - **Robust Port Hopping:** PDM's WebSocket communication elegantly scans port ranges to ensure your browser extension always connects smoothly, even if standard ports are blocked.
 - **Native OS Notifications:** Get pinged directly on your desktop when your downloads hit completion or fail.
 
-### UX/UI
+### UX/UI & Responsive Design
 
-- **Interactive Staging Modal:** When a download is intercepted, PDM pauses the download and launches a beautiful confirmation modal, giving you a chance to inspect the file size, filename, security status, and choose a custom save directory.
-- **Download Details Panel:** Click any download to reveal a comprehensive slide-up panel. View live progress metrics, full URLs, and open the destination folder instantly via native OS file explorer integration.
+- **Dual Layout Views (Table & Card):** Seamlessly switch between a high-density tabular view with zero horizontal scrolling (optimized for ultra-compact viewports down to 920x560) and a rich card view.
+- **Slide-Over Inspector Drawer:** Click any download to reveal a sleek slide-over inspector drawer replacing cumbersome bottom panels. Inspect connection chunks, header details, full URLs, and open destination folders instantly via native OS file explorer integration.
+- **View Transitions Theme Engine:** Eye-friendly, butter-smooth theme switching (Light, Dark, System) powered by the native browser View Transitions API with graceful animation curves.
+- **Interactive Staging Modal:** When a download is intercepted, PDM pauses the download and launches a confirmation modal, giving you a chance to inspect file size, filename, security status, and choose a custom save directory.
 - **Collapsible Sidebar:** Gain more screen real estate for your download queues by smoothly collapsing the navigation sidebar into a compact, icon-only mode.
-- **Real-time Metrics:** Displays live download speeds and a dynamic "Time Remaining" (ETA) directly on the download cards and in the details panel.
+- **Real-time Metrics:** Displays live download speeds and a dynamic "Time Remaining" (ETA) directly on the download cards, table rows, and in the inspector drawer.
 - **Foreground Focus:** PDM waits silently in the background, but the moment you intercept a download in your browser, it seamlessly brings its native window right to the foreground.
 - **Drag & Drop Magic:** Found a link? Just drag and drop it directly onto the PDM window to immediately add it to your queue.
 - **"Playful Mode":** Toggle the playful switch to give the UI some fun cat-themed text and subtle CSS micro-animations while you wait! 🐈
