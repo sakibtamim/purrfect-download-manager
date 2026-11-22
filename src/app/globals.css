@@ -155,10 +155,12 @@
 }
 
 /* ──────────────────────────────────────────────
-   Theme transition — smooth color change
+   Professional Smooth View Transition for Themes
    ────────────────────────────────────────────── */
-html {
-  transition: color 0.2s ease, background-color 0.2s ease;
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.25s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* ──────────────────────────────────────────────

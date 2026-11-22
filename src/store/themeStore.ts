@@ -30,11 +30,23 @@ function getSystemTheme(): ResolvedTheme {
 function applyThemeClass(resolved: ResolvedTheme) {
   if (typeof document === 'undefined') return;
   const html = document.documentElement;
-  if (resolved === 'dark') {
-    html.classList.add('dark');
-  } else {
-    html.classList.remove('dark');
+
+  const update = () => {
+    if (resolved === 'dark') {
+      html.classList.add('dark');
+    } else {
+      html.classList.remove('dark');
+    }
+  };
+
+  if ('startViewTransition' in document) {
+    const isReduced = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (!isReduced) {
+      (document as unknown as { startViewTransition: (cb: () => void) => void }).startViewTransition(update);
+      return;
+    }
   }
+  update();
 }
 
 export interface ThemeState {
