@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { create, StoreApi } from 'zustand';
 import { createDownloadSlice, DownloadDataSlice } from './downloadSlice';
 import { createSettingsSlice, SettingsSlice } from './settingsSlice';
+import { createUISlice, UISlice } from './uiSlice';
 import { DownloadState, PendingMux, StagedDownload } from '../types';
 import { aria2Client } from '@/lib/aria2Client';
 import { UserAttentionType } from '@tauri-apps/api/window';
@@ -42,6 +43,22 @@ describe('settingsSlice defaults', () => {
     expect(useTestStore.getState().splitConnections).toBe(32);
     expect(useTestStore.getState().speedUnit).toBe('MBps');
     expect(useTestStore.getState().dynamicConnections).toBe(true);
+    expect(useTestStore.getState().closeToTray).toBe(true);
+    expect(useTestStore.getState().minimizeToTray).toBe(false);
+    expect(useTestStore.getState().startMinimized).toBe(false);
+    expect(useTestStore.getState().showTaskbarProgress).toBe(true);
+  });
+});
+
+describe('uiSlice defaults and viewMode switcher', () => {
+  it('initializes viewMode to table and allows switching to cards', () => {
+    const useTestStore = create<UISlice>()((set, get, api) =>
+      createUISlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    expect(useTestStore.getState().viewMode).toBe('table');
+    useTestStore.getState().setViewMode('cards');
+    expect(useTestStore.getState().viewMode).toBe('cards');
   });
 });
 

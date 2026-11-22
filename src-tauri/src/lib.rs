@@ -4,11 +4,60 @@ use std::thread;
 use tauri::{
     menu::{Menu, MenuItem, CheckMenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
+    window::{ProgressBarState, ProgressBarStatus},
     Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_store::StoreExt;
 use tiny_http::{Response, Server};
+
+#[tauri::command]
+fn set_taskbar_progress(
+    window: tauri::WebviewWindow,
+    progress: Option<u64>,
+    status: Option<String>,
+) -> Result<(), String> {
+    let progress_status = match status.as_deref() {
+        Some("error") => Some(ProgressBarStatus::Error),
+        Some("indeterminate") => Some(ProgressBarStatus::Indeterminate),
+        Some("paused") => Some(ProgressBarStatus::Paused),
+        Some("none") => Some(ProgressBarStatus::None),
+        _ => Some(ProgressBarStatus::Normal),
+    };
+
+    let state = ProgressBarState {
+        progress,
+        status: progress_status,
+    };
+
+    window.set_progress_bar(state).map_err(|e| e.to_string())
+}
+
+struct TrayStatusItem(MenuItem<tauri::Wry>);
+struct TrayStartOnBootItem(CheckMenuItem<tauri::Wry>);
+
+#[tauri::command]
+fn sync_tray_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    if let Some(item) = app.try_state::<TrayStartOnBootItem>() {
+        let _ = item.0.set_checked(enabled);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn update_tray_tooltip(app: tauri::AppHandle, tooltip: String) -> Result<(), String> {
+    if let Some(tray) = app.tray_by_id("main") {
+        let _ = tray.set_tooltip(Some(tooltip.clone()));
+    }
+    if let Some(item) = app.menu().and_then(|m| m.get("status")) {
+        let _ = item.as_menuitem().map(|mi| mi.set_text(tooltip.clone()));
+    }
+    if let Some(status_item) = app.try_state::<TrayStatusItem>() {
+        let _ = status_item.0.set_text(tooltip);
+    }
+    Ok(())
+}
 
 #[tauri::command]
 fn delete_downloaded_file(app: tauri::AppHandle, path: String, custom_dir: Option<String>) -> Result<(), String> {
@@ -59,9 +108,11 @@ fn activate_linux_window(app_handle: &tauri::AppHandle) {
     if let Some(window) = app_handle.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
-        let _ = window.set_always_on_top(true);
+        let _ = window.set_always_on_top(false);
+        // Tao/WebKitGTK Wayland surface hitbox refresh
+        let _ = window.set_resizable(false);
+        let _ = window.set_resizable(true);
         let _ = window.set_focus();
-        let _ = window.request_user_attention(Some(tauri::UserAttentionType::Critical));
     }
 
     let is_kde = std::env::var("XDG_CURRENT_DESKTOP")
@@ -124,9 +175,8 @@ fn raise_window(app_handle: tauri::AppHandle) {
     if let Some(window) = app_handle.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
-        let _ = window.set_always_on_top(true);
+        let _ = window.set_always_on_top(false);
         let _ = window.set_focus();
-        let _ = window.request_user_attention(Some(tauri::UserAttentionType::Critical));
     }
 }
 
@@ -144,14 +194,20 @@ fn ensure_linux_desktop_window_rules() {
             .unwrap_or_else(|_| std::path::PathBuf::from(&home).join(".local/share"));
 
         let apps_dir = data_dir.join("applications");
-        let icons_dir = data_dir.join("icons/hicolor/128x128/apps");
-
         let _ = fs::create_dir_all(&apps_dir);
-        let _ = fs::create_dir_all(&icons_dir);
 
-        let icon_bytes = include_bytes!("../icons/128x128.png");
-        let _ = fs::write(icons_dir.join("PurrfectDownloadManager.png"), icon_bytes);
-        let _ = fs::write(icons_dir.join("com.purrfectsoftwareltd.pdm.png"), icon_bytes);
+        let icon_variants: [(&str, &[u8]); 3] = [
+            ("icons/hicolor/128x128/apps", include_bytes!("../icons/128x128.png")),
+            ("icons/hicolor/256x256/apps", include_bytes!("../icons/128x128@2x.png")),
+            ("icons/hicolor/512x512/apps", include_bytes!("../icons/icon.png")),
+        ];
+
+        for (rel_path, bytes) in icon_variants {
+            let target_dir = data_dir.join(rel_path);
+            let _ = fs::create_dir_all(&target_dir);
+            let _ = fs::write(target_dir.join("PurrfectDownloadManager.png"), bytes);
+            let _ = fs::write(target_dir.join("com.purrfectsoftwareltd.pdm.png"), bytes);
+        }
 
         let desktop_content = "[Desktop Entry]\n\
 Name=Purrfect Download Manager\n\
@@ -188,10 +244,10 @@ Categories=Network;FileTransfer;\n";
                 .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "focusstealingrule", "2"])
                 .status();
             let _ = std::process::Command::new("kwriteconfig6")
-                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "above", "true"])
+                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "above", "--delete"])
                 .status();
             let _ = std::process::Command::new("kwriteconfig6")
-                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "aboverule", "3"])
+                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "aboverule", "--delete"])
                 .status();
 
             let _ = std::process::Command::new("qdbus6")
@@ -212,15 +268,60 @@ pub fn run() {
     .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_fs::init())
     .on_window_event(|window, event| match event {
+      WindowEvent::Focused(true) => {
+          #[cfg(target_os = "linux")]
+          {
+              let _ = window.set_resizable(false);
+              let _ = window.set_resizable(true);
+          }
+      }
       WindowEvent::CloseRequested { api, .. } => {
-        window.hide().unwrap();
-        api.prevent_close();
+        let app = window.app_handle();
+        let close_to_tray = app
+            .store("settings.json")
+            .ok()
+            .and_then(|store| store.get("closeToTray"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        if close_to_tray {
+            window.hide().unwrap();
+            api.prevent_close();
+        } else {
+            app.exit(0);
+        }
+      }
+      WindowEvent::Resized(_) => {
+          let app = window.app_handle();
+          let minimize_to_tray = app
+              .store("settings.json")
+              .ok()
+              .and_then(|store| store.get("minimizeToTray"))
+              .and_then(|v| v.as_bool())
+              .unwrap_or(false);
+
+          if minimize_to_tray && window.is_minimized().unwrap_or(false) {
+              let _ = window.hide();
+          }
       }
       _ => {}
     })
     .setup(|app| {
       #[cfg(target_os = "linux")]
       ensure_linux_desktop_window_rules();
+
+      let start_minimized = app
+          .store("settings.json")
+          .ok()
+          .and_then(|store| store.get("startMinimized"))
+          .and_then(|v| v.as_bool())
+          .unwrap_or(false);
+
+      if start_minimized {
+          if let Some(window) = app.get_webview_window("main") {
+              let _ = window.hide();
+          }
+      }
 
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -230,6 +331,8 @@ pub fn run() {
         )?;
       }
       
+      let status_i = MenuItem::with_id(app, "status", "Purrfect DL — Ready", false, None::<&str>)?;
+      app.manage(TrayStatusItem(status_i.clone()));
       let show_i = MenuItem::with_id(app, "show", "Open Dashboard", true, None::<&str>)?;
       let new_download_i = MenuItem::with_id(app, "new-download", "New Download", true, None::<&str>)?;
       let pause_all_i = MenuItem::with_id(app, "pause-all", "Pause All", true, None::<&str>)?;
@@ -239,12 +342,15 @@ pub fn run() {
       let autostart_manager = app.autolaunch();
       let is_autostart = autostart_manager.is_enabled().unwrap_or(false);
       let start_on_boot_i = CheckMenuItem::with_id(app, "start-on-boot", "Start on Boot", true, is_autostart, None::<&str>)?;
+      app.manage(TrayStartOnBootItem(start_on_boot_i.clone()));
       
       let quit_i = MenuItem::with_id(app, "quit", "Exit", true, None::<&str>)?;
       
       let separator = PredefinedMenuItem::separator(app)?;
       
       let menu = Menu::with_items(app, &[
+          &status_i,
+          &separator,
           &show_i, 
           &separator, 
           &new_download_i, 
@@ -258,7 +364,7 @@ pub fn run() {
           &quit_i
       ])?;
       
-      let _tray = TrayIconBuilder::new()
+      let _tray = TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
         .on_menu_event({
@@ -300,13 +406,15 @@ pub fn run() {
                     "start-on-boot" => {
                         let autostart_manager = app.autolaunch();
                         let current = autostart_manager.is_enabled().unwrap_or(false);
+                        let new_state = !current;
                         let success = if current {
                             autostart_manager.disable().is_ok()
                         } else {
                             autostart_manager.enable().is_ok()
                         };
                         if success {
-                            let _ = start_on_boot_i.set_checked(!current);
+                            let _ = start_on_boot_i.set_checked(new_state);
+                            let _ = app.emit("tray-autostart-changed", new_state);
                         }
                     }
                     _ => {}
@@ -461,9 +569,8 @@ pub fn run() {
                       if let Some(window) = app_handle.get_webview_window("main") {
                           let _ = window.unminimize();
                           let _ = window.show();
-                          let _ = window.set_always_on_top(true);
+                          let _ = window.set_always_on_top(false);
                           let _ = window.set_focus();
-                          let _ = window.request_user_attention(Some(tauri::UserAttentionType::Critical));
                       }
                       let _ = app_handle.emit("browser-download", json);
                   }
@@ -477,7 +584,7 @@ pub fn run() {
       
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists, reveal_in_folder, raise_window])
+    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists, reveal_in_folder, raise_window, update_tray_tooltip, set_taskbar_progress, sync_tray_autostart])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

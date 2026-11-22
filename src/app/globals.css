@@ -58,6 +58,7 @@
    LIGHT MODE — Clean, warm slate with violet accent
    ────────────────────────────────────────────── */
 :root {
+  color-scheme: light;
   --background: oklch(0.985 0.002 250);
   --foreground: oklch(0.14 0.02 260);
   --card: oklch(1 0 0);
@@ -73,8 +74,8 @@
   --accent: oklch(0.96 0.015 275);
   --accent-foreground: oklch(0.40 0.18 275);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.91 0.006 260);
-  --input: oklch(0.91 0.006 260);
+  --border: oklch(0.89 0.008 260);
+  --input: oklch(0.89 0.008 260);
   --ring: oklch(0.54 0.24 275);
   --chart-1: oklch(0.54 0.24 275);
   --chart-2: oklch(0.60 0.18 160);
@@ -88,7 +89,7 @@
   --sidebar-primary-foreground: oklch(0.99 0 0);
   --sidebar-accent: oklch(0.96 0.015 275);
   --sidebar-accent-foreground: oklch(0.40 0.18 275);
-  --sidebar-border: oklch(0.91 0.006 260);
+  --sidebar-border: oklch(0.89 0.008 260);
   --sidebar-ring: oklch(0.54 0.24 275);
 }
 
@@ -141,9 +142,11 @@
     @apply font-sans;
   }
   select {
-    color-scheme: dark;
     background-color: var(--card);
     color: var(--foreground);
+  }
+  .dark select {
+    color-scheme: dark;
   }
   select option {
     background-color: var(--card);
@@ -152,10 +155,43 @@
 }
 
 /* ──────────────────────────────────────────────
-   Theme transition — smooth color change
+   Professional Unified View Transition for Themes
    ────────────────────────────────────────────── */
-html {
-  transition: color 0.2s ease, background-color 0.2s ease;
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.2s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+/* ──────────────────────────────────────────────
+   Accessibility — Prefers Reduced Motion
+   ────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ──────────────────────────────────────────────
@@ -177,4 +213,26 @@ html {
 .dark .glow-accent {
   box-shadow: 0 0 24px oklch(0.68 0.22 275 / 20%),
               0 0 6px oklch(0.68 0.22 275 / 15%);
+}
+
+/* ──────────────────────────────────────────────
+   Modern sleek scrollbars
+   ────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }

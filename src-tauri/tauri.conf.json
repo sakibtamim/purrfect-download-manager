@@ -13,10 +13,13 @@
     "windows": [
       {
         "title": "Purrfect Download Manager",
-        "width": 1280,
-        "height": 720,
+        "width": 920,
+        "height": 560,
+        "minWidth": 700,
+        "minHeight": 450,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "center": true
       }
     ],
     "security": {
@@ -38,9 +41,9 @@
       "bin/pdm-ffmpeg"
     ],
     "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
       "icons/128x128@2x.png",
+      "icons/128x128.png",
+      "icons/32x32.png",
       "icons/icon.icns",
       "icons/icon.ico"
     ]

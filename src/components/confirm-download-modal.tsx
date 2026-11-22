@@ -9,8 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { FolderOpen, CheckCircle2, ChevronDown } from "lucide-react";
-import { type ChecksumAlgorithm, type DetectedChecksum, validateChecksum } from "@/lib/utils";
+import { FolderOpen, CheckCircle2, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert, Shield } from "lucide-react";
+import { type ChecksumAlgorithm, type DetectedChecksum, validateChecksum, decodeFilename, parseContentDispositionFilename } from "@/lib/utils";
 import { type YtDlpFormat } from "@/lib/ytdlpClient";
 
 export function formatResolutionLabel(format: YtDlpFormat): string {
@@ -79,6 +79,8 @@ export function ConfirmDownloadModal() {
   const [saveDir, setSaveDir] = useState<string>("");
   const [rawFilename, setRawFilename] = useState<string>("Unknown");
   const [displayFilename, setDisplayFilename] = useState<string>("Unknown");
+  const [isUserEditedFilename, setIsUserEditedFilename] = useState(false);
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [displaySize, setDisplaySize] = useState<string>("Unknown size");
   const [securityStatus, setSecurityStatus] = useState<'scanning' | 'safe' | 'unsafe' | 'no-key' | 'error'>('no-key');
   const [threatDetails, setThreatDetails] = useState<string>('');
@@ -93,6 +95,9 @@ export function ConfirmDownloadModal() {
     setPrevStagedDownload(stagedDownload);
     if (stagedDownload) {
       setSaveDir(""); 
+      setIsUserEditedFilename(false);
+      const hasChecksum = Boolean(stagedDownload.checksum);
+      setIsAdvancedOpen(hasChecksum);
       if (stagedDownload.checksum && typeof stagedDownload.checksum === 'object') {
         const c = stagedDownload.checksum as DetectedChecksum;
         setChecksumDigest(c.digest || "");
@@ -118,10 +123,11 @@ export function ConfirmDownloadModal() {
       setDisplaySize(initialSize);
 
       let name = stagedDownload.filename || "";
-      if (name) name = name.split(/[/\\]/).pop() || name;
+      if (name) name = decodeFilename(name);
       else if (stagedDownload.url) {
         try {
-          name = new URL(stagedDownload.url).pathname.split('/').pop() || "Unknown";
+          const raw = new URL(stagedDownload.url).pathname.split('/').pop() || "Unknown";
+          name = decodeFilename(raw);
         } catch { name = "Unknown"; }
       }
       setRawFilename(name || "Unknown");
@@ -152,9 +158,9 @@ export function ConfirmDownloadModal() {
             
             const dispHeader = res.headers.get("content-disposition");
             if (dispHeader) {
-              const match = dispHeader.match(/filename="?([^"]+)"?/i);
-              if (match && match[1]) {
-                setRawFilename(match[1].split(/[\/\\]/).pop() || "Unknown");
+              const parsedName = parseContentDispositionFilename(dispHeader);
+              if (parsedName) {
+                setRawFilename(parsedName);
               }
             }
           })
@@ -204,7 +210,7 @@ export function ConfirmDownloadModal() {
   useEffect(() => {
     let active = true;
     const { getUniqueFilename } = useAppStore.getState();
-    if (rawFilename) {
+    if (rawFilename && !isUserEditedFilename) {
       getUniqueFilename(rawFilename, saveDir || undefined).then((uniqueName: string) => {
         if (active) setDisplayFilename(uniqueName);
       }).catch(() => {
@@ -212,7 +218,7 @@ export function ConfirmDownloadModal() {
       });
     }
     return () => { active = false; };
-  }, [rawFilename, saveDir]);
+  }, [rawFilename, saveDir, isUserEditedFilename]);
 
   const handleFormatChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const url = e.target.value;
@@ -286,42 +292,67 @@ export function ConfirmDownloadModal() {
 
   return (
     <Dialog open={!!stagedDownload} onOpenChange={(open) => !open && clearStagedDownload()}>
-      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto bg-card border-border text-foreground">
-        <DialogHeader>
-          <DialogTitle>Confirm Download</DialogTitle>
-          <DialogDescription className="text-muted-foreground">
-            A new download has been intercepted. Where would you like to save it?
+      <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto bg-card border-border text-foreground p-5 gap-3.5">
+        <DialogHeader className="space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <DialogTitle className="text-base font-semibold">Confirm Download</DialogTitle>
+            {securityStatus === 'scanning' && (
+              <Badge variant="outline" className="text-xs py-0.5 px-2 font-normal text-muted-foreground animate-pulse border-border">
+                <Shield className="w-3 h-3 mr-1 text-primary animate-spin" /> Scanning...
+              </Badge>
+            )}
+            {securityStatus === 'safe' && (
+              <Badge variant="outline" className="text-xs py-0.5 px-2 font-normal text-emerald-500 bg-emerald-500/10 border-emerald-500/20">
+                <ShieldCheck className="w-3 h-3 mr-1 text-emerald-500" /> Safe
+              </Badge>
+            )}
+            {securityStatus === 'unsafe' && (
+              <Badge variant="destructive" className="text-xs py-0.5 px-2 font-medium">
+                <ShieldAlert className="w-3 h-3 mr-1" /> Threat Detected
+              </Badge>
+            )}
+          </div>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Review filename and destination before starting.
           </DialogDescription>
         </DialogHeader>
-        
-        <div className="grid gap-4 py-4 min-w-0">
+
+        <div className="grid gap-3 min-w-0">
+          {/* File Name & Size */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <Label className="text-muted-foreground text-xs uppercase">URL</Label>
-              <Badge variant="outline" className="text-[10px] py-0 h-4 font-normal text-muted-foreground">
-                {stagedDownload.sourceUrl ? "Source Page" : "Direct Stream"}
+              <Label htmlFor="staged-filename" className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+                File Name
+              </Label>
+              <Badge variant="secondary" className="text-xs py-0 px-2 font-medium">
+                {displaySize}
               </Badge>
             </div>
-            <div 
-              className="text-xs font-mono break-all bg-background p-2 rounded border border-border max-h-24 overflow-y-auto select-all" 
-              title={stagedDownload.sourceUrl || selectedFormatUrl || stagedDownload.url}
-            >
-              {(() => {
-                const u = stagedDownload.sourceUrl || selectedFormatUrl || stagedDownload.url || "";
-                return u.length > 80 ? u.substring(0, 50) + '...' + u.substring(u.length - 20) : u;
-              })()}
-            </div>
+            <Input 
+              id="staged-filename"
+              value={displayFilename}
+              onChange={(e) => {
+                setDisplayFilename(e.target.value);
+                setIsUserEditedFilename(true);
+              }}
+              placeholder="Filename"
+              className="bg-background border-border text-foreground text-sm font-medium h-9"
+            />
           </div>
-          
+
+          {/* Quality / Resolution (for video/audio streams) */}
           {stagedDownload.mediaFormats && stagedDownload.mediaFormats.length > 0 && (
             <div className="space-y-1">
-              <Label className="text-muted-foreground text-xs uppercase">Quality / Resolution</Label>
+              <Label htmlFor="staged-quality" className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+                Quality / Resolution
+              </Label>
               <div className="relative">
                 <select 
+                  id="staged-quality"
                   value={selectedFormatUrl}
                   onChange={handleFormatChange}
                   style={{ colorScheme: 'dark' }}
-                  className="w-full appearance-none bg-card border border-border text-foreground rounded-md px-3 py-2 pr-10 text-sm focus:ring-1 focus:ring-primary outline-none cursor-pointer"
+                  className="w-full appearance-none bg-background border border-border text-foreground rounded-md px-3 py-1.5 pr-8 text-sm focus:ring-1 focus:ring-primary outline-none cursor-pointer h-9"
                 >
                   {stagedDownload.mediaFormats.map(format => (
                     <option key={format.format_id} value={format.url} className="bg-card text-foreground py-1">
@@ -329,135 +360,141 @@ export function ConfirmDownloadModal() {
                     </option>
                   ))}
                 </select>
-                <ChevronDown className="w-4 h-4 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <ChevronDown className="w-4 h-4 text-muted-foreground absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
             </div>
           )}
-          
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <Label className="text-muted-foreground text-xs uppercase">Filename</Label>
-              <div className="text-sm font-medium break-all" title={displayFilename}>
-                {displayFilename}
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-muted-foreground text-xs uppercase">Size</Label>
-              <div className="text-sm font-medium">
-                {displaySize}
-              </div>
-            </div>
-          </div>
 
-          <div className="space-y-2">
-            <Label className="text-muted-foreground text-xs uppercase">Save Location</Label>
+          {/* Save Location */}
+          <div className="space-y-1">
+            <Label htmlFor="staged-savedir" className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+              Save Location
+            </Label>
             <div className="flex gap-2">
               <Input 
+                id="staged-savedir"
                 value={saveDir} 
                 onChange={(e) => setSaveDir(e.target.value)}
                 placeholder="Default Downloads Folder" 
-                className="bg-background border-border text-foreground"
+                className="bg-background border-border text-foreground text-sm h-9"
               />
-              <Button variant="outline" onClick={handleBrowse} className="shrink-0">
-                <FolderOpen className="w-4 h-4 mr-2" />
+              <Button variant="outline" size="sm" onClick={handleBrowse} className="shrink-0 h-9 px-3 text-xs">
+                <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
                 Browse
               </Button>
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label className="text-muted-foreground text-xs uppercase flex items-center">
-              Checksum (Hash) <span className="text-muted-foreground/60 lowercase font-normal mx-1">(Optional)</span>
-              {checksumSource && checksumSource !== "manual" && (
-                <Badge variant="outline" className="ml-auto text-green-500 bg-green-500/10 text-[10px] py-0 h-4">
-                  <CheckCircle2 className="w-3 h-3 mr-1" /> Auto-Detected
+          {/* Security Alert if unsafe */}
+          {securityStatus === 'unsafe' && (
+            <div className="p-2.5 rounded-md bg-destructive/10 border border-destructive/20 text-xs text-destructive flex items-start gap-2">
+              <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">Malicious URL Blocked</p>
+                <p className="text-[11px] opacity-90 mt-0.5">This URL is flagged as dangerous ({threatDetails}). Downloading has been blocked to protect your system.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Advanced Disclosure (Checksum & Source URL) */}
+          <div className="border-t border-border/60 pt-2">
+            <button
+              type="button"
+              onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
+              className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left py-1"
+              aria-expanded={isAdvancedOpen}
+            >
+              {isAdvancedOpen ? <ChevronDown className="w-3.5 h-3.5 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0" />}
+              <span>Advanced Options (Checksum, Source URL)</span>
+              {checksumDigest && (
+                <Badge variant="outline" className="ml-auto text-[10px] py-0 h-4 text-emerald-500 bg-emerald-500/10 border-emerald-500/20 font-normal">
+                  Checksum set
                 </Badge>
               )}
-            </Label>
-            <div className="flex gap-2">
-              <div className="relative shrink-0">
-                <select 
-                  value={checksumAlgorithm}
-                  onChange={e => {
-                     setChecksumAlgorithm(e.target.value as ChecksumAlgorithm);
-                     setChecksumSource("manual");
-                  }}
-                  style={{ colorScheme: 'dark' }}
-                  className="appearance-none bg-card border border-border text-foreground text-sm rounded-md pl-3 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
-                >
-                  <option value="md5" className="bg-card text-foreground">MD5</option>
-                  <option value="sha1" className="bg-card text-foreground">SHA-1</option>
-                  <option value="sha224" className="bg-card text-foreground">SHA-224</option>
-                  <option value="sha256" className="bg-card text-foreground">SHA-256</option>
-                  <option value="sha384" className="bg-card text-foreground">SHA-384</option>
-                  <option value="sha512" className="bg-card text-foreground">SHA-512</option>
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-              <Input 
-                value={checksumDigest} 
-                onChange={(e) => {
-                  setChecksumDigest(e.target.value);
-                  setChecksumSource("manual");
-                }}
-                placeholder="e.g. abc123..." 
-                className="bg-background border-border text-foreground font-mono text-sm flex-1"
-              />
-            </div>
-          </div>
+            </button>
 
-          <div className="space-y-1 border-t border-border pt-4 mt-2">
-            <Label className="text-muted-foreground text-xs uppercase">Security Status</Label>
-            <div className="flex items-center gap-2 mt-1">
-              {securityStatus === 'no-key' && (
-                <span className="text-sm text-muted-foreground bg-muted px-2 py-1 rounded-md border border-border">
-                  Scanning Disabled
-                </span>
-              )}
-              {securityStatus === 'scanning' && (
-                <span className="text-sm text-foreground bg-muted px-2 py-1 rounded-md border border-border animate-pulse">
-                  Scanning...
-                </span>
-              )}
-              {securityStatus === 'safe' && (
-                <span className="text-sm text-emerald-700 dark:text-emerald-100 bg-emerald-100 dark:bg-emerald-950/50 px-2 py-1 rounded-md border border-emerald-200 dark:border-emerald-900 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Safe
-                </span>
-              )}
-              {securityStatus === 'unsafe' && (
-                <span className="text-sm text-red-700 dark:text-red-100 bg-red-100 dark:bg-red-950/50 px-2 py-1 rounded-md border border-red-200 dark:border-red-900 flex items-center gap-1 font-semibold">
-                  <span className="w-2 h-2 rounded-full bg-red-500"></span> {threatDetails || 'Malicious'}
-                </span>
-              )}
-              {securityStatus === 'error' && (
-                <span className="text-sm text-yellow-700 dark:text-yellow-100 bg-yellow-100 dark:bg-yellow-950/50 px-2 py-1 rounded-md border border-yellow-200 dark:border-yellow-900 flex items-center gap-1 font-semibold">
-                  <span className="w-2 h-2 rounded-full bg-yellow-500"></span> API Error
-                </span>
-              )}
-            </div>
-            {securityStatus === 'unsafe' && (
-              <p className="text-xs text-red-600 dark:text-red-400 mt-2">
-                This URL has been flagged as highly dangerous. Downloading has been blocked to protect your system.
-              </p>
-            )}
-            {securityStatus === 'error' && (
-              <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">
-                {threatDetails}
-              </p>
+            {isAdvancedOpen && (
+              <div className="space-y-3 pt-2.5 pl-5">
+                {/* Source URL */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="staged-source-url" className="text-muted-foreground text-[11px] uppercase tracking-wide">
+                      Source URL
+                    </Label>
+                    <Badge variant="outline" className="text-[10px] py-0 h-4 font-normal text-muted-foreground">
+                      {stagedDownload.sourceUrl ? "Source Page" : "Direct Stream"}
+                    </Badge>
+                  </div>
+                  <div 
+                    id="staged-source-url"
+                    className="text-xs font-mono break-all bg-background/80 p-2 rounded border border-border max-h-16 overflow-y-auto select-all text-muted-foreground" 
+                    title={stagedDownload.sourceUrl || selectedFormatUrl || stagedDownload.url}
+                  >
+                    {stagedDownload.sourceUrl || selectedFormatUrl || stagedDownload.url}
+                  </div>
+                </div>
+
+                {/* Checksum */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="staged-checksum" className="text-muted-foreground text-[11px] uppercase tracking-wide">
+                      Checksum (Hash)
+                    </Label>
+                    {checksumSource && checksumSource !== "manual" && (
+                      <Badge variant="outline" className="text-emerald-500 bg-emerald-500/10 border-emerald-500/20 text-[10px] py-0 h-4">
+                        <CheckCircle2 className="w-3 h-3 mr-1" /> Auto-Detected
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="relative shrink-0">
+                      <select 
+                        value={checksumAlgorithm}
+                        onChange={e => {
+                          setChecksumAlgorithm(e.target.value as ChecksumAlgorithm);
+                          setChecksumSource("manual");
+                        }}
+                        aria-label="Checksum algorithm"
+                        style={{ colorScheme: 'dark' }}
+                        className="appearance-none bg-background border border-border text-foreground text-xs rounded-md pl-2.5 pr-7 py-1.5 h-8 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                      >
+                        <option value="md5">MD5</option>
+                        <option value="sha1">SHA-1</option>
+                        <option value="sha224">SHA-224</option>
+                        <option value="sha256">SHA-256</option>
+                        <option value="sha384">SHA-384</option>
+                        <option value="sha512">SHA-512</option>
+                      </select>
+                      <ChevronDown className="w-3 h-3 text-muted-foreground absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    </div>
+                    <Input 
+                      id="staged-checksum"
+                      value={checksumDigest} 
+                      onChange={(e) => {
+                        setChecksumDigest(e.target.value);
+                        setChecksumSource("manual");
+                      }}
+                      placeholder="Expected hash digest..." 
+                      className="bg-background border-border text-foreground font-mono text-xs flex-1 h-8"
+                    />
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={clearStagedDownload} className="text-muted-foreground hover:text-foreground">
+        <DialogFooter className="flex items-center justify-between sm:justify-between border-t border-border pt-3 mt-1">
+          <Button variant="ghost" size="sm" onClick={clearStagedDownload} className="text-muted-foreground hover:text-foreground h-8 text-xs">
             Cancel
           </Button>
           <Button 
+            size="sm"
             onClick={handleConfirm} 
             disabled={securityStatus === 'unsafe'}
             className={securityStatus === 'unsafe' 
-              ? "bg-red-900/50 text-red-500 cursor-not-allowed" 
-              : ""
+              ? "bg-red-900/50 text-red-500 cursor-not-allowed h-8 text-xs" 
+              : "h-8 text-xs font-medium"
             }
           >
             Start Download

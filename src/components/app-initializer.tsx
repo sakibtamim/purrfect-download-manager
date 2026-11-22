@@ -3,6 +3,8 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useAppStore } from "@/store";
+import { invoke } from "@tauri-apps/api/core";
+import { formatSpeed } from "@/lib/utils";
 
 export function AppInitializer() {
   const pathname = usePathname();
@@ -11,6 +13,39 @@ export function AppInitializer() {
   useEffect(() => {
     setSelectedDownload(null);
   }, [pathname, setSelectedDownload]);
+
+  const active = useAppStore((state) => state.active);
+  const globalSpeed = useAppStore((state) => state.globalSpeed);
+  const speedUnit = useAppStore((state) => state.speedUnit);
+  const showTaskbarProgress = useAppStore((state) => state.showTaskbarProgress);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) {
+      return;
+    }
+
+    if (showTaskbarProgress) {
+      if (active.length > 0) {
+        let total = 0;
+        let completed = 0;
+        for (const d of active) {
+          total += Number(d.totalLength) || 0;
+          completed += Number(d.completedLength) || 0;
+        }
+        const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+        invoke('set_taskbar_progress', { progress: pct, status: 'normal' }).catch(console.warn);
+      } else {
+        invoke('set_taskbar_progress', { progress: null, status: 'none' }).catch(console.warn);
+      }
+    } else {
+      invoke('set_taskbar_progress', { progress: null, status: 'none' }).catch(console.warn);
+    }
+
+    const tooltip = active.length > 0
+      ? `Purrfect DL: ${active.length} active (${formatSpeed(globalSpeed, speedUnit)})`
+      : 'Purrfect DL — Ready';
+    invoke('update_tray_tooltip', { tooltip }).catch(console.warn);
+  }, [active, globalSpeed, speedUnit, showTaskbarProgress]);
 
   const fetchDownloads = useAppStore((state) => state.fetchDownloads);
   const stageDownload = useAppStore((state) => state.stageDownload);
@@ -28,6 +63,11 @@ export function AppInitializer() {
           if (active) unlistens.push(f); else f();
         }).catch(console.warn);
         listen('tray-resume-all', () => resumeAllDownloads()).then(f => {
+          if (active) unlistens.push(f); else f();
+        }).catch(console.warn);
+        listen<boolean>('tray-autostart-changed', (event) => {
+          useAppStore.setState({ autoStart: event.payload });
+        }).then(f => {
           if (active) unlistens.push(f); else f();
         }).catch(console.warn);
       });

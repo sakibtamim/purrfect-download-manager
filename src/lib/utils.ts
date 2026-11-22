@@ -93,3 +93,43 @@ export function formatChecksum(c: DetectedChecksum | string | undefined): string
   const algoFormat = c.algorithm.replace("sha", "sha-");
   return `${algoFormat}=${c.digest.toLowerCase()}`;
 }
+
+/**
+ * Safely decodes a URL percent-encoded filename (e.g. "Last%20Man%20in%20Tower%20%282026%29.mkv" -> "Last Man in Tower (2026).mkv")
+ * and extracts the base name without leading directory separators.
+ */
+export function decodeFilename(filename: string | undefined | null): string {
+  if (!filename) return "Unknown";
+  let name = filename.split(/[/\\]/).pop() || filename;
+  try {
+    name = decodeURIComponent(name);
+  } catch {
+    // In case of malformed percent encoding like %zz, fallback gracefully
+  }
+  return name.trim() || "Unknown";
+}
+
+/**
+ * Parses Content-Disposition header supporting both standard filename="..."
+ * and RFC 5987 / RFC 6266 filename*=UTF-8''... percent-encoded formats.
+ */
+export function parseContentDispositionFilename(header: string | null | undefined): string | null {
+  if (!header) return null;
+
+  // RFC 5987 / RFC 6266: filename*=UTF-8''encoded_name
+  const rfc5987Match = header.match(/filename\*\s*=\s*(?:UTF-8''|utf-8'')([^;]+)/i);
+  if (rfc5987Match && rfc5987Match[1]) {
+    const raw = rfc5987Match[1].trim().replace(/^["']|["']$/g, '');
+    return decodeFilename(raw);
+  }
+
+  // Standard: filename="name" or filename=name
+  const standardMatch = header.match(/filename\s*=\s*(?:"([^"]+)"|([^;\s]+))/i);
+  if (standardMatch) {
+    const raw = standardMatch[1] || standardMatch[2];
+    if (raw) return decodeFilename(raw.trim());
+  }
+
+  return null;
+}
+

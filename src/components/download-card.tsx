@@ -11,7 +11,7 @@ import { Play, Pause, X, FolderOpen, File, RefreshCw, Trash2 } from "lucide-reac
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
-import { formatSpeed } from "@/lib/utils";
+import { formatSpeed, decodeFilename } from "@/lib/utils";
 
 export function DownloadCard({ download }: { download: Aria2Download }) {
   const isPlayfulMode = useAppStore((state) => state.isPlayfulMode);
@@ -130,7 +130,8 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
 
   // Derive filename from path
   const filePath = download.files[0]?.path || "Unknown File";
-  const fileName = filePath.includes('/') ? filePath.split('/').pop() : filePath.split('\\').pop() || "Unknown File";
+  const rawName = filePath.includes('/') ? filePath.split('/').pop() : filePath.split('\\').pop() || "Unknown File";
+  const fileName = decodeFilename(rawName);
 
   return (
     <Card 
@@ -145,28 +146,28 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
       }}
       className={`bg-card border hover:border-primary/50 transition-all duration-200 overflow-hidden group border-l-[3px] ${getLeftBorderColor()} cursor-pointer ${isSelected ? 'border-primary ring-1 ring-primary' : 'border-border'}`}
     >
-      <CardContent className="p-5">
-        <div className="flex flex-col gap-4">
-          <div className="flex justify-between items-start gap-4">
-            <div className="flex items-start gap-3 overflow-hidden">
-              <div className="p-2 bg-muted rounded-lg mt-1 shrink-0">
-                <File className="h-5 w-5 text-muted-foreground" />
+      <CardContent className="p-3">
+        <div className="flex flex-col gap-2.5">
+          <div className="flex justify-between items-start gap-3">
+            <div className="flex items-start gap-2.5 overflow-hidden">
+              <div className="p-1.5 bg-muted rounded-md mt-0.5 shrink-0">
+                <File className="h-4 w-4 text-muted-foreground" />
               </div>
               <div className="min-w-0">
-                <h3 className="text-base font-medium text-foreground truncate" title={fileName}>
+                <h3 className="text-sm font-medium text-foreground truncate" title={fileName}>
                   {fileName}
                 </h3>
-                <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline" className={`text-xs ${getStatusColor()} ${isPlayfulMode && download.status === "paused" ? "animate-breathe" : ""}`}>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${getStatusColor()} ${isPlayfulMode && download.status === "paused" ? "animate-breathe" : ""}`}>
                     {getStatusText()}
                   </Badge>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[11px] text-muted-foreground">
                     {formatBytes(completedLength)} / {formatBytes(totalLength)}
                   </span>
                   {download.addedAt && (
                     <>
                       <span className="text-xs text-muted-foreground/40">•</span>
-                      <span className="text-xs text-muted-foreground" title={new Date(download.addedAt).toLocaleString()}>
+                      <span className="text-[11px] text-muted-foreground" title={new Date(download.addedAt).toLocaleString()}>
                         {formatAddedAt(download.addedAt)}
                       </span>
                     </>
@@ -175,28 +176,29 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
               </div>
             </div>
             
-            <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
               {download.status === "active" && (
-                <Button disabled={isMuxing} variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-500/10" onClick={(e) => { e.stopPropagation(); if (isMuxing) return; pauseDownload(download.gid); }}>
-                  <Pause className="h-4 w-4" />
+                <Button disabled={isMuxing} variant="ghost" size="icon-xs" className="h-7 w-7 text-muted-foreground hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-500/10" title="Pause" aria-label="Pause download" onClick={(e) => { e.stopPropagation(); if (isMuxing) return; pauseDownload(download.gid); }}>
+                  <Pause className="h-3.5 w-3.5" />
                 </Button>
               )}
               {download.status === "paused" && (
-                <Button disabled={isMuxing} variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-500/10" onClick={(e) => { e.stopPropagation(); if (isMuxing) return; resumeDownload(download.gid); }}>
-                  <Play className="h-4 w-4" />
+                <Button disabled={isMuxing} variant="ghost" size="icon-xs" className="h-7 w-7 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-500/10" title="Resume" aria-label="Resume download" onClick={(e) => { e.stopPropagation(); if (isMuxing) return; resumeDownload(download.gid); }}>
+                  <Play className="h-3.5 w-3.5" />
                 </Button>
               )}
               {(download.status === "active" || download.status === "paused" || download.status === "waiting") && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10" onClick={(e) => { e.stopPropagation(); cancelDownload(download.gid); }}>
-                  <X className="h-4 w-4" />
+                <Button variant="ghost" size="icon-xs" className="h-7 w-7 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10" title="Cancel" aria-label="Cancel download" onClick={(e) => { e.stopPropagation(); cancelDownload(download.gid); }}>
+                  <X className="h-3.5 w-3.5" />
                 </Button>
               )}
               {download.status === "complete" && (
                 <Button 
                   variant="ghost" 
-                  size="icon" 
-                  className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10" 
+                  size="icon-xs" 
+                  className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10" 
                   title="Open Folder" 
+                  aria-label="Open download folder"
                   onClick={async (e) => {
                     e.stopPropagation();
                     const filePath = download.files[0]?.path;
@@ -212,15 +214,16 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                     }
                   }}
                 >
-                  <FolderOpen className="h-4 w-4" />
+                  <FolderOpen className="h-3.5 w-3.5" />
                 </Button>
               )}
               {(download.status === "error" || download.status === "removed") && (
                 <Button 
                   variant="ghost" 
-                  size="icon" 
-                  className="h-8 w-8 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-500/10" 
+                  size="icon-xs" 
+                  className="h-7 w-7 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400 hover:bg-emerald-500/10" 
                   title="Retry Download"
+                  aria-label="Retry download"
                   onClick={(e) => {
                     e.stopPropagation();
                     const uri = download.files[0]?.uris[0]?.uri;
@@ -230,21 +233,22 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                     }
                   }}
                 >
-                  <RefreshCw className="h-4 w-4" />
+                  <RefreshCw className="h-3.5 w-3.5" />
                 </Button>
               )}
               <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-8 w-8 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10" 
-                  title="Remove"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsDeleteDialogOpen(true);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                variant="ghost" 
+                size="icon-xs" 
+                className="h-7 w-7 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10" 
+                title="Remove"
+                aria-label="Remove download"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsDeleteDialogOpen(true);
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
             </div>
           </div>
 
@@ -278,12 +282,12 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
           <div className="flex items-center space-x-2 py-4">
             <input 
               type="checkbox" 
-              id="delete-local" 
+              id={`delete-local-${download.gid}`}
               checked={deleteLocalFile}
               onChange={(e) => setDeleteLocalFile(e.target.checked)}
               className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
             />
-            <label htmlFor="delete-local" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+            <label htmlFor={`delete-local-${download.gid}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
               Also remove the downloaded file from local disk
             </label>
           </div>

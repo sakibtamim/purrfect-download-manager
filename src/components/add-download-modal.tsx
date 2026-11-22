@@ -79,8 +79,8 @@ export function AddDownloadModal() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button className="gap-2" />}>
-        <Plus className="h-4 w-4" />
+      <DialogTrigger render={<Button size="sm" className="gap-1.5 shadow-sm text-xs" />}>
+        <Plus className="h-3.5 w-3.5" />
         New Download
       </DialogTrigger>
       <DialogContent className="sm:max-w-106.25 bg-card border-border text-foreground">

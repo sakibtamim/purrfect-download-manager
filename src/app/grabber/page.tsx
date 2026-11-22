@@ -6,20 +6,28 @@ import { useDownloadStore } from "@/store/downloadStore";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { ytdlpClient, YtDlpVideoInfo } from "@/lib/ytdlpClient";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Download, Globe, PlayCircle, Image as ImageIcon, Link as LinkIcon, FileVideo, Activity } from "lucide-react";
+import {
+  Download,
+  Globe,
+  Film,
+  Image as ImageIcon,
+  Link as LinkIcon,
+  FileVideo,
+  Activity,
+  Search,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type GrabbedLink = {
   url: string;
-  type: 'image' | 'video' | 'link';
+  type: "image" | "video" | "link";
   text: string;
   selected: boolean;
 };
 
 export default function GrabberPage() {
-  const [activeTab, setActiveTab] = useState<'media' | 'site'>('media');
+  const [activeTab, setActiveTab] = useState<"media" | "site">("media");
   const { addDownload, stageDownload } = useDownloadStore();
 
   // Media Downloader State
@@ -36,89 +44,117 @@ export default function GrabberPage() {
 
   // --- MEDIA DOWNLOADER HANDLERS ---
   const handleExtractMedia = async () => {
-    if (!mediaUrl) return;
+    if (!mediaUrl.trim()) return;
     setIsExtracting(true);
     setMediaError("");
     setMediaInfo(null);
 
     try {
-      const info = await ytdlpClient.extractVideoInfo(mediaUrl);
+      const info = await ytdlpClient.extractVideoInfo(mediaUrl.trim());
       setMediaInfo(info);
     } catch (e: unknown) {
-      setMediaError(e instanceof Error ? e.message : "Failed to extract media. Make sure yt-dlp sidecar is installed.");
+      setMediaError(
+        e instanceof Error
+          ? e.message
+          : "Failed to extract media. Make sure yt-dlp sidecar is installed."
+      );
     } finally {
       setIsExtracting(false);
     }
   };
 
   const handleDownloadMedia = () => {
-    if (mediaInfo) {
-      const sanitizedTitle = mediaInfo.title.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
-      const filename = `${sanitizedTitle}.${mediaInfo.ext}`;
-      
-      stageDownload({
-        url: mediaInfo.url,
-        sourceUrl: mediaUrl.trim(),
-        headers: [],
-        filename: filename,
-        fileSize: mediaInfo.fileSize,
-        mediaFormats: mediaInfo.formats
-      });
-      
-      setMediaInfo(null);
-      setMediaUrl("");
-    }
+    if (!mediaInfo) return;
+    const sanitizedTitle = mediaInfo.title.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
+    const targetFormat = mediaInfo.formats && mediaInfo.formats.length > 0 ? mediaInfo.formats[0] : null;
+    const targetUrl = targetFormat?.url || mediaInfo.url;
+    const targetExt = targetFormat?.ext || mediaInfo.ext || "mp4";
+    const filename = `${sanitizedTitle}.${targetExt}`;
+
+    stageDownload({
+      url: targetUrl,
+      sourceUrl: mediaUrl.trim(),
+      headers: [],
+      filename: filename,
+      fileSize: targetFormat?.fileSize || mediaInfo.fileSize,
+      mediaFormats: mediaInfo.formats,
+    });
+
+    setMediaInfo(null);
+    setMediaUrl("");
   };
 
   // --- SITE GRABBER HANDLERS ---
   const handleScanSite = async () => {
-    if (!siteUrl) return;
+    if (!siteUrl.trim()) return;
     setIsScanning(true);
     setSiteError("");
     setGrabbedLinks([]);
 
     try {
-      const res = await tauriFetch(siteUrl, { method: "GET" });
+      const res = await tauriFetch(siteUrl.trim(), { method: "GET" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const html = await res.text();
 
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, "text/html");
-      const baseUrl = new URL(siteUrl).origin;
+      const targetUrl = siteUrl.trim();
 
       const linksMap = new Map<string, GrabbedLink>();
 
       // Extract Images
-      doc.querySelectorAll("img").forEach(img => {
-        if (img.src) {
+      doc.querySelectorAll("img").forEach((img) => {
+        const rawSrc = img.getAttribute("src");
+        if (rawSrc) {
           try {
-            const url = new URL(img.src, baseUrl).href;
-            linksMap.set(url, { url, type: 'image', text: img.alt || "Image", selected: true });
-          } catch { /* ignore */ }
+            const url = new URL(rawSrc, targetUrl).href;
+            linksMap.set(url, {
+              url,
+              type: "image",
+              text: img.getAttribute("alt") || img.alt || "Image",
+              selected: true,
+            });
+          } catch {
+            /* ignore */
+          }
         }
       });
 
       // Extract Videos
-      doc.querySelectorAll("video, source").forEach(vid => {
-        const src = (vid as HTMLVideoElement | HTMLSourceElement).src;
-        if (src) {
+      doc.querySelectorAll("video, source").forEach((vid) => {
+        const rawSrc = vid.getAttribute("src");
+        if (rawSrc) {
           try {
-            const url = new URL(src, baseUrl).href;
-            linksMap.set(url, { url, type: 'video', text: "Video Source", selected: true });
-          } catch { /* ignore */ }
+            const url = new URL(rawSrc, targetUrl).href;
+            linksMap.set(url, {
+              url,
+              type: "video",
+              text: "Video Source",
+              selected: true,
+            });
+          } catch {
+            /* ignore */
+          }
         }
       });
 
       // Extract Links
-      doc.querySelectorAll("a").forEach(a => {
-        if (a.href && !a.href.startsWith("javascript:") && !a.href.startsWith("mailto:")) {
+      doc.querySelectorAll("a").forEach((a) => {
+        const rawHref = a.getAttribute("href");
+        if (rawHref && !rawHref.startsWith("javascript:") && !rawHref.startsWith("mailto:")) {
           try {
-            const url = new URL(a.href, baseUrl).href;
-            // Ignore anchors and pure page navigation if possible, but keep it simple
-            if (!url.includes('#')) {
-              linksMap.set(url, { url, type: 'link', text: a.textContent?.trim() || "Link", selected: false });
+            const url = new URL(rawHref, targetUrl).href;
+            if (!url.includes("#")) {
+              linksMap.set(url, {
+                url,
+                type: "link",
+                text: a.textContent?.trim() || "Link",
+                selected: false,
+              });
             }
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
       });
 
@@ -136,242 +172,320 @@ export default function GrabberPage() {
     setGrabbedLinks(newLinks);
   };
 
-  const selectAll = (type: 'all' | 'image' | 'video') => {
-    setGrabbedLinks(links => links.map(l => ({
-      ...l,
-      selected: type === 'all' ? true : l.type === type
-    })));
+  const selectAll = (type: "all" | "image" | "video") => {
+    setGrabbedLinks((links) =>
+      links.map((l) => ({
+        ...l,
+        selected: type === "all" ? true : l.type === type,
+      }))
+    );
   };
 
   const deselectAll = () => {
-    setGrabbedLinks(links => links.map(l => ({ ...l, selected: false })));
+    setGrabbedLinks((links) => links.map((l) => ({ ...l, selected: false })));
   };
 
   const handleDownloadSelected = () => {
-    const selected = grabbedLinks.filter(l => l.selected);
-    selected.forEach(link => {
+    const selected = grabbedLinks.filter((l) => l.selected);
+    selected.forEach((link) => {
       addDownload(link.url, [], undefined);
     });
-    // Remove downloaded from list
-    setGrabbedLinks(links => links.filter(l => !l.selected));
+    setGrabbedLinks((links) => links.filter((l) => !l.selected));
   };
 
+  const selectedCount = grabbedLinks.filter((l) => l.selected).length;
+
   return (
-    <div className="flex-1 p-8 pt-6 min-h-screen">
-      <div className="flex items-center justify-between space-y-2 mb-8">
+    <div className="space-y-4 max-w-full">
+      {/* Page Header + Segmented Pill Control */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
-            <Globe className="w-8 h-8 text-primary" />
+          <h1 className="text-lg font-semibold tracking-tight text-foreground flex items-center gap-2">
+            <Globe className="w-5 h-5 text-primary shrink-0" />
             Web Tools
-          </h2>
-          <p className="text-muted-foreground mt-1">Batch download from websites or extract media from streaming platforms.</p>
+          </h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Extract streaming video, audio, and scrape website media.
+          </p>
+        </div>
+
+        {/* Compact Segmented Pill Control */}
+        <div role="tablist" aria-label="Web Tools Navigation" className="flex items-center bg-muted/60 p-0.5 rounded-lg border border-border h-8 shrink-0">
+          <button
+            type="button"
+            role="tab"
+            id="tab-media"
+            aria-selected={activeTab === "media"}
+            aria-controls="panel-media"
+            onClick={() => setActiveTab("media")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 h-7 rounded-md text-xs font-medium transition-colors",
+              activeTab === "media"
+                ? "bg-background text-foreground shadow-xs font-semibold"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Film className="w-3.5 h-3.5" /> Media Downloader
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="tab-site"
+            aria-selected={activeTab === "site"}
+            aria-controls="panel-site"
+            onClick={() => setActiveTab("site")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 h-7 rounded-md text-xs font-medium transition-colors",
+              activeTab === "site"
+                ? "bg-background text-foreground shadow-xs font-semibold"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Globe className="w-3.5 h-3.5" /> Site Grabber
+          </button>
         </div>
       </div>
 
-      {/* TABS */}
-      <div className="flex space-x-1 bg-muted/50 p-1 rounded-lg w-fit mb-6 border border-border">
-        <button
-          onClick={() => setActiveTab('media')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-            activeTab === 'media' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          <PlayCircle className="w-4 h-4" /> Media Downloader
-        </button>
-        <button
-          onClick={() => setActiveTab('site')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-            activeTab === 'site' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          <Globe className="w-4 h-4" /> Site Grabber
-        </button>
-      </div>
-
       {/* MEDIA DOWNLOADER TAB */}
-      {activeTab === 'media' && (
-        <div className="space-y-6 max-w-3xl">
-          <Card className="bg-card/60 border-border p-6">
-            <h3 className="text-lg font-medium text-foreground mb-2">Native Media Downloader</h3>
-            <p className="text-sm text-muted-foreground mb-6">
-              Paste a URL from YouTube, Twitter, TikTok, or other supported platforms. 
-              Powered securely by yt-dlp to bypass bot detection.
-            </p>
-            
-            <div className="flex gap-3">
-              <Input
-                placeholder="https://www.youtube.com/watch?v=..."
-                value={mediaUrl}
-                onChange={(e) => setMediaUrl(e.target.value)}
-                className="bg-background border-border text-foreground h-12"
-              />
-              <Button 
-                onClick={handleExtractMedia} 
-                disabled={isExtracting || !mediaUrl}
-                className="h-12 px-6"
+      {activeTab === "media" && (
+        <div role="tabpanel" id="panel-media" aria-labelledby="tab-media" className="space-y-4 max-w-4xl">
+          {/* Unified Inline Input Group */}
+          <div className="bg-card/70 border border-border rounded-xl p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex-1 flex items-center bg-background rounded-lg border border-border px-3 h-9 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all text-xs">
+                <LinkIcon className="w-3.5 h-3.5 text-muted-foreground mr-2 shrink-0" />
+                <input
+                  type="url"
+                  placeholder="Paste YouTube, Twitter, TikTok, or streaming URL..."
+                  aria-label="Target streaming video URL"
+                  value={mediaUrl}
+                  onChange={(e) => setMediaUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleExtractMedia();
+                  }}
+                  className="bg-transparent border-none outline-none text-xs text-foreground placeholder:text-muted-foreground/60 w-full"
+                />
+              </div>
+              <Button
+                onClick={handleExtractMedia}
+                disabled={isExtracting || !mediaUrl.trim()}
+                size="sm"
+                className="h-9 px-4 gap-1.5 text-xs shrink-0 shadow-xs"
               >
-                {isExtracting ? <Activity className="w-4 h-4 animate-spin mr-2" /> : <SearchIcon className="w-4 h-4 mr-2" />}
-                Extract
+                {isExtracting ? (
+                  <Activity className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Search className="w-3.5 h-3.5" />
+                )}
+                Extract Media
               </Button>
             </div>
-            
+
             {mediaError && (
-              <p className="text-red-600 dark:text-red-400 mt-4 text-sm bg-red-50 dark:bg-red-950/30 p-3 rounded border border-red-200 dark:border-red-900">
+              <p className="text-xs text-red-500 bg-red-500/10 p-2.5 rounded-lg border border-red-500/20">
                 {mediaError}
               </p>
             )}
-          </Card>
+          </div>
 
+          {/* Compact Video Preview Card */}
           {mediaInfo && (
-            <Card className="bg-card/80 border-primary/20 p-6 overflow-hidden relative">
-              <div className="absolute top-0 left-0 w-full h-1 bg-linear-to-r from-primary to-violet-500"></div>
-              <div className="flex gap-6">
+            <div className="bg-card border border-border rounded-xl p-4 space-y-3.5 animate-in fade-in duration-200">
+              <div className="flex flex-col sm:flex-row gap-4">
                 {mediaInfo.thumbnail ? (
-                  <img src={mediaInfo.thumbnail} alt="Thumbnail" className="w-48 h-32 object-cover rounded-md border border-border shadow-xl" />
+                  <img
+                    src={mediaInfo.thumbnail}
+                    alt={mediaInfo.title}
+                    className="w-full sm:w-44 h-28 object-cover rounded-lg border border-border shadow-xs shrink-0"
+                  />
                 ) : (
-                  <div className="w-48 h-32 bg-muted rounded-md flex items-center justify-center">
+                  <div className="w-full sm:w-44 h-28 bg-muted rounded-lg flex items-center justify-center shrink-0">
                     <FileVideo className="w-8 h-8 text-muted-foreground" />
                   </div>
                 )}
-                
-                <div className="flex flex-col flex-1 py-1">
-                  <h4 className="text-lg font-semibold text-foreground line-clamp-2 leading-tight mb-2">
-                    {mediaInfo.title}
-                  </h4>
-                  <div className="flex items-center gap-3 mb-auto">
-                    {mediaInfo.fileSize > 0 && (
-                      <Badge variant="outline" className="text-primary border-primary/30">
-                        {(mediaInfo.fileSize / (1024 * 1024)).toFixed(1)} MB
-                      </Badge>
-                    )}
-                    {mediaInfo.duration > 0 && (
-                      <Badge variant="outline" className="text-muted-foreground border-border">
-                        {Math.floor(mediaInfo.duration / 60)}:{String(mediaInfo.duration % 60).padStart(2, '0')}
-                      </Badge>
-                    )}
+
+                <div className="flex-1 min-w-0 flex flex-col justify-between space-y-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground line-clamp-2 leading-snug" title={mediaInfo.title}>
+                      {mediaInfo.title}
+                    </h3>
+                    <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
+                      {mediaInfo.duration > 0 && (
+                        <span>
+                          {Math.floor(mediaInfo.duration / 60)}:
+                          {String(mediaInfo.duration % 60).padStart(2, "0")}
+                        </span>
+                      )}
+                      {mediaInfo.fileSize > 0 && (
+                        <>
+                          <span>•</span>
+                          <span>{(mediaInfo.fileSize / (1024 * 1024)).toFixed(1)} MB</span>
+                        </>
+                      )}
+                      <span>•</span>
+                      <span className="uppercase text-[11px] font-mono">{mediaInfo.ext}</span>
+                    </div>
                   </div>
-                  
-                  <div className="mt-4 flex items-center gap-3">
-                    <Button onClick={handleDownloadMedia} className="w-full">
-                      <Download className="w-4 h-4 mr-2" />
+
+                  <div className="pt-1">
+                    <Button onClick={handleDownloadMedia} size="sm" className="h-8 gap-1.5 text-xs shadow-xs">
+                      <Download className="w-3.5 h-3.5" />
                       Add to Download Queue
                     </Button>
                   </div>
                 </div>
               </div>
-            </Card>
+            </div>
           )}
         </div>
       )}
 
       {/* SITE GRABBER TAB */}
-      {activeTab === 'site' && (
-        <div className="space-y-6">
-          <Card className="bg-card/60 border-border p-6 flex items-end gap-3">
-            <div className="flex-1 space-y-2">
-              <label className="text-sm font-medium text-foreground/80">Target Website URL</label>
-              <Input
-                placeholder="https://example.com/gallery"
-                value={siteUrl}
-                onChange={(e) => setSiteUrl(e.target.value)}
-                className="bg-background border-border text-foreground h-10"
-              />
+      {activeTab === "site" && (
+        <div role="tabpanel" id="panel-site" aria-labelledby="tab-site" className="space-y-4">
+          {/* Unified Inline Input Group */}
+          <div className="bg-card/70 border border-border rounded-xl p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex-1 flex items-center bg-background rounded-lg border border-border px-3 h-9 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all text-xs">
+                <Globe className="w-3.5 h-3.5 text-muted-foreground mr-2 shrink-0" />
+                <input
+                  type="url"
+                  placeholder="https://example.com/gallery or any webpage URL..."
+                  aria-label="Target website URL to scrape"
+                  value={siteUrl}
+                  onChange={(e) => setSiteUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleScanSite();
+                  }}
+                  className="bg-transparent border-none outline-none text-xs text-foreground placeholder:text-muted-foreground/60 w-full"
+                />
+              </div>
+              <Button
+                onClick={handleScanSite}
+                disabled={isScanning || !siteUrl.trim()}
+                size="sm"
+                className="h-9 px-4 gap-1.5 text-xs shrink-0 shadow-xs"
+              >
+                {isScanning ? (
+                  <Activity className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Search className="w-3.5 h-3.5" />
+                )}
+                Scan Page
+              </Button>
             </div>
-            <Button 
-              onClick={handleScanSite} 
-              disabled={isScanning || !siteUrl}
-              className="h-10 px-8 shrink-0"
-            >
-              {isScanning ? <Activity className="w-4 h-4 animate-spin mr-2" /> : <SearchIcon className="w-4 h-4 mr-2" />}
-              Scan Page
-            </Button>
-          </Card>
 
-          {siteError && (
-            <p className="text-red-600 dark:text-red-400 mt-4 text-sm bg-red-50 dark:bg-red-950/30 p-3 rounded border border-red-200 dark:border-red-900">
-              {siteError}
-            </p>
-          )}
+            {siteError && (
+              <p className="text-xs text-red-500 bg-red-500/10 p-2.5 rounded-lg border border-red-500/20">
+                {siteError}
+              </p>
+            )}
+          </div>
 
+          {/* High-Density Scraped Links Table */}
           {grabbedLinks.length > 0 && (
-            <Card className="bg-card/60 border-border flex flex-col h-150 overflow-hidden">
-              <div className="p-4 border-b border-border flex items-center justify-between bg-muted/50">
+            <div className="bg-card border border-border rounded-xl overflow-hidden shadow-xs">
+              {/* Batch Controls Toolbar */}
+              <div className="p-3 border-b border-border flex flex-wrap items-center justify-between gap-2 bg-muted/30">
                 <div className="flex items-center gap-2">
-                  <Badge variant="secondary">
+                  <Badge variant="secondary" className="text-xs font-medium">
                     {grabbedLinks.length} Files Found
                   </Badge>
-                  <Badge variant="outline" className="border-primary/30 text-primary">
-                    {grabbedLinks.filter(l => l.selected).length} Selected
+                  <Badge variant="outline" className="text-xs border-primary/30 text-primary">
+                    {selectedCount} Selected
                   </Badge>
                 </div>
-                
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => selectAll('image')} className="h-8">
+
+                <div className="flex items-center gap-1.5">
+                  <Button variant="ghost" size="xs" onClick={() => selectAll("image")} className="h-7 text-xs">
                     All Images
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => selectAll('video')} className="h-8">
+                  <Button variant="ghost" size="xs" onClick={() => selectAll("video")} className="h-7 text-xs">
                     All Videos
                   </Button>
-                  <Button variant="outline" size="sm" onClick={deselectAll} className="h-8">
+                  <Button variant="ghost" size="xs" onClick={() => selectAll("all")} className="h-7 text-xs">
+                    Select All
+                  </Button>
+                  <Button variant="ghost" size="xs" onClick={deselectAll} className="h-7 text-xs text-muted-foreground">
                     Clear
                   </Button>
-                  <div className="w-px h-6 bg-border mx-2"></div>
-                  <Button 
-                    size="sm" 
-                    onClick={handleDownloadSelected} 
-                    disabled={grabbedLinks.filter(l => l.selected).length === 0}
-                    className="h-8"
+                  <div className="w-px h-4 bg-border mx-1" />
+                  <Button
+                    size="sm"
+                    onClick={handleDownloadSelected}
+                    disabled={selectedCount === 0}
+                    className="h-7 gap-1.5 text-xs shadow-xs"
                   >
-                    <Download className="w-4 h-4 mr-2" />
-                    Download Selected
+                    <Download className="w-3.5 h-3.5" />
+                    Download Selected ({selectedCount})
                   </Button>
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-0">
-                <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-muted-foreground uppercase bg-muted/80 sticky top-0 border-b border-border">
+              {/* Table */}
+              <div className="max-h-96 overflow-y-auto">
+                <table className="w-full text-xs text-left">
+                  <thead className="text-[11px] font-medium text-muted-foreground uppercase bg-muted/60 sticky top-0 border-b border-border select-none">
                     <tr>
-                      <th className="px-4 py-3 w-12">
-                        <input 
-                          type="checkbox" 
-                          className="rounded border-border bg-background text-primary accent-primary"
-                          checked={grabbedLinks.length > 0 && grabbedLinks.every(l => l.selected)}
+                      <th className="px-3 py-2 w-10">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all links"
+                          className="rounded border-border bg-background text-primary focus:ring-primary"
+                          checked={grabbedLinks.length > 0 && grabbedLinks.every((l) => l.selected)}
                           onChange={() => {
-                            const allSelected = grabbedLinks.every(l => l.selected);
-                            setGrabbedLinks(links => links.map(l => ({ ...l, selected: !allSelected })));
+                            const allSelected = grabbedLinks.every((l) => l.selected);
+                            setGrabbedLinks((links) =>
+                              links.map((l) => ({ ...l, selected: !allSelected }))
+                            );
                           }}
                         />
                       </th>
-                      <th className="px-4 py-3 w-24">Type</th>
-                      <th className="px-4 py-3">File / Text</th>
-                      <th className="px-4 py-3">URL</th>
+                      <th className="px-3 py-2 w-20">Type</th>
+                      <th className="px-3 py-2">File / Text</th>
+                      <th className="px-3 py-2">URL</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-border/60">
                     {grabbedLinks.map((link, idx) => (
-                      <tr 
-                        key={idx} 
-                        className={`border-b border-border/50 transition-colors ${link.selected ? 'bg-primary/5' : 'hover:bg-muted/50'}`}
+                      <tr
+                        key={idx}
+                        className={cn(
+                          "h-9 transition-colors cursor-pointer",
+                          link.selected ? "bg-primary/10 hover:bg-primary/15" : "hover:bg-muted/40"
+                        )}
                         onClick={() => toggleLinkSelection(idx)}
                       >
-                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                          <input 
-                            type="checkbox" 
-                            className="rounded border-border bg-background text-primary accent-primary"
+                        <td className="px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select link ${link.text || link.url}`}
+                            className="rounded border-border bg-background text-primary focus:ring-primary"
                             checked={link.selected}
                             onChange={() => toggleLinkSelection(idx)}
                           />
                         </td>
-                        <td className="px-4 py-3">
-                          {link.type === 'image' && <Badge variant="outline" className="text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20"><ImageIcon className="w-3 h-3 mr-1"/> IMG</Badge>}
-                          {link.type === 'video' && <Badge variant="outline" className="text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-300 dark:border-fuchsia-900/50 bg-fuchsia-50 dark:bg-fuchsia-950/20"><FileVideo className="w-3 h-3 mr-1"/> VID</Badge>}
-                          {link.type === 'link' && <Badge variant="outline" className="text-sky-600 dark:text-sky-400 border-sky-300 dark:border-sky-900/50 bg-sky-50 dark:bg-sky-950/20"><LinkIcon className="w-3 h-3 mr-1"/> LNK</Badge>}
+                        <td className="px-3 py-1.5 whitespace-nowrap">
+                          {link.type === "image" && (
+                            <Badge variant="outline" className="text-[10px] py-0 border-amber-500/30 text-amber-600 dark:text-amber-400">
+                              <ImageIcon className="w-3 h-3 mr-1" /> IMG
+                            </Badge>
+                          )}
+                          {link.type === "video" && (
+                            <Badge variant="outline" className="text-[10px] py-0 border-blue-500/30 text-blue-600 dark:text-blue-400">
+                              <FileVideo className="w-3 h-3 mr-1" /> VID
+                            </Badge>
+                          )}
+                          {link.type === "link" && (
+                            <Badge variant="outline" className="text-[10px] py-0 border-slate-500/30 text-slate-600 dark:text-slate-400">
+                              <LinkIcon className="w-3 h-3 mr-1" /> LNK
+                            </Badge>
+                          )}
                         </td>
-                        <td className="px-4 py-3 text-foreground/80 truncate max-w-50" title={link.text}>
-                          {link.text || 'N/A'}
+                        <td className="px-3 py-1.5 text-foreground truncate max-w-[200px]" title={link.text}>
+                          {link.text || "N/A"}
                         </td>
-                        <td className="px-4 py-3 text-muted-foreground font-mono text-xs truncate max-w-100" title={link.url}>
+                        <td className="px-3 py-1.5 text-muted-foreground font-mono text-[11px] truncate max-w-[320px]" title={link.url}>
                           {link.url}
                         </td>
                       </tr>
@@ -379,31 +493,10 @@ export default function GrabberPage() {
                   </tbody>
                 </table>
               </div>
-            </Card>
+            </div>
           )}
         </div>
       )}
     </div>
-  );
-}
-
-// Quick inline icon so I don't have to import it at the top
-function SearchIcon(props: React.ComponentProps<"svg">) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="11" cy="11" r="8" />
-      <path d="m21 21-4.3-4.3" />
-    </svg>
   );
 }

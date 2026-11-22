@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getFileCategory, validateChecksum, formatChecksum, formatSpeed, DetectedChecksum } from './utils';
+import { getFileCategory, validateChecksum, formatChecksum, formatSpeed, decodeFilename, parseContentDispositionFilename, DetectedChecksum } from './utils';
 
 describe('getFileCategory', () => {
   it('correctly categorizes software files', () => {
@@ -130,3 +130,44 @@ describe('formatSpeed', () => {
     });
   });
 });
+
+describe('decodeFilename', () => {
+  it('decodes URL percent-encoded characters like %20, %28, %29', () => {
+    const raw = 'Last%20Man%20in%20Tower%20%282026%29%201080p%20WEB-DL%20Hindi%20x264.mkv';
+    expect(decodeFilename(raw)).toBe('Last Man in Tower (2026) 1080p WEB-DL Hindi x264.mkv');
+  });
+
+  it('strips leading directory paths from filenames', () => {
+    expect(decodeFilename('/downloads/movies/My%20Video.mp4')).toBe('My Video.mp4');
+    expect(decodeFilename('C:\\Users\\Downloads\\Archive%20File.zip')).toBe('Archive File.zip');
+  });
+
+  it('handles malformed percent encodings gracefully without throwing', () => {
+    expect(decodeFilename('100%_pure_gold.zip')).toBe('100%_pure_gold.zip');
+    expect(decodeFilename('broken%zzfile.bin')).toBe('broken%zzfile.bin');
+  });
+
+  it('returns fallback for empty or null input', () => {
+    expect(decodeFilename('')).toBe('Unknown');
+    expect(decodeFilename(null)).toBe('Unknown');
+    expect(decodeFilename(undefined)).toBe('Unknown');
+  });
+});
+
+describe('parseContentDispositionFilename', () => {
+  it('extracts standard filename="..." parameter', () => {
+    const header = 'attachment; filename="document%202026.pdf"';
+    expect(parseContentDispositionFilename(header)).toBe('document 2026.pdf');
+  });
+
+  it('extracts RFC 5987 / RFC 6266 filename*=UTF-8\'\'... parameter', () => {
+    const header = "attachment; filename*=UTF-8''Last%20Man%20in%20Tower%20%282026%29.mkv";
+    expect(parseContentDispositionFilename(header)).toBe('Last Man in Tower (2026).mkv');
+  });
+
+  it('returns null for empty or non-filename headers', () => {
+    expect(parseContentDispositionFilename(null)).toBeNull();
+    expect(parseContentDispositionFilename('inline')).toBeNull();
+  });
+});
+

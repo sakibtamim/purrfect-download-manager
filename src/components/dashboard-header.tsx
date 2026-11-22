@@ -1,11 +1,12 @@
 "use client";
 
 import { useAppStore } from "@/store";
-import { Activity, DownloadCloud, Gauge, Pause, Play, Trash2 } from "lucide-react";
+import { useThemeStore } from "@/store/themeStore";
+import { Activity, DownloadCloud, Gauge, Pause, Play, Trash2, Sun, Moon, Cat } from "lucide-react";
 import { useState } from "react";
 import { Button } from "./ui/button";
 import { AddDownloadModal } from "./add-download-modal";
-import { formatSpeed } from "@/lib/utils";
+import { formatSpeed, cn } from "@/lib/utils";
 
 export function DashboardHeader() {
   const activeCount = useAppStore((state) => state.active.length);
@@ -15,51 +16,72 @@ export function DashboardHeader() {
   const pauseAllDownloads = useAppStore((state) => state.pauseAllDownloads);
   const resumeAllDownloads = useAppStore((state) => state.resumeAllDownloads);
   const clearCompletedDownloads = useAppStore((state) => state.clearCompletedDownloads);
+  const isPlayfulMode = useAppStore((state) => state.isPlayfulMode);
+  const togglePlayfulMode = useAppStore((state) => state.togglePlayfulMode);
+
+  const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
+  const setTheme = useThemeStore((state) => state.setTheme);
+
   const [limitInput, setLimitInput] = useState("");
 
   return (
-    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-background/80 glass border-b border-border">
-      <div className="flex items-center gap-6">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-primary/10 rounded-lg">
-            <DownloadCloud className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">Active Downloads</p>
-            <p className="text-2xl font-bold text-foreground">{activeCount}</p>
-          </div>
+    <header className="h-12 shrink-0 flex items-center justify-between gap-3 px-3.5 bg-background/90 glass border-b border-border select-none">
+      {/* Left: Active badge + Queue actions */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/10 text-primary border border-primary/20 text-xs font-medium shrink-0">
+          <DownloadCloud className="h-3.5 w-3.5 shrink-0" />
+          <span>Active: <strong className="font-semibold">{activeCount}</strong></span>
         </div>
-        <div className="flex items-center gap-1 mt-1 lg:mt-0">
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-amber-500 dark:hover:text-amber-400" title="Pause All" onClick={pauseAllDownloads}>
-            <Pause className="h-4 w-4" />
+
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10"
+            title="Pause All"
+            aria-label="Pause all downloads"
+            onClick={pauseAllDownloads}
+          >
+            <Pause className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-emerald-500 dark:hover:text-emerald-400" title="Resume All" onClick={resumeAllDownloads}>
-            <Play className="h-4 w-4" />
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10"
+            title="Resume All"
+            aria-label="Resume all downloads"
+            onClick={resumeAllDownloads}
+          >
+            <Play className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-500 dark:hover:text-red-400" title="Clear Completed" onClick={clearCompletedDownloads}>
-            <Trash2 className="h-4 w-4" />
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
+            title="Clear Completed"
+            aria-label="Clear completed downloads"
+            onClick={clearCompletedDownloads}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
           </Button>
-        </div>
-        <div className="w-px h-10 bg-border hidden md:block"></div>
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-emerald-500/10 rounded-lg">
-            <Activity className="h-5 w-5 text-emerald-500 dark:text-emerald-400" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">Total Speed</p>
-            <p className="text-2xl font-bold text-foreground">{formatSpeed(globalSpeed, speedUnit)}</p>
-          </div>
         </div>
       </div>
-      
-      <div className="flex items-center gap-3">
-        <div className="flex items-center bg-muted rounded-lg border border-border px-3 py-1.5 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all">
-          <Gauge className="w-4 h-4 text-muted-foreground mr-2" />
-          <input 
+
+      {/* Right: Live speed, speed limit, theme toggles, Add Download */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-xs font-semibold shrink-0">
+          <Activity className="h-3.5 w-3.5 animate-pulse shrink-0" />
+          <span>{formatSpeed(globalSpeed, speedUnit)}</span>
+        </div>
+
+        <div className="flex items-center bg-muted/50 rounded-md border border-border px-2 py-0.5 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all text-xs h-7">
+          <Gauge className="w-3.5 h-3.5 text-muted-foreground mr-1 shrink-0" />
+          <input
             type="number"
             min="0"
             placeholder="Limit (KB/s)"
-            className="bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/50 w-24"
+            aria-label="Download speed limit in kilobytes per second"
+            className="bg-transparent border-none outline-none text-xs text-foreground placeholder:text-muted-foreground/60 w-18"
             value={limitInput}
             onChange={(e) => setLimitInput(e.target.value)}
             onBlur={(e) => {
@@ -67,14 +89,44 @@ export function DashboardHeader() {
               setSpeedLimit(isNaN(kb) || kb <= 0 ? "0" : (kb * 1024).toString());
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
+              if (e.key === "Enter") {
                 e.currentTarget.blur();
               }
             }}
           />
         </div>
+
+        <div className="w-px h-4 bg-border shrink-0" />
+
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-foreground"
+            title={resolvedTheme === "dark" ? "Switch to Light Theme" : "Switch to Dark Theme"}
+            aria-label={resolvedTheme === "dark" ? "Switch to Light Theme" : "Switch to Dark Theme"}
+            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+          >
+            {resolvedTheme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className={cn(
+              "transition-colors",
+              isPlayfulMode ? "text-primary bg-primary/10 hover:bg-primary/20" : "text-muted-foreground hover:text-foreground"
+            )}
+            title={isPlayfulMode ? "Disable Playful Mode" : "Enable Playful Mode 🐾"}
+            aria-label={isPlayfulMode ? "Disable Playful Mode" : "Enable Playful Mode"}
+            onClick={togglePlayfulMode}
+          >
+            <Cat className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+
         <AddDownloadModal />
       </div>
-    </div>
+    </header>
   );
 }

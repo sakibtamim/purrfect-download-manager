@@ -29,13 +29,13 @@ export default function RootLayout({
           <AppInitializer />
           <ConfirmDownloadModal />
           <Sidebar />
-          <main className="flex-1 flex flex-col h-full">
+          <div className="flex-1 flex flex-col h-full min-w-0">
             <DashboardHeader />
-            <div className="flex-1 overflow-y-auto p-6 relative">
+            <main id="main-content" className="flex-1 overflow-y-auto p-4 md:p-5 relative">
               {children}
-            </div>
+            </main>
             <DownloadDetailsPanel />
-          </main>
+          </div>
         </StoreHydrator>
       </body>
     </html>

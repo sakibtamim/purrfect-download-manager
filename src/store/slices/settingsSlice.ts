@@ -31,6 +31,10 @@ export interface SettingsSlice {
   speedUnit: SpeedUnit;
   autoStart: boolean;
   safeBrowsingApiKey: string;
+  closeToTray: boolean;
+  minimizeToTray: boolean;
+  startMinimized: boolean;
+  showTaskbarProgress: boolean;
 
   initSettings: () => Promise<void>;
   setDefaultDownloadDir: (dir: string) => Promise<void>;
@@ -40,6 +44,10 @@ export interface SettingsSlice {
   setSpeedUnit: (unit: SpeedUnit) => Promise<void>;
   setAutoStart: (enabled: boolean) => Promise<void>;
   setSafeBrowsingApiKey: (key: string) => Promise<void>;
+  setCloseToTray: (enabled: boolean) => Promise<void>;
+  setMinimizeToTray: (enabled: boolean) => Promise<void>;
+  setStartMinimized: (enabled: boolean) => Promise<void>;
+  setShowTaskbarProgress: (enabled: boolean) => Promise<void>;
 }
 
 export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSlice> = (set) => ({
@@ -50,6 +58,10 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
   speedUnit: 'MBps',
   autoStart: false,
   safeBrowsingApiKey: '',
+  closeToTray: true,
+  minimizeToTray: false,
+  startMinimized: false,
+  showTaskbarProgress: true,
 
   initSettings: async () => {
     const store = await getSettingsStore();
@@ -62,10 +74,21 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
     const dir = await store.get<string>('defaultDownloadDir') || '';
     const apiKey = await store.get<string>('safeBrowsingApiKey') || '';
 
+    const storedCloseToTray = await store.get<boolean>('closeToTray');
+    const closeToTray = storedCloseToTray !== null && storedCloseToTray !== undefined ? storedCloseToTray : true;
+    const storedMinimizeToTray = await store.get<boolean>('minimizeToTray');
+    const minimizeToTray = storedMinimizeToTray !== null && storedMinimizeToTray !== undefined ? storedMinimizeToTray : false;
+    const storedStartMinimized = await store.get<boolean>('startMinimized');
+    const startMinimized = storedStartMinimized !== null && storedStartMinimized !== undefined ? storedStartMinimized : false;
+    const storedShowTaskbarProgress = await store.get<boolean>('showTaskbarProgress');
+    const showTaskbarProgress = storedShowTaskbarProgress !== null && storedShowTaskbarProgress !== undefined ? storedShowTaskbarProgress : true;
+
     let autoStartEnabled = false;
     try {
       autoStartEnabled = await isAutostartEnabled();
-    } catch {}
+    } catch (err) {
+      console.warn('Failed to check autostart status:', err);
+    }
 
     set({
       maxConcurrentDownloads: maxConcurrent,
@@ -74,8 +97,18 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
       speedUnit: speedUnit,
       defaultDownloadDir: dir,
       autoStart: autoStartEnabled,
-      safeBrowsingApiKey: apiKey
+      safeBrowsingApiKey: apiKey,
+      closeToTray,
+      minimizeToTray,
+      startMinimized,
+      showTaskbarProgress,
     });
+
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      import('@tauri-apps/api/core').then(({ invoke }) => {
+        invoke('sync_tray_autostart', { enabled: autoStartEnabled }).catch(console.warn);
+      });
+    }
 
     try {
       await aria2Client.changeGlobalOption({
@@ -84,7 +117,9 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
         'max-connection-per-server': Math.min(split, 16).toString(),
         'min-split-size': '1M'
       });
-    } catch {}
+    } catch (err) {
+      console.warn('Failed to apply initial aria2 settings:', err);
+    }
   },
 
   setDefaultDownloadDir: async (dir: string) => {
@@ -144,6 +179,10 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
         await disableAutostart();
       }
       set({ autoStart: enabled });
+      if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+        const { invoke } = await import('@tauri-apps/api/core');
+        invoke('sync_tray_autostart', { enabled }).catch(console.warn);
+      }
     } catch (e) {
       console.error('Failed to toggle autostart', e);
     }
@@ -154,5 +193,33 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
     await store.set('safeBrowsingApiKey', key);
     await store.save();
     set({ safeBrowsingApiKey: key });
+  },
+
+  setCloseToTray: async (enabled: boolean) => {
+    const store = await getSettingsStore();
+    await store.set('closeToTray', enabled);
+    await store.save();
+    set({ closeToTray: enabled });
+  },
+
+  setMinimizeToTray: async (enabled: boolean) => {
+    const store = await getSettingsStore();
+    await store.set('minimizeToTray', enabled);
+    await store.save();
+    set({ minimizeToTray: enabled });
+  },
+
+  setStartMinimized: async (enabled: boolean) => {
+    const store = await getSettingsStore();
+    await store.set('startMinimized', enabled);
+    await store.save();
+    set({ startMinimized: enabled });
+  },
+
+  setShowTaskbarProgress: async (enabled: boolean) => {
+    const store = await getSettingsStore();
+    await store.set('showTaskbarProgress', enabled);
+    await store.save();
+    set({ showTaskbarProgress: enabled });
   },
 });
