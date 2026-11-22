@@ -155,12 +155,29 @@
 }
 
 /* ──────────────────────────────────────────────
-   Professional Smooth View Transition for Themes
+   Professional Unified View Transition for Themes
    ────────────────────────────────────────────── */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: 0.25s;
+  animation-duration: 0.2s;
   animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }
 
 /* ──────────────────────────────────────────────
