@@ -2,7 +2,7 @@
 
 import { useAppStore } from "@/store";
 import { useThemeStore } from "@/store/themeStore";
-import { Activity, DownloadCloud, Gauge, Pause, Play, Trash2, Sun, Moon, Cat } from "lucide-react";
+import { Activity, DownloadCloud, Gauge, Pause, Play, Trash2, Sun, Moon, Cat, AlertCircle } from "lucide-react";
 import { useState } from "react";
 import { Button } from "./ui/button";
 import { AddDownloadModal } from "./add-download-modal";
@@ -18,6 +18,8 @@ export function DashboardHeader() {
   const clearCompletedDownloads = useAppStore((state) => state.clearCompletedDownloads);
   const isPlayfulMode = useAppStore((state) => state.isPlayfulMode);
   const togglePlayfulMode = useAppStore((state) => state.togglePlayfulMode);
+  const engineStatus = useAppStore((state) => state.engineStatus);
+  const engineError = useAppStore((state) => state.engineError);
 
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const setTheme = useThemeStore((state) => state.setTheme);
@@ -32,6 +34,16 @@ export function DashboardHeader() {
           <DownloadCloud className="h-3.5 w-3.5 shrink-0" />
           <span>Active: <strong className="font-semibold">{activeCount}</strong></span>
         </div>
+
+        {engineStatus === "error" && (
+          <div
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-destructive/15 text-destructive border border-destructive/30 text-xs font-semibold shrink-0"
+            title={engineError || "Engine connection failure"}
+          >
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            <span>Engine Offline</span>
+          </div>
+        )}
 
         <div className="flex items-center gap-0.5">
           <Button

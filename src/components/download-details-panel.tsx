@@ -73,9 +73,11 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
   
   const handleDelete = async () => {
     if (download) {
-      await deleteDownload(download.gid, deleteLocalFile);
+      const shouldDelete = deleteLocalFile;
       setIsDeleteDialogOpen(false);
+      setDeleteLocalFile(false);
       setSelectedDownload(null);
+      await deleteDownload(download.gid, shouldDelete);
     }
   };
   
@@ -216,7 +218,17 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
             )}
           </div>
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon-xs" className="h-7 w-7 text-muted-foreground hover:text-red-500 hover:bg-red-500/10" title="Remove Download" aria-label="Remove download" onClick={() => setIsDeleteDialogOpen(true)}>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="h-7 w-7 text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
+              title="Remove Download"
+              aria-label="Remove download"
+              onClick={() => {
+                setDeleteLocalFile(false);
+                setIsDeleteDialogOpen(true);
+              }}
+            >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
             <Button variant="ghost" size="icon-xs" className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted" title="Close Panel (Esc)" aria-label="Close panel" onClick={() => setSelectedDownload(null)}>
@@ -570,7 +582,13 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
         })()}
       </div>
 
-      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+      <Dialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(open) => {
+          setIsDeleteDialogOpen(open);
+          if (!open) setDeleteLocalFile(false);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Remove Download</DialogTitle>
@@ -591,7 +609,15 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
             </label>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsDeleteDialogOpen(false);
+                setDeleteLocalFile(false);
+              }}
+            >
+              Cancel
+            </Button>
             <Button variant="destructive" onClick={handleDelete}>Remove</Button>
           </DialogFooter>
         </DialogContent>

@@ -33,6 +33,6 @@ try {
     stdio: 'inherit'
   });
   console.log(`[sync-versions] Updated Cargo.lock successfully.`);
-} catch (e) {
+} catch {
   console.log('[sync-versions] Failed to automatically update Cargo.lock');
 }

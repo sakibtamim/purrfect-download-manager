@@ -23,6 +23,11 @@ export async function getSettingsStore(): Promise<Store> {
   return settingsStoreCache;
 }
 
+export function _resetSettingsStoreForTesting() {
+  settingsStoreCache = null;
+  mockStore.clear();
+}
+
 export interface SettingsSlice {
   defaultDownloadDir: string;
   maxConcurrentDownloads: number;
@@ -111,12 +116,16 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
     }
 
     try {
-      await aria2Client.changeGlobalOption({
+      const options: Record<string, string> = {
         'max-concurrent-downloads': maxConcurrent.toString(),
         'split': split.toString(),
         'max-connection-per-server': Math.min(split, 16).toString(),
         'min-split-size': '1M'
-      });
+      };
+      if (dir && dir.trim()) {
+        options['dir'] = dir;
+      }
+      await aria2Client.changeGlobalOption(options);
     } catch (err) {
       console.warn('Failed to apply initial aria2 settings:', err);
     }
@@ -127,6 +136,13 @@ export const createSettingsSlice: StateCreator<DownloadState, [], [], SettingsSl
     await store.set('defaultDownloadDir', dir);
     await store.save();
     set({ defaultDownloadDir: dir });
+    if (dir && dir.trim()) {
+      try {
+        await aria2Client.changeGlobalOption({ dir });
+      } catch (err) {
+        console.warn('Failed to update aria2 default download dir:', err);
+      }
+    }
   },
 
   setMaxConcurrentDownloads: async (max: number) => {

@@ -57,6 +57,15 @@ export function AppInitializer() {
     let active = true;
     const unlistens: (() => void)[] = [];
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      import('@tauri-apps/api/core').then(({ invoke }) => {
+        if (!active) return;
+        invoke<string | null>('get_aria2_error').then(err => {
+          if (err && active) {
+            useAppStore.getState().setEngineStatus('error', err);
+          }
+        }).catch(() => {});
+      }).catch(console.warn);
+
       import('@tauri-apps/api/event').then(({ listen }) => {
         if (!active) return;
         listen('tray-pause-all', () => pauseAllDownloads()).then(f => {
@@ -67,6 +76,11 @@ export function AppInitializer() {
         }).catch(console.warn);
         listen<boolean>('tray-autostart-changed', (event) => {
           useAppStore.setState({ autoStart: event.payload });
+        }).then(f => {
+          if (active) unlistens.push(f); else f();
+        }).catch(console.warn);
+        listen<string>('aria2-error', (event) => {
+          useAppStore.getState().setEngineStatus('error', event.payload);
         }).then(f => {
           if (active) unlistens.push(f); else f();
         }).catch(console.warn);

@@ -24,6 +24,7 @@ import { useDownloadStore } from "@/store/downloadStore";
 export function Sidebar() {
   const pathname = usePathname();
   const isPlayfulMode = useDownloadStore((state) => state.isPlayfulMode);
+  const engineStatus = useDownloadStore((state) => state.engineStatus);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const navItems = [
@@ -152,8 +153,12 @@ export function Sidebar() {
               height={48}
               className="h-8 w-8 opacity-80 group-hover:opacity-100 transition-all duration-300 drop-shadow-[0_0_8px_rgba(56,189,248,0.45)] object-contain"
             />
-            <p className="text-[11px] text-muted-foreground font-medium leading-tight">
-              {isPlayfulMode ? "Ready to catch bytes 🐾" : "System ready"}
+            <p className={cn("text-[11px] font-medium leading-tight", engineStatus === "error" ? "text-destructive" : "text-muted-foreground")}>
+              {engineStatus === "error"
+                ? "Engine offline"
+                : isPlayfulMode
+                ? "Ready to catch bytes 🐾"
+                : "System ready"}
             </p>
           </div>
         )}

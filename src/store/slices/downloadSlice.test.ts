@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { create, StoreApi } from 'zustand';
-import { createDownloadSlice, DownloadDataSlice } from './downloadSlice';
+import { createDownloadSlice, DownloadDataSlice, getMetaStore, _resetMetaStoreForTesting } from './downloadSlice';
 import { createSettingsSlice, SettingsSlice } from './settingsSlice';
 import { createUISlice, UISlice } from './uiSlice';
 import { DownloadState, PendingMux, StagedDownload } from '../types';
-import { aria2Client } from '@/lib/aria2Client';
+import { aria2Client, Aria2Download } from '@/lib/aria2Client';
 import { UserAttentionType } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -65,6 +65,11 @@ describe('uiSlice defaults and viewMode switcher', () => {
 describe('downloadSlice metadata tracking', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    _resetMetaStoreForTesting();
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'getGlobalStat').mockResolvedValue({ downloadSpeed: '0', numActive: '0', numWaiting: '0', numStopped: '0' });
   });
 
   it('stores sourceUrl and title in downloadMetadata on addDownload and clears on delete', async () => {
@@ -216,6 +221,75 @@ describe('downloadSlice metadata tracking', () => {
       expect.stringContaining('Attempted to download HLS manifest directly with aria2:'),
       'https://manifest.googlevideo.com/playlist/index.m3u8'
     );
+    expect(useTestStore.getState().downloadMetadata['gid-m3u8']?.title).toBe('video.m3u8');
+  });
+
+  it('initializes engineStatus to connecting and updates to connected on successful fetch', async () => {
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'getGlobalStat').mockResolvedValue({ downloadSpeed: '0', numActive: '0', numWaiting: '0', numStopped: '0' });
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    expect(useTestStore.getState().engineStatus).toBe('connecting');
+    expect(useTestStore.getState().engineError).toBeNull();
+
+    await useTestStore.getState().fetchDownloads();
+
+    expect(useTestStore.getState().engineStatus).toBe('connected');
+    expect(useTestStore.getState().engineError).toBeNull();
+  });
+
+  it('surfaces engineStatus error when aria2 connection fails rather than silently swallowing', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(aria2Client, 'tellActive').mockRejectedValue(new Error('fetch failed: Connection refused (127.0.0.1:6800)'));
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().fetchDownloads();
+
+    expect(useTestStore.getState().engineStatus).toBe('error');
+    expect(useTestStore.getState().engineError).toBe('fetch failed: Connection refused (127.0.0.1:6800)');
+    expect(errorSpy).toHaveBeenCalledWith(
+      'Failed to fetch aria2 status:',
+      'fetch failed: Connection refused (127.0.0.1:6800)',
+      expect.any(Error)
+    );
+  });
+
+  it('allows updating engineStatus via setEngineStatus', () => {
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    useTestStore.getState().setEngineStatus('error', 'Port collision on 6800');
+    expect(useTestStore.getState().engineStatus).toBe('error');
+    expect(useTestStore.getState().engineError).toBe('Port collision on 6800');
+
+    useTestStore.getState().setEngineStatus('connected');
+    expect(useTestStore.getState().engineStatus).toBe('connected');
+    expect(useTestStore.getState().engineError).toBeNull();
+  });
+
+  it('preserves prior descriptive engineError when fetchDownloads catches connection failure', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(aria2Client, 'tellActive').mockRejectedValue(new Error('generic fetch failed'));
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    useTestStore.getState().setEngineStatus('error', 'Failed to find available port for aria2: all ports in range 6800-6820 are occupied');
+
+    await useTestStore.getState().fetchDownloads();
+
+    expect(useTestStore.getState().engineStatus).toBe('error');
+    expect(useTestStore.getState().engineError).toBe('Failed to find available port for aria2: all ports in range 6800-6820 are occupied');
   });
 });
 
@@ -473,5 +547,329 @@ describe('stageDownload and clearStagedDownload window elevation lifecycle', () 
     expect(mockWindow.show).toHaveBeenCalledTimes(1);
     expect(mockWindow.setAlwaysOnTop).toHaveBeenCalledWith(true);
     expect(useTestStore.getState().stagedDownload).toEqual(sampleStaged);
+  });
+});
+
+describe('deleteDownload disk hygiene, mux stream cleanup, and directory removal', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    vi.spyOn(aria2Client, 'remove').mockResolvedValue('OK');
+    vi.spyOn(aria2Client, 'removeDownloadResult').mockResolvedValue('OK');
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'getGlobalStat').mockResolvedValue({ downloadSpeed: '0', numActive: '0', numWaiting: '0', numStopped: '0' });
+  });
+
+  it('deletes normal single file and control file with task directory when removeLocalFile is true', async () => {
+    const mockDl = {
+      gid: 'dl-1',
+      status: 'active' as const,
+      totalLength: '100',
+      completedLength: '50',
+      downloadSpeed: '0',
+      dir: '/custom/storage',
+      files: [{ path: '/custom/storage/doc.pdf', length: '100', completedLength: '50', uris: [] }]
+    };
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) => {
+      const slice = createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>);
+      return {
+        ...slice,
+        active: [mockDl]
+      };
+    });
+
+    expect(useTestStore.getState().active).toHaveLength(1);
+    await useTestStore.getState().deleteDownload('dl-1', true);
+
+    expect(invoke).toHaveBeenCalledWith('delete_downloaded_file', {
+      path: '/custom/storage/doc.pdf',
+      customDir: '/custom/storage'
+    });
+    expect(invoke).toHaveBeenCalledWith('delete_downloaded_file', {
+      path: '/custom/storage/doc.pdf.aria2',
+      customDir: '/custom/storage'
+    });
+    expect(useTestStore.getState().active).toHaveLength(0);
+    expect(useTestStore.getState().downloadMetadata['dl-1']).toBe(undefined);
+  });
+
+  it('cleans up intermediate video and audio stream fragments when deleting pending muxed download', async () => {
+    const mockVideo = {
+      gid: 'vid-m1',
+      status: 'active' as const,
+      totalLength: '1000',
+      completedLength: '500',
+      downloadSpeed: '0',
+      dir: '/media/videos',
+      files: [{ path: '/media/videos/FullMovie.mp4', length: '1000', completedLength: '500', uris: [] }]
+    };
+    const mockAudio = {
+      gid: 'aud-m1',
+      status: 'active' as const,
+      totalLength: '200',
+      completedLength: '100',
+      downloadSpeed: '0',
+      dir: '/media/videos',
+      files: [{ path: '/media/videos/FullMovie.audio.m4a', length: '200', completedLength: '100', uris: [] }]
+    };
+
+    const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => {
+      const slice = createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>);
+      return {
+        ...slice,
+        active: [mockVideo],
+        pendingMuxes: [{
+          videoGid: 'vid-m1',
+          audioGid: 'aud-m1',
+          finalFilename: 'FullMovie.mp4',
+          status: 'waiting'
+        }]
+      };
+    });
+
+    // Provide companion audio in allDownloads lookup
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([mockVideo, mockAudio]);
+
+    await useTestStore.getState().deleteDownload('vid-m1', true);
+
+    const invokedCalls = vi.mocked(invoke).mock.calls
+      .filter(call => call[0] === 'delete_downloaded_file')
+      .map(call => (call[1] as { path: string; customDir: string }).path);
+
+    expect(invokedCalls).toContain('/media/videos/FullMovie.mp4');
+    expect(invokedCalls).toContain('/media/videos/FullMovie.video.mp4');
+    expect(invokedCalls).toContain('/media/videos/FullMovie.audio.m4a');
+    expect(invokedCalls).toContain('/media/videos/FullMovie.video.mp4.aria2');
+    expect(invokedCalls).toContain('/media/videos/FullMovie.audio.m4a.aria2');
+    expect(useTestStore.getState().pendingMuxes.some(m => m.videoGid === 'vid-m1')).toBe(false);
+  });
+
+  it('cleans up multi-file folder when multi-file download is deleted with removeLocalFile is true', async () => {
+    const mockTorrent = {
+      gid: 'torrent-1',
+      status: 'complete' as const,
+      totalLength: '5000',
+      completedLength: '5000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [
+        { path: '/downloads/Ubuntu-Release/ubuntu.iso', length: '4000', completedLength: '4000', uris: [] },
+        { path: '/downloads/Ubuntu-Release/SHA256SUMS', length: '1000', completedLength: '1000', uris: [] }
+      ]
+    };
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) => {
+      const slice = createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>);
+      return {
+        ...slice,
+        completed: [mockTorrent]
+      };
+    });
+
+    await useTestStore.getState().deleteDownload('torrent-1', true);
+
+    const invokedCalls = vi.mocked(invoke).mock.calls
+      .filter(call => call[0] === 'delete_downloaded_file')
+      .map(call => (call[1] as { path: string; customDir: string }).path);
+
+    expect(invokedCalls).toContain('/downloads/Ubuntu-Release/ubuntu.iso');
+    expect(invokedCalls).toContain('/downloads/Ubuntu-Release/SHA256SUMS');
+    expect(invokedCalls).toContain('/downloads/Ubuntu-Release');
+    expect(useTestStore.getState().downloadMetadata['torrent-1']).toBeUndefined();
+  });
+
+  it('does not invoke delete_downloaded_file when removeLocalFile is false', async () => {
+    const mockDl = {
+      gid: 'dl-keep',
+      status: 'complete' as const,
+      totalLength: '100',
+      completedLength: '100',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/keep.txt', length: '100', completedLength: '100', uris: [] }]
+    };
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) => {
+      const slice = createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>);
+      return {
+        ...slice,
+        completed: [mockDl]
+      };
+    });
+
+    expect(useTestStore.getState().completed).toHaveLength(1);
+    await useTestStore.getState().deleteDownload('dl-keep', false);
+
+    expect(invoke).not.toHaveBeenCalledWith('delete_downloaded_file', expect.anything());
+    expect(useTestStore.getState().completed).toHaveLength(0);
+    expect(useTestStore.getState().downloadMetadata['dl-keep']).toBe(undefined);
+  });
+
+  it('cleans up multi-file folder when a download has a single file in a dedicated subfolder', async () => {
+    const mockSingleFileTorrent = {
+      gid: 'single-torrent',
+      status: 'complete' as const,
+      totalLength: '2000',
+      completedLength: '2000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [
+        { path: '/downloads/SingleRelease/movie.mkv', length: '2000', completedLength: '2000', uris: [] }
+      ]
+    };
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) => {
+      const slice = createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>);
+      return {
+        ...slice,
+        completed: [mockSingleFileTorrent]
+      };
+    });
+
+    await useTestStore.getState().deleteDownload('single-torrent', true);
+
+    const invokedCalls = vi.mocked(invoke).mock.calls
+      .filter(call => call[0] === 'delete_downloaded_file')
+      .map(call => (call[1] as { path: string; customDir: string }).path);
+
+    expect(invokedCalls).toContain('/downloads/SingleRelease/movie.mkv');
+    expect(invokedCalls).toContain('/downloads/SingleRelease');
+    expect(useTestStore.getState().completed).toHaveLength(0);
+    expect(useTestStore.getState().downloadMetadata['single-torrent']).toBeUndefined();
+  });
+
+  it('calls aria2 removeDownloadResult on active tasks to prevent task re-appearance in fetchDownloads', async () => {
+    const mockActiveDl = {
+      gid: 'active-task',
+      status: 'active' as const,
+      totalLength: '1000',
+      completedLength: '200',
+      downloadSpeed: '100',
+      dir: '/downloads',
+      files: [{ path: '/downloads/file.bin', length: '1000', completedLength: '200', uris: [] }]
+    };
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) => {
+      const slice = createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>);
+      return {
+        ...slice,
+        active: [mockActiveDl]
+      };
+    });
+
+    await useTestStore.getState().deleteDownload('active-task', false);
+
+    expect(aria2Client.remove).toHaveBeenCalledWith('active-task');
+    expect(aria2Client.removeDownloadResult).toHaveBeenCalledWith('active-task');
+    expect(useTestStore.getState().active).toEqual([]);
+    expect(useTestStore.getState().downloadMetadata['active-task']).toBeUndefined();
+  });
+
+  it('cleans up completed and orphaned metadata records on clearCompletedDownloads', async () => {
+    vi.spyOn(aria2Client, 'purgeDownloadResult').mockResolvedValue('OK');
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'getGlobalStat').mockResolvedValue({ downloadSpeed: '0', numActive: '0', numWaiting: '0', numStopped: '0' });
+
+    const metaStore = await getMetaStore();
+    await metaStore.set('completed-gid-1', { title: 'file1.zip', sourceUrl: 'https://example.com/1' });
+    await metaStore.set('orphaned-gid-2', { title: 'file2.zip', sourceUrl: 'https://example.com/2' });
+    await metaStore.save();
+
+    const mockCompletedDl: Aria2Download = {
+      gid: 'completed-gid-1',
+      status: 'complete',
+      totalLength: '1000',
+      completedLength: '1000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/file1.zip', length: '1000', completedLength: '1000', uris: [] }],
+    };
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) => {
+      const slice = createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>);
+      return {
+        ...slice,
+        completed: [mockCompletedDl],
+        downloadMetadata: {
+          'completed-gid-1': { title: 'file1.zip' },
+          'orphaned-gid-2': { title: 'file2.zip' },
+        },
+      };
+    });
+
+    await useTestStore.getState().clearCompletedDownloads();
+
+    expect(aria2Client.purgeDownloadResult).toHaveBeenCalled();
+    expect(useTestStore.getState().downloadMetadata['completed-gid-1']).toBeUndefined();
+    expect(useTestStore.getState().downloadMetadata['orphaned-gid-2']).toBeUndefined();
+    expect(await metaStore.get('completed-gid-1')).toBeNull();
+    expect(await metaStore.get('orphaned-gid-2')).toBeNull();
+  });
+
+  it('preserves in-flight pending mux downloads during clearCompletedDownloads', async () => {
+    vi.spyOn(aria2Client, 'purgeDownloadResult').mockResolvedValue('OK');
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'getGlobalStat').mockResolvedValue({ downloadSpeed: '0', numActive: '0', numWaiting: '0', numStopped: '0' });
+
+    const metaStore = await getMetaStore();
+    await metaStore.set('video-gid-100', { title: 'video.mp4', sourceUrl: 'https://youtube.com/v' });
+    await metaStore.set('audio-gid-100', { title: 'audio.m4a', sourceUrl: 'https://youtube.com/a' });
+    await metaStore.set('completed-clean-1', { title: 'other.iso' });
+    await metaStore.save();
+
+    const mockCompletedVideo: Aria2Download = {
+      gid: 'video-gid-100',
+      status: 'complete',
+      totalLength: '2000',
+      completedLength: '2000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/video.mp4', length: '2000', completedLength: '2000', uris: [] }],
+    };
+
+    const mockOtherCompleted: Aria2Download = {
+      gid: 'completed-clean-1',
+      status: 'complete',
+      totalLength: '500',
+      completedLength: '500',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/other.iso', length: '500', completedLength: '500', uris: [] }],
+    };
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) => {
+      const slice = createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>);
+      return {
+        ...slice,
+        completed: [mockCompletedVideo, mockOtherCompleted],
+        pendingMuxes: [
+          { videoGid: 'video-gid-100', audioGid: 'audio-gid-100', finalFilename: 'video_final.mp4', status: 'muxing' },
+        ],
+        downloadMetadata: {
+          'video-gid-100': { title: 'video.mp4' },
+          'audio-gid-100': { title: 'audio.m4a' },
+          'completed-clean-1': { title: 'other.iso' },
+        },
+      };
+    });
+
+    await useTestStore.getState().clearCompletedDownloads();
+
+    // The clean completed download was removed
+    expect(useTestStore.getState().downloadMetadata['completed-clean-1']).toBeUndefined();
+    expect(await metaStore.get('completed-clean-1')).toBeNull();
+
+    // The in-flight pending mux video and audio downloads were preserved
+    expect(useTestStore.getState().downloadMetadata['video-gid-100']).toEqual({ title: 'video.mp4' });
+    expect(useTestStore.getState().downloadMetadata['audio-gid-100']).toEqual({ title: 'audio.m4a' });
+    expect(await metaStore.get('video-gid-100')).not.toBeNull();
+    expect(await metaStore.get('audio-gid-100')).not.toBeNull();
   });
 });

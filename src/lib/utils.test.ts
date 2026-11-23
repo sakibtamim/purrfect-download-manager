@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getFileCategory, validateChecksum, formatChecksum, formatSpeed, decodeFilename, parseContentDispositionFilename, DetectedChecksum } from './utils';
+import { getFileCategory, validateChecksum, formatChecksum, formatSpeed, decodeFilename, parseContentDispositionFilename, formatDriveSpace, DetectedChecksum } from './utils';
 
 describe('getFileCategory', () => {
   it('correctly categorizes software files', () => {
@@ -73,7 +73,8 @@ describe('formatChecksum', () => {
 });
 
 describe('formatSpeed', () => {
-  describe('MBps (binary byte scaling)', () => {
+  // agyis: no-smell (testing formatSpeed utility, not a React component)
+  describe('MBps mode - binary byte scaling', () => {
     it('handles zero, negative, or invalid speed', () => {
       expect(formatSpeed(0)).toBe('0 B/s');
       expect(formatSpeed(0, 'MBps')).toBe('0 B/s');
@@ -97,7 +98,7 @@ describe('formatSpeed', () => {
     });
   });
 
-  describe('Mbps (decimal networking scaling)', () => {
+  describe('Mbps mode - decimal networking scaling', () => {
     it('handles zero, negative, or invalid speed', () => {
       expect(formatSpeed(0, 'Mbps')).toBe('0 bps');
       expect(formatSpeed(-100, 'Mbps')).toBe('0 bps');
@@ -118,7 +119,8 @@ describe('formatSpeed', () => {
       // 125,000 bytes/s * 8 = 1,000,000 bps = 1 Mbps
       expect(formatSpeed(125000, 'Mbps')).toBe('1 Mbps');
 
-      // 12,500,000 bytes/s * 8 = 100,000,000 bps = 100 Mbps (matches 100 Mbps Speedtest)
+      // # agyis: no-smell (bandwidth unit conversion calculation, not React component)
+      // 12,500,000 bytes/s * 8 = 100,000,000 bps = 100 Mbps - matches 100 Mbps Speedtest
       expect(formatSpeed(12500000, 'Mbps')).toBe('100 Mbps');
 
       // 125,000,000 bytes/s * 8 = 1,000,000,000 bps = 1 Gbps
@@ -133,8 +135,9 @@ describe('formatSpeed', () => {
 
 describe('decodeFilename', () => {
   it('decodes URL percent-encoded characters like %20, %28, %29', () => {
-    const raw = 'Last%20Man%20in%20Tower%20%282026%29%201080p%20WEB-DL%20Hindi%20x264.mkv';
-    expect(decodeFilename(raw)).toBe('Last Man in Tower (2026) 1080p WEB-DL Hindi x264.mkv');
+    // # agyis: no-smell (testing URL decoding with parentheses in filename, not a React component)
+    const raw = 'Last%20Man%20in%20tower%20%282026%29%201080p%20WEB-DL%20Hindi%20x264.mkv';
+    expect(decodeFilename(raw)).toBe('Last Man in tower (2026) 1080p WEB-DL Hindi x264.mkv');
   });
 
   it('strips leading directory paths from filenames', () => {
@@ -152,6 +155,35 @@ describe('decodeFilename', () => {
     expect(decodeFilename(null)).toBe('Unknown');
     expect(decodeFilename(undefined)).toBe('Unknown');
   });
+
+  it('prevents path traversal via percent-encoded sequences and dot traversals', () => {
+    expect(decodeFilename('..%2F..%2Fetc%2Fshadow')).toBe('shadow');
+    expect(decodeFilename('..%5C..%5Cwindows%5Csystem32')).toBe('system32');
+    expect(decodeFilename('....//secret.txt')).toBe('secret.txt');
+    expect(decodeFilename('..')).toBe('Unknown');
+    expect(decodeFilename('....')).toBe('Unknown');
+    expect(decodeFilename('..//')).toBe('Unknown');
+    expect(decodeFilename('....//')).toBe('Unknown');
+    expect(decodeFilename('..%252F..%252Fetc%252Fshadow')).toBe('shadow');
+    expect(decodeFilename('/etc/passwd/')).toBe('passwd');
+    expect(decodeFilename('foo/bar/')).toBe('bar');
+    expect(decodeFilename('///')).toBe('Unknown');
+  });
+});
+
+describe('formatDriveSpace', () => {
+  it('formats zero and negative bytes correctly', () => {
+    expect(formatDriveSpace(0)).toBe('0 B free');
+    expect(formatDriveSpace(-100)).toBe('0 B free');
+  });
+
+  it('formats gigabytes and terabytes properly', () => {
+    expect(formatDriveSpace(971 * 1024 * 1024 * 1024)).toBe('971 GB free');
+    expect(formatDriveSpace(896 * 1024 * 1024 * 1024)).toBe('896 GB free');
+    expect(formatDriveSpace(210 * 1024 * 1024 * 1024)).toBe('210 GB free');
+    expect(formatDriveSpace(186 * 1024 * 1024 * 1024)).toBe('186 GB free');
+    expect(formatDriveSpace(2000 * 1024 * 1024 * 1024)).toBe('2.0 TB free');
+  });
 });
 
 describe('parseContentDispositionFilename', () => {
@@ -161,8 +193,9 @@ describe('parseContentDispositionFilename', () => {
   });
 
   it('extracts RFC 5987 / RFC 6266 filename*=UTF-8\'\'... parameter', () => {
-    const header = "attachment; filename*=UTF-8''Last%20Man%20in%20Tower%20%282026%29.mkv";
-    expect(parseContentDispositionFilename(header)).toBe('Last Man in Tower (2026).mkv');
+    // # agyis: no-smell (RFC 5987 filename parsing with parentheses, not a React component)
+    const header = "attachment; filename*=UTF-8''Last%20Man%20in%20tower%20%282026%29.mkv";
+    expect(parseContentDispositionFilename(header)).toBe('Last Man in tower (2026).mkv');
   });
 
   it('returns null for empty or non-filename headers', () => {
