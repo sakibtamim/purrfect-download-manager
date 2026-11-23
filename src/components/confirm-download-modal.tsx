@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useAppStore } from "@/store";
+import type { StagedDownload } from "@/store/types";
 import { open } from "@tauri-apps/plugin-dialog";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -72,140 +73,126 @@ export function resolveInitialDownloadSelection(staged: {
   return { selectedUrl, displaySize };
 }
 
-export function ConfirmDownloadModal() {
-  const stagedDownload = useAppStore((state) => state.stagedDownload);
-  const clearStagedDownload = useAppStore((state) => state.clearStagedDownload);
-  const addDownload = useAppStore((state) => state.addDownload);
-  const [saveDir, setSaveDir] = useState<string>("");
-  const [rawFilename, setRawFilename] = useState<string>("Unknown");
-  const [displayFilename, setDisplayFilename] = useState<string>("Unknown");
-  const [isUserEditedFilename, setIsUserEditedFilename] = useState(false);
-  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
-  const [displaySize, setDisplaySize] = useState<string>("Unknown size");
-  const [securityStatus, setSecurityStatus] = useState<'scanning' | 'safe' | 'unsafe' | 'no-key' | 'error'>('no-key');
-  const [threatDetails, setThreatDetails] = useState<string>('');
-  const [selectedFormatUrl, setSelectedFormatUrl] = useState<string>("");
-  const [checksumDigest, setChecksumDigest] = useState<string>("");
-  const [checksumAlgorithm, setChecksumAlgorithm] = useState<ChecksumAlgorithm>("sha256");
-  const [checksumSource, setChecksumSource] = useState<string>("");
-  const [prevStagedDownload, setPrevStagedDownload] = useState<unknown>(null);
-
-  // Synchronous state updates during render to avoid cascading updates in effect
-  if (stagedDownload !== prevStagedDownload) {
-    setPrevStagedDownload(stagedDownload);
-    if (stagedDownload) {
-      setSaveDir(""); 
-      setIsUserEditedFilename(false);
-      const hasChecksum = Boolean(stagedDownload.checksum);
-      setIsAdvancedOpen(hasChecksum);
-      if (stagedDownload.checksum && typeof stagedDownload.checksum === 'object') {
-        const c = stagedDownload.checksum as DetectedChecksum;
-        setChecksumDigest(c.digest || "");
-        setChecksumAlgorithm(c.algorithm || "sha256");
-        setChecksumSource(c.source || "");
-      } else if (typeof stagedDownload.checksum === 'string') {
-        setChecksumDigest(stagedDownload.checksum);
-        setChecksumAlgorithm("sha256");
-        setChecksumSource("");
-      } else {
-        setChecksumDigest("");
-        setChecksumAlgorithm("sha256");
-        setChecksumSource("");
-      }
-      
-      const apiKey = useAppStore.getState().safeBrowsingApiKey;
-      setSecurityStatus(apiKey ? 'scanning' : 'no-key');
-      
-      setThreatDetails('');
-
-      const { selectedUrl, displaySize: initialSize } = resolveInitialDownloadSelection(stagedDownload);
-      setSelectedFormatUrl(selectedUrl);
-      setDisplaySize(initialSize);
-
-      let name = stagedDownload.filename || "";
-      if (name) name = decodeFilename(name);
-      else if (stagedDownload.url) {
-        try {
-          const raw = new URL(stagedDownload.url).pathname.split('/').pop() || "Unknown";
-          name = decodeFilename(raw);
-        } catch { name = "Unknown"; }
-      }
-      setRawFilename(name || "Unknown");
+function getInitialFilename(stagedDownload: StagedDownload): string {
+  if (stagedDownload.filename) {
+    return decodeFilename(stagedDownload.filename);
+  }
+  if (stagedDownload.url) {
+    try {
+      const raw = new URL(stagedDownload.url).pathname.split('/').pop() || "Unknown";
+      return decodeFilename(raw);
+    } catch {
+      return "Unknown";
     }
   }
+  return "Unknown";
+}
+
+interface ConfirmDownloadDialogContentProps {
+  stagedDownload: StagedDownload;
+  onClose: () => void;
+}
+
+function ConfirmDownloadDialogContent({ stagedDownload, onClose }: ConfirmDownloadDialogContentProps) {
+  const addDownload = useAppStore((state) => state.addDownload);
+
+  const { selectedUrl, displaySize: initialSize } = resolveInitialDownloadSelection(stagedDownload);
+  const initialName = getInitialFilename(stagedDownload);
+  const initialChecksum = stagedDownload.checksum && typeof stagedDownload.checksum === 'object'
+    ? (stagedDownload.checksum as DetectedChecksum)
+    : undefined;
+
+  const [saveDir, setSaveDir] = useState<string>("");
+  const [rawFilename, setRawFilename] = useState<string>(initialName);
+  const [displayFilename, setDisplayFilename] = useState<string>(initialName);
+  const [isUserEditedFilename, setIsUserEditedFilename] = useState(false);
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(Boolean(stagedDownload.checksum));
+  const [displaySize, setDisplaySize] = useState<string>(initialSize);
+  const [securityStatus, setSecurityStatus] = useState<'scanning' | 'safe' | 'unsafe' | 'no-key' | 'error'>(() => {
+    return useAppStore.getState().safeBrowsingApiKey ? 'scanning' : 'no-key';
+  });
+  const [threatDetails, setThreatDetails] = useState<string>('');
+  const [selectedFormatUrl, setSelectedFormatUrl] = useState<string>(selectedUrl);
+  const [checksumDigest, setChecksumDigest] = useState<string>(
+    typeof stagedDownload.checksum === 'string'
+      ? stagedDownload.checksum
+      : (initialChecksum?.digest || "")
+  );
+  const [checksumAlgorithm, setChecksumAlgorithm] = useState<ChecksumAlgorithm>(
+    initialChecksum?.algorithm || "sha256"
+  );
+  const [checksumSource, setChecksumSource] = useState<string>(
+    initialChecksum?.source || ""
+  );
 
   useEffect(() => {
-    if (stagedDownload) {
-      if ((!stagedDownload.fileSize || stagedDownload.fileSize <= 0) && (!stagedDownload.mediaFormats || stagedDownload.mediaFormats.length === 0)) {
-        // Trigger background HEAD request to get real size and name
-        tauriFetch(stagedDownload.url, { method: "HEAD" })
-          .then(res => {
-            const sizeHeader = res.headers.get("content-length");
-            if (sizeHeader) {
-              const bytes = parseInt(sizeHeader, 10);
-              if (!isNaN(bytes)) {
-                if (bytes > 1024 * 1024 * 1024) {
-                  setDisplaySize(`${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`);
-                } else if (bytes > 1024 * 1024) {
-                  setDisplaySize(`${(bytes / (1024 * 1024)).toFixed(2)} MB`);
-                } else if (bytes > 1024) {
-                  setDisplaySize(`${(bytes / 1024).toFixed(2)} KB`);
-                } else {
-                  setDisplaySize(`${bytes} B`);
-                }
+    if ((!stagedDownload.fileSize || stagedDownload.fileSize <= 0) && (!stagedDownload.mediaFormats || stagedDownload.mediaFormats.length === 0)) {
+      tauriFetch(stagedDownload.url, { method: "HEAD" })
+        .then(res => {
+          const sizeHeader = res.headers.get("content-length");
+          if (sizeHeader) {
+            const bytes = parseInt(sizeHeader, 10);
+            if (!isNaN(bytes)) {
+              if (bytes > 1024 * 1024 * 1024) {
+                setDisplaySize(`${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`);
+              } else if (bytes > 1024 * 1024) {
+                setDisplaySize(`${(bytes / (1024 * 1024)).toFixed(2)} MB`);
+              } else if (bytes > 1024) {
+                setDisplaySize(`${(bytes / 1024).toFixed(2)} KB`);
+              } else {
+                setDisplaySize(`${bytes} B`);
               }
             }
-            
-            const dispHeader = res.headers.get("content-disposition");
-            if (dispHeader) {
-              const parsedName = parseContentDispositionFilename(dispHeader);
-              if (parsedName) {
-                setRawFilename(parsedName);
-              }
-            }
-          })
-          .catch(e => console.warn("Failed to fetch HEAD metadata:", e));
-      }
-
-      // Perform Security Scan
-      const apiKey = useAppStore.getState().safeBrowsingApiKey;
-      if (apiKey) {
-        tauriFetch(`https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${apiKey}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            client: { clientId: "purrfect-download-manager", clientVersion: "1.0.0" },
-            threatInfo: {
-              threatTypes: ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
-              platformTypes: ["ANY_PLATFORM"],
-              threatEntryTypes: ["URL"],
-              threatEntries: [{ url: stagedDownload.url }]
-            }
-          })
-        })
-        .then(async res => {
-          const data = await res.json();
-          if (!res.ok || data.error) {
-            throw new Error(data.error?.message || `API Error ${res.status}`);
           }
-          return data;
-        })
-        .then(data => {
-          if (data.matches && data.matches.length > 0) {
-            setSecurityStatus('unsafe');
-            setThreatDetails(data.matches[0].threatType);
-          } else {
-            setSecurityStatus('safe');
+          
+          const dispHeader = res.headers.get("content-disposition");
+          if (dispHeader) {
+            const parsedName = parseContentDispositionFilename(dispHeader);
+            if (parsedName) {
+              setRawFilename(parsedName);
+            }
           }
         })
-        .catch(e => {
-          console.warn("Security scan failed:", e);
-          setSecurityStatus('error');
-          setThreatDetails(e.message || 'Scan failed');
-        });
-      }
+        .catch(e => console.warn("Failed to fetch HEAD metadata:", e));
     }
-  }, [stagedDownload]);
+
+    const apiKey = useAppStore.getState().safeBrowsingApiKey;
+    if (apiKey) {
+      tauriFetch(`https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client: { clientId: "purrfect-download-manager", clientVersion: "1.0.0" },
+          threatInfo: {
+            threatTypes: ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
+            platformTypes: ["ANY_PLATFORM"],
+            threatEntryTypes: ["URL"],
+            threatEntries: [{ url: stagedDownload.url }]
+          }
+        })
+      })
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(data.error?.message || `API Error ${res.status}`);
+        }
+        return data;
+      })
+      .then(data => {
+        if (data.matches && data.matches.length > 0) {
+          setSecurityStatus('unsafe');
+          setThreatDetails(data.matches[0].threatType);
+        } else {
+          setSecurityStatus('safe');
+        }
+      })
+      .catch(e => {
+        console.warn("Security scan failed:", e);
+        setSecurityStatus('error');
+        setThreatDetails(e.message || 'Scan failed');
+      });
+    }
+  }, [stagedDownload.url, stagedDownload.fileSize, stagedDownload.mediaFormats]);
 
   useEffect(() => {
     let active = true;
@@ -223,7 +210,7 @@ export function ConfirmDownloadModal() {
   const handleFormatChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const url = e.target.value;
     setSelectedFormatUrl(url);
-    if (stagedDownload && stagedDownload.mediaFormats) {
+    if (stagedDownload.mediaFormats) {
       const format = stagedDownload.mediaFormats.find(f => f.url === url);
       if (format) {
         let baseName = rawFilename;
@@ -258,8 +245,6 @@ export function ConfirmDownloadModal() {
   };
 
   const handleConfirm = async () => {
-    if (!stagedDownload) return;
-    
     const selectedFormat = stagedDownload.mediaFormats?.find(f => f.url === selectedFormatUrl);
     const urlToDownload = selectedFormatUrl || stagedDownload.url;
     const finalDir = saveDir || "";
@@ -285,14 +270,11 @@ export function ConfirmDownloadModal() {
     } else {
       await addDownload(urlToDownload, stagedDownload.headers || [], finalDir, displayFilename, undefined, finalChecksum, stagedDownload.sourceUrl, stagedDownload.fileSize);
     }
-    clearStagedDownload();
+    onClose();
   };
 
-  if (!stagedDownload) return null;
-
   return (
-    <Dialog open={!!stagedDownload} onOpenChange={(open) => !open && clearStagedDownload()}>
-      <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto bg-card border-border text-foreground p-5 gap-3.5">
+    <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto bg-card border-border text-foreground p-5 gap-3.5">
         <DialogHeader className="space-y-1">
           <div className="flex items-center justify-between gap-2">
             <DialogTitle className="text-base font-semibold">Confirm Download</DialogTitle>
@@ -485,7 +467,7 @@ export function ConfirmDownloadModal() {
         </div>
 
         <DialogFooter className="flex items-center justify-between sm:justify-between border-t border-border pt-3 mt-1">
-          <Button variant="ghost" size="sm" onClick={clearStagedDownload} className="text-muted-foreground hover:text-foreground h-8 text-xs">
+          <Button variant="ghost" size="sm" onClick={onClose} className="text-muted-foreground hover:text-foreground h-8 text-xs">
             Cancel
           </Button>
           <Button 
@@ -501,6 +483,22 @@ export function ConfirmDownloadModal() {
           </Button>
         </DialogFooter>
       </DialogContent>
+  );
+}
+
+export function ConfirmDownloadModal() {
+  const stagedDownload = useAppStore((state) => state.stagedDownload);
+  const clearStagedDownload = useAppStore((state) => state.clearStagedDownload);
+
+  if (!stagedDownload) return null;
+
+  return (
+    <Dialog open={!!stagedDownload} onOpenChange={(open) => !open && clearStagedDownload()}>
+      <ConfirmDownloadDialogContent
+        key={`${stagedDownload.url}-${stagedDownload.filename || ''}-${stagedDownload.fileSize || 0}-${typeof stagedDownload.checksum === 'object' ? stagedDownload.checksum?.digest : (stagedDownload.checksum || '')}`}
+        stagedDownload={stagedDownload}
+        onClose={clearStagedDownload}
+      />
     </Dialog>
   );
 }
