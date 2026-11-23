@@ -47,15 +47,18 @@ export function Sidebar() {
       "flex h-full flex-col bg-sidebar/80 glass border-r border-sidebar-border text-sidebar-foreground transition-all duration-300",
       isCollapsed ? "w-14" : "w-48"
     )}>
-      <div className={cn("flex items-center border-b border-sidebar-border transition-all duration-300", isCollapsed ? "flex-col py-3 gap-2" : "px-3.5 py-3 justify-between")}>
-        <div className="flex items-center justify-center shrink-0">
+      <div className={cn("flex items-center border-b border-sidebar-border transition-all duration-300", isCollapsed ? "flex-col py-3 gap-2" : "px-3 py-2.5 justify-between")}>
+        <div className="flex items-center justify-center shrink-0 min-w-0">
           <Image
-            src="/pdm_logo.png"
-            alt="PDM Logo"
-            width={64}
-            height={64}
+            src={isCollapsed ? "/pdm.png" : "/pdm_logo.png"}
+            alt="PDM - Purrfect Download Manager"
+            width={isCollapsed ? 48 : 256}
+            height={isCollapsed ? 48 : 72}
             priority
-            className="h-8 w-8 object-contain"
+            className={cn(
+              "object-contain transition-all duration-300 drop-shadow-[0_2px_10px_rgba(56,189,248,0.4)] hover:brightness-110",
+              isCollapsed ? "h-8 w-8" : "h-9 w-auto max-w-[130px]"
+            )}
           />
         </div>
         <button
@@ -141,13 +144,13 @@ export function Sidebar() {
 
       <div className="p-2.5 border-t border-sidebar-border">
         {!isCollapsed && (
-          <div className="flex flex-col items-center justify-center space-y-1.5 rounded-lg bg-muted/40 p-2 text-center">
+          <div className="flex flex-col items-center justify-center space-y-1.5 rounded-lg bg-muted/40 p-2 text-center group hover:bg-muted/60 transition-colors">
             <Image
-              src="/pdm_logo.png"
+              src="/pdm.png"
               alt="PDM Mascot"
               width={48}
               height={48}
-              className="h-6 w-6 opacity-40 grayscale object-contain"
+              className="h-8 w-8 opacity-80 group-hover:opacity-100 transition-all duration-300 drop-shadow-[0_0_8px_rgba(56,189,248,0.45)] object-contain"
             />
             <p className="text-[11px] text-muted-foreground font-medium leading-tight">
               {isPlayfulMode ? "Ready to catch bytes 🐾" : "System ready"}
