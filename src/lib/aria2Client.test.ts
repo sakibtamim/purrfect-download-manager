@@ -280,4 +280,25 @@ describe('Aria2Client', () => {
     expect(client.getPort()).toBe(6800);
     expect(client.getRpcUrl()).toBe('http://127.0.0.1:6800/jsonrpc');
   });
+
+  it('routes call via @tauri-apps/plugin-http fetch when in Tauri environment with IPC', async () => {
+    const tauriFetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'pdm-1', jsonrpc: '2.0', result: '1' }),
+    });
+
+    vi.doMock('@tauri-apps/plugin-http', () => ({
+      fetch: tauriFetchMock,
+    }));
+
+    (globalThis as unknown as { window: unknown }).window = {
+      __TAURI_INTERNALS__: { invoke: vi.fn() },
+    };
+
+    client.setSecret('native-secret');
+    await client.pause('gid-123');
+
+    expect(tauriFetchMock).toHaveBeenCalledTimes(1);
+    expect(tauriFetchMock.mock.calls[0][0]).toBe('http://127.0.0.1:6800/jsonrpc');
+  });
 });

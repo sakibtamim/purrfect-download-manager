@@ -33,6 +33,7 @@ export class Aria2Client {
   private secretToken: string | null = null;
   private configPromise: Promise<{ port: number; secret: string | null }> | null = null;
   private isConfigInitialized = false;
+  private tauriFetchFn: typeof fetch | null = null;
 
   constructor() {
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
@@ -54,6 +55,7 @@ export class Aria2Client {
     this.secretToken = null;
     this.isConfigInitialized = false;
     this.configPromise = null;
+    this.tauriFetchFn = null;
   }
 
   async getConfig(): Promise<{ port: number; secret: string | null }> {
@@ -148,7 +150,26 @@ export class Aria2Client {
     const secret = config.secret;
     const finalParams = secret ? [`token:${secret}`, ...params] : params;
     const id = `pdm-${++this.idCount}`;
-    const response = await fetch(this.rpcUrl, {
+
+    let fetchFn: typeof fetch = fetch;
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      if (this.tauriFetchFn) {
+        fetchFn = this.tauriFetchFn;
+      } else {
+        try {
+          const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
+          const hasTauriIpc = typeof (window as unknown as { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__?.invoke === 'function';
+          if (typeof tauriFetch === 'function' && (hasTauriIpc || process.env.NODE_ENV !== 'test')) {
+            this.tauriFetchFn = tauriFetch;
+            fetchFn = tauriFetch;
+          }
+        } catch (err) {
+          console.warn('Failed to load @tauri-apps/plugin-http, falling back to global fetch:', err);
+        }
+      }
+    }
+
+    const response = await fetchFn(this.rpcUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
