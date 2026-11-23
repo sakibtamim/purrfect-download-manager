@@ -24,6 +24,380 @@ pub struct Aria2Secret(pub String);
 #[derive(Clone, Default)]
 pub struct Aria2ErrorState(pub std::sync::Arc<std::sync::Mutex<Option<String>>>);
 
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct SystemDrive {
+    pub id: String,
+    pub label: String,
+    pub mount_point: String,
+    pub free_space: u64,
+    pub total_space: u64,
+    pub is_removable: bool,
+}
+
+#[cfg(target_os = "linux")]
+fn unescape_proc_mount(s: &str) -> String {
+    s.replace("\\040", " ")
+        .replace("\\011", "\t")
+        .replace("\\012", "\n")
+        .replace("\\134", "\\")
+}
+
+#[cfg(target_os = "linux")]
+fn unescape_hex(s: &str) -> String {
+    let mut bytes = Vec::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' && chars.peek() == Some(&'x') {
+            chars.next();
+            let h1 = chars.next();
+            let h2 = chars.next();
+            if let (Some(c1), Some(c2)) = (h1, h2) {
+                if let Ok(byte) = u8::from_str_radix(&format!("{}{}", c1, c2), 16) {
+                    bytes.push(byte);
+                    continue;
+                } else {
+                    bytes.extend_from_slice(b"\\x");
+                    let mut buf = [0u8; 4];
+                    bytes.extend_from_slice(c1.encode_utf8(&mut buf).as_bytes());
+                    bytes.extend_from_slice(c2.encode_utf8(&mut buf).as_bytes());
+                    continue;
+                }
+            } else {
+                bytes.extend_from_slice(b"\\x");
+                if let Some(c1) = h1 {
+                    let mut buf = [0u8; 4];
+                    bytes.extend_from_slice(c1.encode_utf8(&mut buf).as_bytes());
+                }
+                continue;
+            }
+        }
+        let mut buf = [0u8; 4];
+        bytes.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+#[cfg(target_os = "linux")]
+fn get_system_drives_linux() -> Result<Vec<SystemDrive>, String> {
+    use std::collections::{HashMap, HashSet};
+    use std::ffi::CString;
+    use std::fs;
+    use std::mem::MaybeUninit;
+    use std::path::Path;
+
+    let mut label_map: HashMap<String, String> = HashMap::new();
+    if let Ok(entries) = fs::read_dir("/dev/disk/by-label") {
+        for entry in entries.flatten() {
+            let label_name = entry.file_name().to_string_lossy().to_string();
+            let unescaped_label = unescape_hex(&label_name);
+            let path = entry.path();
+            if let Ok(target) = fs::canonicalize(&path) {
+                if let Some(dev_name) = target.file_name().and_then(|n| n.to_str()) {
+                    label_map.insert(dev_name.to_string(), unescaped_label.clone());
+                }
+                label_map.insert(target.to_string_lossy().to_string(), unescaped_label.clone());
+            } else if let Ok(target) = fs::read_link(&path) {
+                if let Some(dev_name) = target.file_name().and_then(|n| n.to_str()) {
+                    label_map.insert(dev_name.to_string(), unescaped_label.clone());
+                }
+            }
+        }
+    }
+
+    let mounts_content = fs::read_to_string("/proc/mounts")
+        .map_err(|e| format!("Failed to read /proc/mounts: {}", e))?;
+
+    let mut drives = Vec::new();
+    let mut seen_mounts = HashSet::new();
+
+    for line in mounts_content.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 2 {
+            continue;
+        }
+
+        let dev_path = parts[0];
+        let raw_mount = parts[1];
+        let mount_point = unescape_proc_mount(raw_mount);
+
+        let is_valid_device = (dev_path.starts_with("/dev/sd")
+            || dev_path.starts_with("/dev/nvme")
+            || dev_path.starts_with("/dev/vd")
+            || dev_path.starts_with("/dev/mapper/")
+            || dev_path.starts_with("/dev/mmcblk"))
+            && !dev_path.starts_with("/dev/loop")
+            && !dev_path.starts_with("/dev/zram");
+
+        if !is_valid_device {
+            continue;
+        }
+
+        if mount_point.starts_with("/boot")
+            || mount_point.starts_with("/efi")
+            || mount_point.starts_with("/var/cache")
+            || mount_point.starts_with("/var/log")
+            || mount_point.starts_with("/var/lib/flatpak")
+        {
+            continue;
+        }
+
+        let is_included = mount_point == "/"
+            || mount_point == "/home"
+            || mount_point.starts_with("/home/")
+            || mount_point == "/mnt"
+            || mount_point.starts_with("/mnt/")
+            || mount_point == "/run/media"
+            || mount_point.starts_with("/run/media/")
+            || mount_point == "/media"
+            || mount_point.starts_with("/media/");
+
+        if !is_included {
+            continue;
+        }
+
+        if !seen_mounts.insert(mount_point.clone()) {
+            continue;
+        }
+
+        let c_mount = match CString::new(mount_point.as_bytes()) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let mut stat = MaybeUninit::<libc::statvfs>::uninit();
+        let res = unsafe { libc::statvfs(c_mount.as_ptr(), stat.as_mut_ptr()) };
+        if res != 0 {
+            continue;
+        }
+
+        let stat = unsafe { stat.assume_init() };
+        let frsize = if stat.f_frsize > 0 {
+            stat.f_frsize
+        } else {
+            stat.f_bsize
+        };
+        let total_space = stat.f_blocks.saturating_mul(frsize);
+        let free_space = stat.f_bavail.saturating_mul(frsize);
+
+        if total_space == 0 {
+            continue;
+        }
+
+        let dev_basename = Path::new(dev_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+
+        let label = if let Some(lbl) = label_map.get(dev_basename) {
+            lbl.clone()
+        } else if let Some(lbl) = label_map.get(dev_path) {
+            lbl.clone()
+        } else if mount_point == "/" {
+            "System".to_string()
+        } else if mount_point == "/home" {
+            "Home".to_string()
+        } else {
+            Path::new(&mount_point)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("Drive")
+                .to_string()
+        };
+
+        let is_removable = mount_point.starts_with("/run/media") || mount_point.starts_with("/media");
+
+        drives.push(SystemDrive {
+            id: mount_point.clone(),
+            label,
+            mount_point,
+            free_space,
+            total_space,
+            is_removable,
+        });
+    }
+
+    if drives.is_empty() {
+        if let Ok(c_mount) = CString::new("/") {
+            let mut stat = MaybeUninit::<libc::statvfs>::uninit();
+            let res = unsafe { libc::statvfs(c_mount.as_ptr(), stat.as_mut_ptr()) };
+            if res == 0 {
+                let stat = unsafe { stat.assume_init() };
+                let frsize = if stat.f_frsize > 0 {
+                    stat.f_frsize
+                } else {
+                    stat.f_bsize
+                };
+                let total_space = stat.f_blocks.saturating_mul(frsize);
+                let free_space = stat.f_bavail.saturating_mul(frsize);
+                if total_space > 0 {
+                    drives.push(SystemDrive {
+                        id: "/".to_string(),
+                        label: "System".to_string(),
+                        mount_point: "/".to_string(),
+                        free_space,
+                        total_space,
+                        is_removable: false,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(drives)
+}
+
+#[cfg(target_os = "windows")]
+fn get_system_drives_windows() -> Result<Vec<SystemDrive>, String> {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetDiskFreeSpaceExW(
+            lpDirectoryName: *const u16,
+            lpFreeBytesAvailableToCaller: *mut u64,
+            lpTotalNumberOfBytes: *mut u64,
+            lpTotalNumberOfFreeBytes: *mut u64,
+        ) -> i32;
+    }
+
+    let mut drives = Vec::new();
+    for letter in b'C'..=b'Z' {
+        let root = format!("{}:\\", letter as char);
+        if std::path::Path::new(&root).exists() {
+            let mut free_avail: u64 = 0;
+            let mut total: u64 = 0;
+            let mut total_free: u64 = 0;
+            let wide: Vec<u16> = root.encode_utf16().chain(std::iter::once(0)).collect();
+            let success = unsafe {
+                GetDiskFreeSpaceExW(
+                    wide.as_ptr(),
+                    &mut free_avail,
+                    &mut total,
+                    &mut total_free,
+                )
+            };
+            if success == 0 || total == 0 {
+                continue;
+            }
+            let label = if (letter as char) == 'C' {
+                "System (C:)".to_string()
+            } else {
+                format!("Drive ({}:)", letter as char)
+            };
+            drives.push(SystemDrive {
+                id: root.clone(),
+                label,
+                mount_point: root,
+                free_space: free_avail,
+                total_space: total,
+                is_removable: false,
+            });
+        }
+    }
+    Ok(drives)
+}
+
+#[cfg(target_os = "macos")]
+fn get_system_drives_macos() -> Result<Vec<SystemDrive>, String> {
+    use std::collections::HashSet;
+    use std::ffi::CString;
+    use std::fs;
+    use std::mem::MaybeUninit;
+    use std::path::Path;
+
+    let mut drives = Vec::new();
+    let mut seen = HashSet::new();
+    let mut candidates = vec!["/".to_string(), "/System/Volumes/Data".to_string()];
+
+    if let Ok(entries) = fs::read_dir("/Volumes") {
+        for entry in entries.flatten() {
+            let path = entry.path().to_string_lossy().to_string();
+            candidates.push(path);
+        }
+    }
+
+    for mount in candidates {
+        if !Path::new(&mount).exists() || !seen.insert(mount.clone()) {
+            continue;
+        }
+
+        let c_mount = match CString::new(mount.as_bytes()) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let mut stat = MaybeUninit::<libc::statvfs>::uninit();
+        let res = unsafe { libc::statvfs(c_mount.as_ptr(), stat.as_mut_ptr()) };
+        if res != 0 {
+            continue;
+        }
+
+        let stat = unsafe { stat.assume_init() };
+        let frsize = if stat.f_frsize > 0 {
+            stat.f_frsize
+        } else {
+            stat.f_bsize
+        };
+        let total_space = stat.f_blocks.saturating_mul(frsize);
+        let free_space = stat.f_bavail.saturating_mul(frsize);
+
+        if total_space == 0 {
+            continue;
+        }
+
+        let label = if mount == "/" {
+            "Macintosh HD".to_string()
+        } else if mount == "/System/Volumes/Data" {
+            "Data".to_string()
+        } else {
+            Path::new(&mount)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Volume")
+                .to_string()
+        };
+
+        let is_removable = mount.starts_with("/Volumes/");
+
+        drives.push(SystemDrive {
+            id: mount.clone(),
+            label,
+            mount_point: mount,
+            free_space,
+            total_space,
+            is_removable,
+        });
+    }
+
+    Ok(drives)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+fn get_system_drives_fallback() -> Result<Vec<SystemDrive>, String> {
+    Ok(vec![SystemDrive {
+        id: "/".to_string(),
+        label: "System".to_string(),
+        mount_point: "/".to_string(),
+        free_space: 0,
+        total_space: 0,
+        is_removable: false,
+    }])
+}
+
+#[tauri::command]
+fn get_system_drives() -> Result<Vec<SystemDrive>, String> {
+    #[cfg(target_os = "linux")]
+    return get_system_drives_linux();
+
+    #[cfg(target_os = "windows")]
+    return get_system_drives_windows();
+
+    #[cfg(target_os = "macos")]
+    return get_system_drives_macos();
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    return get_system_drives_fallback();
+}
+
 #[tauri::command]
 fn get_aria2_config(
     state: tauri::State<Aria2Config>,
@@ -309,12 +683,33 @@ fn reveal_in_folder(path: String) -> Result<(), String> {
         return Err("File or folder does not exist".to_string());
     }
 
-    // Native Linux / EndeavourOS desktop file manager reveal via xdg-open
-    let parent = if p.is_dir() { p } else { p.parent().unwrap_or(p) };
-    std::process::Command::new("xdg-open")
-        .arg(parent)
-        .spawn()
-        .map_err(|e| format!("Failed to open folder via xdg-open: {}", e))?;
+    #[cfg(target_os = "windows")]
+    {
+        let win_path = path.replace('/', "\\");
+        std::process::Command::new("explorer.exe")
+            .arg(format!("/select,{}", win_path))
+            .spawn()
+            .map_err(|e| format!("Failed to open folder via explorer: {}", e))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to reveal file via open -R: {}", e))?;
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let parent = if p.is_dir() { p } else { p.parent().unwrap_or(p) };
+        std::process::Command::new("xdg-open")
+            .arg(parent)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder via xdg-open: {}", e))?;
+    }
+
     Ok(())
 }
 
@@ -935,7 +1330,8 @@ pub fn run() {
         sync_tray_autostart,
         get_aria2_secret,
         get_aria2_config,
-        get_aria2_error
+        get_aria2_error,
+        get_system_drives
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
@@ -1164,5 +1560,38 @@ mod tests {
 
         *error_state.0.lock().unwrap() = Some("Aria2 port collision".to_string());
         assert_eq!(error_state.0.lock().unwrap().as_deref(), Some("Aria2 port collision"));
+    }
+
+    #[test]
+    fn test_get_system_drives() {
+        let drives = get_system_drives().expect("get_system_drives should succeed");
+        assert!(!drives.is_empty(), "Should return at least one system drive");
+        let has_root_or_home = drives.iter().any(|d| d.mount_point == "/" || d.mount_point == "/home" || d.mount_point.starts_with("C:"));
+        assert!(has_root_or_home, "Drives should contain root or home partition");
+        for drive in &drives {
+            assert!(!drive.id.is_empty());
+            assert!(!drive.label.is_empty());
+            assert!(!drive.mount_point.is_empty());
+            assert!(drive.total_space > 0, "Drive total space should be non-zero for {}", drive.mount_point);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_unescape_hex() {
+        assert_eq!(unescape_hex("TOSHIBA\\x20HDWD120"), "TOSHIBA HDWD120");
+        assert_eq!(unescape_hex("PlainLabel"), "PlainLabel");
+        assert_eq!(unescape_hex("WDC\\x20WDS240G2G0A"), "WDC WDS240G2G0A");
+        assert_eq!(unescape_hex("M\\xc3\\xbasica"), "Música");
+        assert_eq!(unescape_hex("Donn\\xc3\\xa9es"), "Données");
+        assert_eq!(unescape_hex("Invalid\\xZZLabel"), "Invalid\\xZZLabel");
+        assert_eq!(unescape_hex("Incomplete\\x"), "Incomplete\\x");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_unescape_proc_mount() {
+        assert_eq!(unescape_proc_mount("/mnt/My\\040Drive"), "/mnt/My Drive");
+        assert_eq!(unescape_proc_mount("/home"), "/home");
     }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDownloadStore } from "@/store/downloadStore";
 import { useThemeStore } from "@/store/themeStore";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   FolderOpen,
+  Folder,
   HardDrive,
   Activity,
   Cat,
@@ -25,7 +26,7 @@ import {
   CheckCircle2,
   AlertCircle,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatDriveSpace, type SystemDrive } from "@/lib/utils";
 
 type ThemeMode = "dark" | "light" | "system";
 
@@ -61,6 +62,23 @@ export default function SettingsPage() {
   const [apiKeyStatus, setApiKeyStatus] = useState<"idle" | "validating" | "success" | "error">("idle");
   const [apiErrorMessage, setApiErrorMessage] = useState("");
   const [browserTab, setBrowserTab] = useState<"firefox" | "chromium">("firefox");
+  const [drives, setDrives] = useState<SystemDrive[]>([]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+      import("@tauri-apps/api/core").then(({ invoke }) => {
+        invoke<SystemDrive[]>("get_system_drives")
+          .then((result) => {
+            if (Array.isArray(result) && result.length > 0) {
+              setDrives(result);
+            }
+          })
+          .catch((err) => {
+            console.warn("Failed to query system drives:", err);
+          });
+      });
+    }
+  }, []);
 
   const handleValidateApiKey = async () => {
     if (!tempApiKey.trim()) {
@@ -106,10 +124,12 @@ export default function SettingsPage() {
 
   const handleBrowseDefaultDir = async () => {
     try {
+      const defaultPath = defaultDownloadDir || drives[0]?.mount_point || "/mnt";
       const selectedPath = await open({
         directory: true,
         multiple: false,
         title: "Select Default Save Location",
+        defaultPath,
       });
       if (selectedPath && typeof selectedPath === "string") {
         setDefaultDownloadDir(selectedPath);
@@ -227,6 +247,41 @@ export default function SettingsPage() {
                   Browse
                 </Button>
               </div>
+              {/* Quick-Select Drive Pills */}
+              {drives.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  {drives.map((drive) => {
+                    const isSelected = defaultDownloadDir === drive.mount_point;
+                    const isHome = drive.mount_point === "/home" || drive.label.toLowerCase().includes("home");
+                    return (
+                      <button
+                        key={drive.id || drive.mount_point}
+                        type="button"
+                        onClick={() => setDefaultDownloadDir(drive.mount_point)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors cursor-pointer",
+                          isSelected
+                            ? "bg-primary/15 border-primary/40 text-primary font-semibold"
+                            : "bg-muted/50 hover:bg-muted border-border/60 text-muted-foreground hover:text-foreground"
+                        )}
+                        title={`${drive.label} (${drive.mount_point})`}
+                      >
+                        {isHome ? (
+                          <Folder className="w-3 h-3 shrink-0" />
+                        ) : (
+                          <HardDrive className="w-3 h-3 shrink-0" />
+                        )}
+                        <span>{drive.label}</span>
+                        {drive.free_space > 0 && (
+                          <span className="text-[10px] opacity-75 font-normal">
+                            • {formatDriveSpace(drive.free_space)}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Max Concurrent */}

@@ -94,18 +94,49 @@ export function formatChecksum(c: DetectedChecksum | string | undefined): string
   return `${algoFormat}=${c.digest.toLowerCase()}`;
 }
 
+export interface SystemDrive {
+  id: string;
+  label: string;
+  mount_point: string;
+  free_space: number;
+  total_space: number;
+  is_removable: boolean;
+}
+
+export function formatDriveSpace(bytes: number): string {
+  if (!bytes || bytes <= 0) return "0 B free";
+  const gb = bytes / (1024 * 1024 * 1024);
+  if (gb >= 1000) {
+    const tb = gb / 1024;
+    return `${tb >= 10 ? Math.round(tb) : tb.toFixed(1)} TB free`;
+  }
+  if (gb >= 1) {
+    return `${Math.round(gb)} GB free`;
+  }
+  const mb = bytes / (1024 * 1024);
+  return `${Math.round(mb)} MB free`;
+}
+
 /**
  * Safely decodes a URL percent-encoded filename (e.g. "Last%20Man%20in%20Tower%20%282026%29.mkv" -> "Last Man in Tower (2026).mkv")
- * and extracts the base name without leading directory separators.
+ * and extracts the base name without leading directory separators or directory traversal sequences.
  */
 export function decodeFilename(filename: string | undefined | null): string {
   if (!filename) return "Unknown";
-  let name = filename.split(/[/\\]/).pop() || filename;
-  try {
-    name = decodeURIComponent(name);
-  } catch {
-    // In case of malformed percent encoding like %zz, fallback gracefully
+  let name = filename;
+  for (let i = 0; i < 2; i++) {
+    try {
+      const decoded = decodeURIComponent(name);
+      if (decoded === name) break;
+      name = decoded;
+    } catch {
+      break;
+    }
   }
+  name = name.replace(/[/\\]+$/, '');
+  const segments = name.split(/[/\\]/).filter(Boolean);
+  name = segments.pop() || "";
+  name = name.replace(/^(\.\.[\/\\])+/, '').replace(/^\.+/, '');
   return name.trim() || "Unknown";
 }
 

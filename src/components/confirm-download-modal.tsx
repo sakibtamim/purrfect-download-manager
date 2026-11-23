@@ -10,8 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { FolderOpen, CheckCircle2, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert, Shield } from "lucide-react";
-import { type ChecksumAlgorithm, type DetectedChecksum, validateChecksum, decodeFilename, parseContentDispositionFilename } from "@/lib/utils";
+import { FolderOpen, Folder, HardDrive, CheckCircle2, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert, Shield } from "lucide-react";
+import { type ChecksumAlgorithm, type DetectedChecksum, type SystemDrive, validateChecksum, decodeFilename, parseContentDispositionFilename, formatDriveSpace, cn } from "@/lib/utils";
 import { type YtDlpFormat } from "@/lib/ytdlpClient";
 
 export function formatResolutionLabel(format: YtDlpFormat): string {
@@ -95,6 +95,7 @@ interface ConfirmDownloadDialogContentProps {
 
 function ConfirmDownloadDialogContent({ stagedDownload, onClose }: ConfirmDownloadDialogContentProps) {
   const addDownload = useAppStore((state) => state.addDownload);
+  const defaultDownloadDir = useAppStore((state) => state.defaultDownloadDir);
 
   const { selectedUrl, displaySize: initialSize } = resolveInitialDownloadSelection(stagedDownload);
   const initialName = getInitialFilename(stagedDownload);
@@ -103,6 +104,7 @@ function ConfirmDownloadDialogContent({ stagedDownload, onClose }: ConfirmDownlo
     : undefined;
 
   const [saveDir, setSaveDir] = useState<string>("");
+  const [drives, setDrives] = useState<SystemDrive[]>([]);
   const [rawFilename, setRawFilename] = useState<string>(initialName);
   const [displayFilename, setDisplayFilename] = useState<string>(initialName);
   const [isUserEditedFilename, setIsUserEditedFilename] = useState(false);
@@ -124,6 +126,22 @@ function ConfirmDownloadDialogContent({ stagedDownload, onClose }: ConfirmDownlo
   const [checksumSource, setChecksumSource] = useState<string>(
     initialChecksum?.source || ""
   );
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+      import("@tauri-apps/api/core").then(({ invoke }) => {
+        invoke<SystemDrive[]>("get_system_drives")
+          .then((result) => {
+            if (Array.isArray(result) && result.length > 0) {
+              setDrives(result);
+            }
+          })
+          .catch((err) => {
+            console.warn("Failed to query system drives:", err);
+          });
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if ((!stagedDownload.fileSize || stagedDownload.fileSize <= 0) && (!stagedDownload.mediaFormats || stagedDownload.mediaFormats.length === 0)) {
@@ -231,10 +249,12 @@ function ConfirmDownloadDialogContent({ stagedDownload, onClose }: ConfirmDownlo
 
   const handleBrowse = async () => {
     try {
+      const defaultPath = saveDir || defaultDownloadDir || drives[0]?.mount_point || '/mnt';
       const selectedPath = await open({
         directory: true,
         multiple: false,
-        title: "Select Save Location"
+        title: "Select Save Location",
+        defaultPath,
       });
       if (selectedPath && typeof selectedPath === 'string') {
         setSaveDir(selectedPath);
@@ -365,6 +385,41 @@ function ConfirmDownloadDialogContent({ stagedDownload, onClose }: ConfirmDownlo
                 Browse
               </Button>
             </div>
+            {/* Quick-Select Drive Pills */}
+            {drives.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                {drives.map((drive) => {
+                  const isSelected = saveDir === drive.mount_point;
+                  const isHome = drive.mount_point === "/home" || drive.label.toLowerCase().includes("home");
+                  return (
+                    <button
+                      key={drive.id || drive.mount_point}
+                      type="button"
+                      onClick={() => setSaveDir(drive.mount_point)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors cursor-pointer",
+                        isSelected
+                          ? "bg-primary/15 border-primary/40 text-primary font-semibold"
+                          : "bg-muted/50 hover:bg-muted border-border/60 text-muted-foreground hover:text-foreground"
+                      )}
+                      title={`${drive.label} (${drive.mount_point})`}
+                    >
+                      {isHome ? (
+                        <Folder className="w-3 h-3 shrink-0" />
+                      ) : (
+                        <HardDrive className="w-3 h-3 shrink-0" />
+                      )}
+                      <span>{drive.label}</span>
+                      {drive.free_space > 0 && (
+                        <span className="text-[10px] opacity-75 font-normal">
+                          • {formatDriveSpace(drive.free_space)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Security Alert if unsafe */}
