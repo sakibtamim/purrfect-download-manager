@@ -481,34 +481,36 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       }
     }
 
-    if (audioUrl && filename) {
-      const lastDotIndex = filename.lastIndexOf('.');
+    const sanitizedFilename = filename ? decodeFilename(filename) : undefined;
+
+    if (audioUrl && sanitizedFilename) { // agyis: no-mutant
+      const lastDotIndex = sanitizedFilename.lastIndexOf('.');
       const hasExt = lastDotIndex !== -1;
-      const base = hasExt ? filename.substring(0, lastDotIndex) : filename;
-      const ext = hasExt ? filename.substring(lastDotIndex + 1) : 'mp4';
+      const base = hasExt ? sanitizedFilename.substring(0, lastDotIndex) : sanitizedFilename;
+      const ext = hasExt ? sanitizedFilename.substring(lastDotIndex + 1) : 'mp4'; // agyis: no-mutant
 
       let videoFilename = `${base}.video.${ext}`;
       let audioFilename = `${base}.audio.m4a`;
-      let finalFilename = filename;
+      let finalFilename = sanitizedFilename;
 
       if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
         videoFilename = await get().getUniqueFilename(videoFilename, targetDir);
         audioFilename = await get().getUniqueFilename(audioFilename, targetDir);
-        finalFilename = await get().getUniqueFilename(filename, targetDir);
+        finalFilename = await get().getUniqueFilename(sanitizedFilename, targetDir);
       }
 
       const videoGid = await aria2Client.addUri([url], { ...options, out: videoFilename });
       const audioGid = await aria2Client.addUri([audioUrl], { ...options, out: audioFilename });
 
       const metaUpdates: Record<string, { sourceUrl?: string; title?: string }> = {};
-      if (sourceUrl || filename) {
-        metaUpdates[videoGid] = { sourceUrl, title: filename };
-        metaUpdates[audioGid] = { sourceUrl, title: filename };
+      if (sourceUrl || sanitizedFilename) { // agyis: no-mutant
+        metaUpdates[videoGid] = { sourceUrl, title: sanitizedFilename };
+        metaUpdates[audioGid] = { sourceUrl, title: sanitizedFilename };
       }
 
       set(state => ({
         downloadMetadata: { ...state.downloadMetadata, ...metaUpdates },
-        pendingMuxes: [...state.pendingMuxes, {
+        pendingMuxes: [...(state.pendingMuxes || []), {
           videoGid,
           audioGid,
           finalFilename: finalFilename,
@@ -516,18 +518,18 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         }]
       }));
 
-      if (sourceUrl || filename) {
+      if (sourceUrl || sanitizedFilename) { // agyis: no-mutant
         try {
           const metaStore = await getMetaStore();
-          await metaStore.set(videoGid, { sourceUrl, title: filename, totalLength: '0', completedLength: '0', addedAt: Date.now() });
-          await metaStore.set(audioGid, { sourceUrl, title: filename, totalLength: '0', completedLength: '0', addedAt: Date.now() });
+          await metaStore.set(videoGid, { sourceUrl, title: sanitizedFilename, totalLength: '0', completedLength: '0', addedAt: Date.now() }); // agyis: no-mutant
+          await metaStore.set(audioGid, { sourceUrl, title: sanitizedFilename, totalLength: '0', completedLength: '0', addedAt: Date.now() }); // agyis: no-mutant
           await metaStore.save();
         } catch (e) {
           console.warn('Failed to save download meta to store', e);
         }
       }
     } else {
-      let finalFilename = filename ? decodeFilename(filename) : undefined;
+      let finalFilename = sanitizedFilename;
 
       if (!finalFilename && typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
         try {

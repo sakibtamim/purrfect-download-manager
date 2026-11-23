@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getFileCategory, validateChecksum, formatChecksum, formatSpeed, decodeFilename, parseContentDispositionFilename, formatDriveSpace, DetectedChecksum } from './utils';
+import { getFileCategory, validateChecksum, formatChecksum, formatSpeed, decodeFilename, parseContentDispositionFilename, formatDriveSpace, resolveSafeDriveDownloadPath, DetectedChecksum } from './utils';
 
 describe('getFileCategory', () => {
   it('correctly categorizes software files', () => {
@@ -203,4 +203,25 @@ describe('parseContentDispositionFilename', () => {
     expect(parseContentDispositionFilename('inline')).toBeNull();
   });
 });
+
+describe('resolveSafeDriveDownloadPath', () => {
+  it('falls back to defaultDir for root filesystems', () => {
+    expect(resolveSafeDriveDownloadPath('/', '/home/user/Downloads')).toBe('/home/user/Downloads');
+    expect(resolveSafeDriveDownloadPath('/home', '/home/user/Downloads')).toBe('/home/user/Downloads');
+    expect(resolveSafeDriveDownloadPath('C:', 'C:\\Users\\user\\Downloads')).toBe('C:\\Users\\user\\Downloads');
+    expect(resolveSafeDriveDownloadPath('C:\\', 'C:\\Users\\user\\Downloads')).toBe('C:\\Users\\user\\Downloads');
+  });
+
+  it('appends /Downloads to external drive mount points', () => {
+    expect(resolveSafeDriveDownloadPath('/mnt/Storage', '/home/user/Downloads')).toBe('/mnt/Storage/Downloads');
+    expect(resolveSafeDriveDownloadPath('/run/media/user/USB', '/home/user/Downloads')).toBe('/run/media/user/USB/Downloads');
+    expect(resolveSafeDriveDownloadPath('D:\\', 'C:\\Users\\user\\Downloads')).toBe('D:/Downloads');
+  });
+
+  it('handles empty or missing parameters gracefully', () => {
+    expect(resolveSafeDriveDownloadPath('', '/home/user/Downloads')).toBe('/home/user/Downloads');
+    expect(resolveSafeDriveDownloadPath('/')).toBe('');
+  });
+});
+
 

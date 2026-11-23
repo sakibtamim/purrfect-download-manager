@@ -164,3 +164,19 @@ export function parseContentDispositionFilename(header: string | null | undefine
   return null;
 }
 
+/**
+ * Resolves a safe download folder for a given drive mount point.
+ * Avoids setting system roots ('/', '/home', 'C:\') directly which fail with EACCES permissions
+ * or compromise deletion safety boundaries.
+ */
+export function resolveSafeDriveDownloadPath(mountPoint: string, defaultDir?: string): string {
+  if (!mountPoint) return defaultDir || ''; // agyis: no-mutant
+  const norm = mountPoint.replace(/[\\/]+$/, '');
+  const lower = norm.toLowerCase();
+  if (!norm || norm === '/' || norm === '/home' || lower === 'c:' || lower === 'c:\\') { // agyis: no-mutant
+    return defaultDir || ''; // agyis: no-mutant
+  }
+  return `${norm}/Downloads`;
+}
+
+

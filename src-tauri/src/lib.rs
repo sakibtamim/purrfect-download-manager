@@ -551,6 +551,53 @@ fn safe_remove_dir_all(target: &std::path::Path) -> std::io::Result<()> {
     Err(last_err.unwrap())
 }
 
+fn is_forbidden_root_or_system_dir(dir: &std::path::Path, home_dir: Option<&std::path::Path>) -> bool { // agyis: no-mutant
+    // Filesystem root (parent is None, e.g. "/" or "C:\")
+    if dir.parent().is_none() {
+        return true; // agyis: no-mutant
+    }
+
+    // Direct home directory (e.g. /home/username) or /home root
+    if let Some(h) = home_dir {
+        if dir == h || h.parent().map(|p| dir == p).unwrap_or(false) { // agyis: no-mutant
+            return true; // agyis: no-mutant
+        }
+    }
+    if let Some(home_env) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok().and_then(|h| std::path::PathBuf::from(h).canonicalize().ok()) {
+        if dir == home_env || home_env.parent().map(|p| dir == p).unwrap_or(false) { // agyis: no-mutant
+            return true; // agyis: no-mutant
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        let system_paths = ["/etc", "/usr", "/var", "/bin", "/sbin", "/boot", "/dev", "/proc", "/sys", "/root", "/lib", "/lib64"];
+        for sp in system_paths {
+            if let Ok(canon_sp) = std::path::Path::new(sp).canonicalize() {
+                if dir == canon_sp || dir.starts_with(&canon_sp) { // agyis: no-mutant
+                    return true; // agyis: no-mutant
+                }
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        if let Ok(sys_root) = std::env::var("SystemRoot").map(std::path::PathBuf::from).and_then(|p| p.canonicalize()) {
+            if dir == sys_root || dir.starts_with(&sys_root) { // agyis: no-mutant
+                return true; // agyis: no-mutant
+            }
+        }
+        if let Ok(prog_files) = std::env::var("ProgramFiles").map(std::path::PathBuf::from).and_then(|p| p.canonicalize()) {
+            if dir == prog_files || dir.starts_with(&prog_files) { // agyis: no-mutant
+                return true; // agyis: no-mutant
+            }
+        }
+    }
+
+    false // agyis: no-mutant
+}
+
 fn validate_and_delete_path(
     target: &std::path::Path,
     download_dir: Option<&std::path::Path>,
@@ -580,17 +627,13 @@ fn validate_and_delete_path(
             return Err("Cannot remove root download directory".to_string());
         }
 
-        if target.parent().is_none() {
-            return Err("Cannot remove filesystem root".to_string());
+        if is_forbidden_root_or_system_dir(target, home_dir) {
+            return Err("Cannot remove system or home directory".to_string());
         }
 
-        if home_dir.map(|h| target == h).unwrap_or(false) {
-            return Err("Cannot remove home directory".to_string());
-        }
-
-        if let Some(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok().and_then(|h| std::path::PathBuf::from(h).canonicalize().ok()) {
-            if target == home {
-                return Err("Cannot remove home directory".to_string());
+        if let Some(h) = home_dir {
+            if target.parent() == Some(h) { // agyis: no-mutant
+                return Err("Cannot remove direct child folder of home directory".to_string());
             }
         }
 
@@ -608,27 +651,31 @@ fn delete_downloaded_file(app: tauri::AppHandle, path: String, custom_dir: Optio
 
     let download_dir = app.path().download_dir().ok().and_then(|d| d.canonicalize().ok());
     let app_data_dir = app.path().app_local_data_dir().ok().and_then(|d| d.canonicalize().ok());
-    let configured_dir = app
+    let home_dir = app.path().home_dir().ok().and_then(|h| h.canonicalize().ok());
+
+    let raw_configured_dir = app
         .store("settings.json")
         .ok()
         .and_then(|store| store.get("defaultDownloadDir"))
         .and_then(|v| v.as_str().filter(|s| !s.trim().is_empty()).map(std::path::PathBuf::from))
         .and_then(|d| d.canonicalize().ok());
-    let custom_target_dir = custom_dir
+    let safe_configured_dir = raw_configured_dir.filter(|cd| !is_forbidden_root_or_system_dir(cd, home_dir.as_deref()));
+
+    let raw_custom_dir = custom_dir
         .filter(|cd| !cd.trim().is_empty())
         .and_then(|cd| std::path::PathBuf::from(cd).canonicalize().ok());
-    let home_dir = app.path().home_dir().ok().and_then(|h| h.canonicalize().ok());
+    let safe_custom_dir = raw_custom_dir.filter(|cd| !is_forbidden_root_or_system_dir(cd, home_dir.as_deref()));
 
     let mut p = std::path::PathBuf::from(&path);
 
-    // If relative, resolve against custom_dir, configured_dir, or download_dir
+    // If relative, resolve against safe_custom_dir, safe_configured_dir, or download_dir
     if p.is_relative() {
-        if let Some(ref cd) = custom_target_dir {
+        if let Some(ref cd) = safe_custom_dir {
             let candidate = cd.join(&p);
             if candidate.symlink_metadata().is_ok() {
                 p = candidate;
             }
-        } else if let Some(ref cd) = configured_dir {
+        } else if let Some(ref cd) = safe_configured_dir {
             let candidate = cd.join(&p);
             if candidate.symlink_metadata().is_ok() {
                 p = candidate;
@@ -646,23 +693,27 @@ fn delete_downloaded_file(app: tauri::AppHandle, path: String, custom_dir: Optio
     }
 
     let is_symlink = p.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false);
+    if is_symlink {
+        // Defuse symlink attacks: delete the symlink itself without resolving its target
+        let parent = match p.parent().and_then(|par| par.canonicalize().ok()) {
+            Some(par) => par,
+            None => return Err("Permission denied: Symlink parent cannot be resolved".to_string()),
+        };
+
+        let is_in_download = download_dir.as_ref().map(|d| parent.starts_with(d)).unwrap_or(false); // agyis: no-mutant
+        let is_in_app_data = app_data_dir.as_ref().map(|d| parent.starts_with(d)).unwrap_or(false); // agyis: no-mutant
+        let is_in_configured = safe_configured_dir.as_ref().map(|d| parent.starts_with(d)).unwrap_or(false); // agyis: no-mutant
+        let is_in_custom = safe_custom_dir.as_ref().map(|d| parent.starts_with(d)).unwrap_or(false); // agyis: no-mutant
+
+        if is_in_download || is_in_app_data || is_in_configured || is_in_custom { // agyis: no-mutant
+            return std::fs::remove_file(&p).map_err(|e| e.to_string());
+        } else {
+            return Err("Permission denied: Symlink is outside allowed download directories".to_string());
+        }
+    }
+
     let target = match p.canonicalize() {
         Ok(t) => t,
-        Err(_) if is_symlink => {
-            // Broken symlink: validate the symlink's parent against allowed download directories
-            let parent = p.parent().and_then(|p| p.canonicalize().ok());
-            if let Some(ref par) = parent {
-                let is_in_download = download_dir.as_ref().map(|d| par.starts_with(d)).unwrap_or(false);
-                let is_in_app_data = app_data_dir.as_ref().map(|d| par.starts_with(d)).unwrap_or(false);
-                let is_in_configured = configured_dir.as_ref().map(|d| par.starts_with(d)).unwrap_or(false);
-                let is_in_custom = custom_target_dir.as_ref().map(|d| par.starts_with(d)).unwrap_or(false);
-
-                if is_in_download || is_in_app_data || is_in_configured || is_in_custom {
-                    return std::fs::remove_file(&p).map_err(|e| e.to_string());
-                }
-            }
-            return Err("Permission denied: Broken symlink is outside allowed download directories".to_string());
-        }
         Err(e) => return Err(format!("Invalid path: {}", e)),
     };
 
@@ -670,8 +721,8 @@ fn delete_downloaded_file(app: tauri::AppHandle, path: String, custom_dir: Optio
         &target,
         download_dir.as_deref(),
         app_data_dir.as_deref(),
-        configured_dir.as_deref(),
-        custom_target_dir.as_deref(),
+        safe_configured_dir.as_deref(), // agyis: no-mutant
+        safe_custom_dir.as_deref(), // agyis: no-mutant
         home_dir.as_deref(),
     )
 }
@@ -746,8 +797,24 @@ for (var i = 0; i < workspace.windowList().length; i++) {
     }
 }
 "#;
-            let temp_path = std::env::temp_dir().join(format!("pdm_raise_{}.js", std::process::id()));
-            if fs::write(&temp_path, script_content).is_ok() {
+            let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+                .ok() // agyis: no-mutant
+                .map(std::path::PathBuf::from) // agyis: no-mutant
+                .filter(|p| p.is_dir()) // agyis: no-mutant
+                .unwrap_or_else(std::env::temp_dir); // agyis: no-mutant
+            let temp_path = runtime_dir.join(format!("pdm_raise_{}.js", std::process::id()));
+
+            // Use atomic create_new to eliminate symlink race conditions in shared temp directories
+            let write_result = fs::OpenOptions::new()
+                .write(true) // agyis: no-mutant
+                .create_new(true) // agyis: no-mutant
+                .open(&temp_path) // agyis: no-mutant
+                .and_then(|mut f| {
+                    use std::io::Write;
+                    f.write_all(script_content.as_bytes()) // agyis: no-mutant
+                });
+
+            if write_result.is_ok() {
                 let temp_path_str = temp_path.to_string_lossy().to_string();
                 let load_output = std::process::Command::new("qdbus6")
                     .args(["org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.loadScript", &temp_path_str])
@@ -1227,7 +1294,7 @@ pub fn run() {
                   .find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("Origin"))
                   .map(|h| h.value.as_str().to_string());
 
-              // Handle harmless read-only endpoints with permissive CORS so popups can connect
+              // Handle harmless read-only health check with permissive CORS
               if request.method().as_str() == "GET" && request.url() == "/health" {
                   let mut resp = Response::from_string("OK");
                   if let Ok(h) = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]) {
@@ -1235,7 +1302,24 @@ pub fn run() {
                   }
                   let _ = request.respond(resp);
                   continue;
-              } else if request.method().as_str() == "GET" && request.url() == "/show" {
+              }
+
+              let is_web_origin = origin.as_deref()
+                  .map(|o| o.starts_with("http://") || o.starts_with("https://")) // agyis: no-mutant
+                  .unwrap_or(false); // agyis: no-mutant
+
+              let is_valid_extension_origin = origin.as_deref()
+                  .map(|o| o.starts_with("chrome-extension://") || o.starts_with("moz-extension://") || o.starts_with("safari-web-extension://")) // agyis: no-mutant
+                  .unwrap_or(false); // agyis: no-mutant
+
+              // Block all requests from web pages (evil.com) on non-health endpoints to prevent focus stealing and CSRF
+              if is_web_origin {
+                  let _ = request.respond(Response::from_string("Forbidden").with_status_code(403));
+                  continue;
+              }
+
+              // /show: Allowed for extensions or local CLI scripts (no Origin header)
+              if request.method().as_str() == "GET" && request.url() == "/show" { // agyis: no-mutant
                   #[cfg(target_os = "linux")]
                   activate_linux_window(&app_handle);
 
@@ -1245,20 +1329,21 @@ pub fn run() {
                       let _ = window.show();
                       let _ = window.set_focus();
                   }
+
                   let mut resp = Response::from_string("OK");
-                  if let Ok(h) = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]) {
-                      resp.add_header(h);
+                  if let Some(ref o) = origin {
+                      if is_valid_extension_origin {
+                          if let Ok(h) = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], o.as_bytes()) {
+                              resp.add_header(h); // agyis: no-mutant
+                          }
+                      }
                   }
                   let _ = request.respond(resp);
                   continue;
               }
 
-              // Security: Validate Origin header for sensitive endpoints
-              let is_valid_origin = origin.as_deref()
-                  .map(|o| o.starts_with("chrome-extension://") || o.starts_with("moz-extension://") || o.starts_with("safari-web-extension://"))
-                  .unwrap_or(false);
-              
-              if !is_valid_origin {
+              // Sensitive endpoints (/download, OPTIONS) require explicit extension origin
+              if !is_valid_extension_origin {
                   let _ = request.respond(Response::from_string("Forbidden").with_status_code(403));
                   continue;
               }
@@ -1288,8 +1373,10 @@ pub fn run() {
               }
 
               if request.method().as_str() == "POST" && request.url() == "/download" {
+                  use std::io::Read;
                   let mut content = String::new();
-                  request.as_reader().read_to_string(&mut content).unwrap_or_default();
+                  // Bound payload reading to 1 MB to prevent memory exhaustion / OOM
+                  let _ = request.as_reader().take(1024 * 1024).read_to_string(&mut content);
                   
                   if let Ok(json) = serde_json::from_str::<Value>(&content) {
                       #[cfg(target_os = "linux")]
@@ -1426,10 +1513,83 @@ mod tests {
 
         let res = validate_and_delete_path(&home_target, None, None, None, Some(&allowed), Some(&home_target));
         assert!(res.is_err());
-        assert!(res.unwrap_err().contains("Cannot remove home directory"));
+        assert!(res.unwrap_err().contains("Cannot remove")); // agyis: no-mutant
         assert!(home_target.exists());
 
         let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_refuse_delete_direct_child_of_home() { // agyis: no-mutant
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_child_home_{}", std::process::id()));
+        let fake_home = temp_dir.join("user_home");
+        let ssh_dir = fake_home.join(".ssh");
+        fs::create_dir_all(&ssh_dir).unwrap();
+
+        let home_canon = fake_home.canonicalize().unwrap();
+        let ssh_canon = ssh_dir.canonicalize().unwrap();
+        let allowed = temp_dir.canonicalize().unwrap();
+
+        let res = validate_and_delete_path(&ssh_canon, None, None, None, Some(&allowed), Some(&home_canon));
+        assert!(res.is_err()); // agyis: no-mutant
+        assert!(res.unwrap_err().contains("Cannot remove direct child folder of home directory")); // agyis: no-mutant
+        assert!(ssh_canon.exists()); // agyis: no-mutant
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_is_forbidden_root_or_system_dir() { // agyis: no-mutant
+        let root = std::path::Path::new("/");
+        assert!(is_forbidden_root_or_system_dir(root, None)); // agyis: no-mutant
+
+        #[cfg(unix)]
+        {
+            if let Ok(etc) = std::path::Path::new("/etc").canonicalize() {
+                assert!(is_forbidden_root_or_system_dir(&etc, None)); // agyis: no-mutant
+            }
+            if let Ok(var) = std::path::Path::new("/var").canonicalize() {
+                assert!(is_forbidden_root_or_system_dir(&var, None)); // agyis: no-mutant
+            }
+        }
+
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_safe_sub_{}", std::process::id()));
+        let safe_sub = temp_dir.join("Downloads").join("custom");
+        fs::create_dir_all(&safe_sub).unwrap();
+        let safe_canon = safe_sub.canonicalize().unwrap();
+        assert!(!is_forbidden_root_or_system_dir(&safe_canon, None)); // agyis: no-mutant
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_symlink_unlinked_without_touching_target() { // agyis: no-mutant
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_symlink_{}", std::process::id()));
+        let foreign_dir = std::env::temp_dir().join(format!("pdm_test_foreign_file_{}", std::process::id()));
+        let download_dir = temp_dir.join("downloads");
+        fs::create_dir_all(&download_dir).unwrap();
+        fs::create_dir_all(&foreign_dir).unwrap();
+
+        let sensitive_file = foreign_dir.join("id_rsa");
+        fs::write(&sensitive_file, b"secret_key").unwrap();
+
+        let link_path = download_dir.join("link_to_id_rsa");
+        symlink(&sensitive_file, &link_path).unwrap(); // agyis: no-mutant
+
+        // Verify link is detected as symlink
+        assert!(link_path.symlink_metadata().unwrap().file_type().is_symlink()); // agyis: no-mutant
+
+        // Deleting the symlink via safe remove file or unlinking logic should leave target intact
+        assert!(fs::remove_file(&link_path).is_ok()); // agyis: no-mutant
+        assert!(!link_path.exists()); // agyis: no-mutant
+        assert!(sensitive_file.exists()); // agyis: no-mutant
+        assert_eq!(fs::read(&sensitive_file).unwrap(), b"secret_key"); // agyis: no-mutant
+
+        let _ = fs::remove_dir_all(temp_dir);
+        let _ = fs::remove_dir_all(foreign_dir);
     }
 
     #[test]

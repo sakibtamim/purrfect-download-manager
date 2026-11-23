@@ -106,6 +106,33 @@ describe('downloadSlice metadata tracking', () => {
     expect(useTestStore.getState().downloadMetadata['gid-1']).toBeUndefined();
   });
 
+  it('sanitizes path traversal in dual-stream muxed download filenames', async () => {
+    const addUriCalls: { uris: string[]; options?: Record<string, unknown> }[] = [];
+    vi.spyOn(aria2Client, 'addUri').mockImplementation(async (uris, options) => {
+      addUriCalls.push({ uris, options: options as Record<string, unknown> });
+      return `gid-${addUriCalls.length}`;
+    });
+
+    const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      pendingMuxes: []
+    }));
+
+    await useTestStore.getState().addDownload(
+      'https://video.example.com/video.mp4',
+      [],
+      '/tmp/downloads',
+      '../../etc/cron.d/hack.mp4',
+      'https://video.example.com/audio.m4a',
+      undefined,
+      'https://youtube.com/watch?v=exploit'
+    );
+
+    expect(addUriCalls.length).toBe(2);
+    expect(addUriCalls[0].options?.['out']).toBe('hack.video.mp4');
+    expect(addUriCalls[1].options?.['out']).toBe('hack.audio.m4a');
+  });
+
   it('respects manual splitConnections up to 32 when dynamic scaling is disabled', async () => {
     let capturedOptions: Record<string, unknown> | undefined;
     vi.spyOn(aria2Client, 'addUri').mockImplementation(async (_uris, options) => {
