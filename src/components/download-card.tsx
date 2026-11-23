@@ -29,8 +29,10 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
   const isMuxing = (download.status as string) === "muxing";
 
   const handleDelete = async () => {
-    await deleteDownload(download.gid, deleteLocalFile);
+    const shouldDelete = deleteLocalFile;
     setIsDeleteDialogOpen(false);
+    setDeleteLocalFile(false);
+    await deleteDownload(download.gid, shouldDelete);
   };
 
   const rawTotal = parseInt(download.totalLength, 10);
@@ -244,6 +246,7 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                 aria-label="Remove download"
                 onClick={(e) => {
                   e.stopPropagation();
+                  setDeleteLocalFile(false);
                   setIsDeleteDialogOpen(true);
                 }}
               >
@@ -271,7 +274,13 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
         </div>
       </CardContent>
 
-      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+      <Dialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(open) => {
+          setIsDeleteDialogOpen(open);
+          if (!open) setDeleteLocalFile(false);
+        }}
+      >
         <DialogContent onClick={(e) => e.stopPropagation()}>
           <DialogHeader>
             <DialogTitle>Remove Download</DialogTitle>
@@ -292,7 +301,15 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
             </label>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsDeleteDialogOpen(false);
+                setDeleteLocalFile(false);
+              }}
+            >
+              Cancel
+            </Button>
             <Button variant="destructive" onClick={handleDelete}>Remove</Button>
           </DialogFooter>
         </DialogContent>

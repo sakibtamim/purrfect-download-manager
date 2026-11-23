@@ -35,8 +35,11 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
       if (selectedDownloadId === deleteTargetGid) {
         setSelectedDownload(null);
       }
-      await deleteDownload(deleteTargetGid, deleteLocalFile);
+      const targetGid = deleteTargetGid;
+      const shouldDeleteLocal = deleteLocalFile;
       setDeleteTargetGid(null);
+      setDeleteLocalFile(false);
+      await deleteDownload(targetGid, shouldDeleteLocal);
     }
   };
 
@@ -326,7 +329,10 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
                         className="h-6 w-6 text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
                         title="Delete"
                         aria-label="Delete download"
-                        onClick={() => setDeleteTargetGid(download.gid)}
+                        onClick={() => {
+                          setDeleteLocalFile(false);
+                          setDeleteTargetGid(download.gid);
+                        }}
                       >
                         <Trash2 className="h-3 w-3" />
                       </Button>
@@ -338,7 +344,15 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
           </tbody>
         </table>
 
-      <Dialog open={!!deleteTargetGid} onOpenChange={(openState) => !openState && setDeleteTargetGid(null)}>
+      <Dialog
+        open={!!deleteTargetGid}
+        onOpenChange={(openState) => {
+          if (!openState) {
+            setDeleteTargetGid(null);
+            setDeleteLocalFile(false);
+          }
+        }}
+      >
         <DialogContent onClick={(e) => e.stopPropagation()}>
           <DialogHeader>
             <DialogTitle>Remove Download</DialogTitle>
@@ -359,7 +373,15 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
             </label>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTargetGid(null)}>Cancel</Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteTargetGid(null);
+                setDeleteLocalFile(false);
+              }}
+            >
+              Cancel
+            </Button>
             <Button variant="destructive" onClick={handleDelete}>Remove</Button>
           </DialogFooter>
         </DialogContent>

@@ -32,12 +32,20 @@ export async function getMetaStore(): Promise<Store> {
         get: async <T>(key: string) => (mockMetaStore.get(key) ?? null) as T | null,
         set: async (key: string, value: unknown) => { mockMetaStore.set(key, value); },
         delete: async (key: string) => { mockMetaStore.delete(key); },
-        save: async () => {}
+        save: async () => {},
+        keys: async () => Array.from(mockMetaStore.keys()),
       } as unknown as Store;
     }
   }
   return metaStoreCache;
 }
+
+export function _resetMetaStoreForTesting() {
+  metaStoreCache = null;
+  mockMetaStore.clear();
+}
+
+export type EngineStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
 
 export interface DownloadDataSlice {
   active: Aria2Download[];
@@ -46,7 +54,10 @@ export interface DownloadDataSlice {
   globalSpeed: string;
   stagedDownload: StagedDownload | null;
   downloadMetadata: Record<string, { sourceUrl?: string; title?: string }>;
+  engineStatus: EngineStatus;
+  engineError: string | null;
 
+  setEngineStatus: (status: EngineStatus, error?: string | null) => void;
   stageDownload: (download: StagedDownload) => Promise<void>;
   clearStagedDownload: () => void | Promise<void>;
   fetchDownloads: () => Promise<void>;
@@ -69,6 +80,15 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
   globalSpeed: '0',
   stagedDownload: null,
   downloadMetadata: {},
+  engineStatus: 'connecting',
+  engineError: null,
+
+  setEngineStatus: (status, error) => {
+    set({
+      engineStatus: status,
+      engineError: error ?? null,
+    });
+  },
 
   stageDownload: async (download) => {
     set({ stagedDownload: download });
@@ -243,7 +263,8 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
               const aPath = aComplete.files[0]?.path;
 
               if (vPath && aPath) {
-                const finalPath = vPath.replace(/\.video\.[^.]+$/, '') + '.mp4';
+                const targetDir = (vComplete.dir || get().defaultDownloadDir || '').replace(/\\/g, '/').replace(/\/+$/, '');
+                const finalPath = targetDir && mux.finalFilename ? `${targetDir}/${mux.finalFilename}` : (vPath.replace(/\.video\.[^.]+$/, '') + '.mp4');
 
                 const ffmpegArgs = [
                   '-y',
@@ -264,9 +285,23 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
 
                 runFfmpeg().then(output => {
                   if (output.code === 0) {
+                    const isStillPending = get().pendingMuxes.some(m => m.videoGid === mux.videoGid);
+                    const muxTargetDir = vComplete.dir || get().defaultDownloadDir || undefined;
+
+                    if (!isStillPending) {
+                      invoke('delete_downloaded_file', { path: finalPath, customDir: muxTargetDir }).catch(() => {});
+                      invoke('delete_downloaded_file', { path: vPath, customDir: muxTargetDir }).catch(() => {});
+                      invoke('delete_downloaded_file', { path: aPath, customDir: muxTargetDir }).catch(() => {});
+                      invoke('delete_downloaded_file', { path: `${vPath}.aria2`, customDir: muxTargetDir }).catch(() => {});
+                      invoke('delete_downloaded_file', { path: `${aPath}.aria2`, customDir: muxTargetDir }).catch(() => {});
+                      return;
+                    }
+
                     notify('Video Processing Complete', 'High-resolution video merged successfully.');
-                    invoke('delete_downloaded_file', { path: vPath }).catch(console.error);
-                    invoke('delete_downloaded_file', { path: aPath }).catch(console.error);
+                    invoke('delete_downloaded_file', { path: vPath, customDir: muxTargetDir }).catch(console.error);
+                    invoke('delete_downloaded_file', { path: aPath, customDir: muxTargetDir }).catch(console.error);
+                    invoke('delete_downloaded_file', { path: `${vPath}.aria2`, customDir: muxTargetDir }).catch(() => {});
+                    invoke('delete_downloaded_file', { path: `${aPath}.aria2`, customDir: muxTargetDir }).catch(() => {});
                     aria2Client.removeDownloadResult(mux.audioGid).catch(console.warn);
 
                     getMetaStore().then(async metaStore => {
@@ -372,19 +407,21 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         completed: filteredCompleted,
         failed: filteredFailed,
         globalSpeed: stats.downloadSpeed,
-        downloadMetadata: metadataUpdates
+        downloadMetadata: metadataUpdates,
+        engineStatus: 'connected',
+        engineError: null,
       });
     } catch (error) {
       const err = error as Error;
-      const isFetchError =
-        err?.message?.includes('Failed to fetch') ||
-        err?.message?.includes('fetch failed') ||
-        err?.message?.includes('NetworkError') ||
-        err?.message?.includes('Load failed');
+      const priorError = get().engineError;
+      const errorMessage = priorError || err?.message || 'Failed to connect to aria2 engine';
 
-      if (!isFetchError) {
-        console.error('Failed to fetch aria2 status', error);
-      }
+      set({
+        engineStatus: 'error',
+        engineError: errorMessage,
+      });
+
+      console.error('Failed to fetch aria2 status:', errorMessage, error);
     }
   },
 
@@ -633,9 +670,8 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
     const removeAriaTask = async (taskGid: string, taskStatus?: string) => {
       if (taskStatus === 'active' || taskStatus === 'waiting' || taskStatus === 'paused') {
         try { await aria2Client.remove(taskGid); } catch {}
-      } else {
-        try { await aria2Client.removeDownloadResult(taskGid); } catch {}
       }
+      try { await aria2Client.removeDownloadResult(taskGid); } catch {}
     };
 
     if (dl) {
@@ -645,28 +681,108 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       await removeAriaTask(companionGid, companionDl?.status);
     }
 
+    const metaStore = await getMetaStore();
+    const cachedMeta = await metaStore.get<CachedMeta>(gid);
+    const companionCachedMeta = companionGid ? await metaStore.get<CachedMeta>(companionGid) : null;
+
     if (removeLocalFile) {
-      const customDir = get().defaultDownloadDir || undefined;
-      const removeFilesFor = async (targetDl?: Aria2Download | null) => {
-        if (!targetDl || !targetDl.files) return;
-        for (const f of targetDl.files) {
+      const taskDir = dl?.dir || companionDl?.dir || get().defaultDownloadDir || undefined;
+      const pathsToDelete = new Set<string>();
+
+      // 1. Collect files from active/completed download objects
+      const allTargetFiles = [...(dl?.files || []), ...(companionDl?.files || [])];
+      for (const f of allTargetFiles) {
+        if (f.path) {
+          pathsToDelete.add(f.path);
+        }
+      }
+
+      // 2. Collect cached path from metadata store (handles muxed destination path)
+      if (cachedMeta?.path) {
+        pathsToDelete.add(cachedMeta.path);
+      }
+      if (companionCachedMeta?.path) {
+        pathsToDelete.add(companionCachedMeta.path);
+      }
+
+      // 3. Address path desync for muxed streams (both pending and completed)
+      if (mux?.finalFilename) {
+        const baseDir = taskDir || '';
+        const lastDot = mux.finalFilename.lastIndexOf('.');
+        const baseName = lastDot !== -1 ? mux.finalFilename.substring(0, lastDot) : mux.finalFilename;
+        const ext = lastDot !== -1 ? mux.finalFilename.substring(lastDot + 1) : 'mp4';
+
+        if (baseDir) {
+          const normBaseDir = baseDir.replace(/\\/g, '/').replace(/\/+$/, '');
+          pathsToDelete.add(`${normBaseDir}/${mux.finalFilename}`);
+          pathsToDelete.add(`${normBaseDir}/${baseName}.video.${ext}`);
+          pathsToDelete.add(`${normBaseDir}/${baseName}.video.mp4`);
+          pathsToDelete.add(`${normBaseDir}/${baseName}.video.webm`);
+          pathsToDelete.add(`${normBaseDir}/${baseName}.video.mkv`);
+          pathsToDelete.add(`${normBaseDir}/${baseName}.audio.m4a`);
+        }
+      }
+
+      // For any collected video/audio path, also derive candidate complementary streams
+      for (const p of Array.from(pathsToDelete)) {
+        if (/\.video\.[^.]+$/.test(p)) {
+          pathsToDelete.add(p.replace(/\.video\.[^.]+$/, '') + '.mp4');
+          pathsToDelete.add(p.replace(/\.video\.[^.]+$/, '') + '.audio.m4a');
+        } else if (/\.audio\.[^.]+$/.test(p)) {
+          pathsToDelete.add(p.replace(/\.audio\.[^.]+$/, '') + '.mp4');
+          pathsToDelete.add(p.replace(/\.audio\.[^.]+$/, '') + '.video.mp4');
+        } else if (/\.(mp4|mkv|webm)$/i.test(p)) {
+          const base = p.replace(/\.[^.]+$/, '');
+          pathsToDelete.add(`${base}.video.mp4`);
+          pathsToDelete.add(`${base}.video.webm`);
+          pathsToDelete.add(`${base}.video.mkv`);
+          pathsToDelete.add(`${base}.audio.m4a`);
+        }
+      }
+
+      // 4. Support multi-file directory deletion
+      if (allTargetFiles.length >= 1 && taskDir) {
+        const normTaskDir = taskDir.replace(/\\/g, '/').replace(/\/+$/, '');
+        const normTaskDirLower = normTaskDir.toLowerCase();
+        const subDirs = new Set<string>();
+        let hasRootFiles = false;
+
+        for (const f of allTargetFiles) {
           if (f.path) {
-            try {
-              await invoke('delete_downloaded_file', { path: f.path, customDir });
-            } catch (e) {
-              console.error('Failed to delete local file:', f.path, e);
-            }
-            if (targetDl.status !== 'complete') {
-              try {
-                await invoke('delete_downloaded_file', { path: f.path + '.aria2', customDir });
-              } catch {}
+            const normPath = f.path.replace(/\\/g, '/');
+            const normPathLower = normPath.toLowerCase();
+            const isSubPath = normPath.startsWith(normTaskDir + '/') ||
+              (normTaskDir.includes(':') && normPathLower.startsWith(normTaskDirLower + '/'));
+
+            if (isSubPath) {
+              const rel = normPath.slice(normTaskDir.length + 1);
+              const parts = rel.split('/');
+              if (parts.length > 1) {
+                subDirs.add(`${normTaskDir}/${parts[0]}`);
+              } else {
+                hasRootFiles = true;
+              }
             }
           }
         }
-      };
 
-      await removeFilesFor(dl);
-      await removeFilesFor(companionDl);
+        if (!hasRootFiles && subDirs.size === 1) {
+          const multiFileFolder = Array.from(subDirs)[0];
+          pathsToDelete.add(multiFileFolder);
+        }
+      }
+
+      // 5. Delete all candidate files, folders, and .aria2 control files
+      for (const filePath of Array.from(pathsToDelete)) {
+        try {
+          await invoke('delete_downloaded_file', { path: filePath, customDir: taskDir });
+        } catch (e) {
+          console.error('Failed to delete local file:', filePath, e);
+        }
+        try {
+          await invoke('delete_downloaded_file', { path: `${filePath}.aria2`, customDir: taskDir });
+        } catch {}
+      }
     }
 
     const nextMeta = { ...get().downloadMetadata };
@@ -676,7 +792,6 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
     }
 
     try {
-      const metaStore = await getMetaStore();
       await metaStore.delete(gid);
       if (companionGid) {
         await metaStore.delete(companionGid);
@@ -709,8 +824,58 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
   },
 
   clearCompletedDownloads: async () => {
+    const completedList = get().completed || [];
+    const pendingMuxes = get().pendingMuxes || [];
+    const pendingMuxGids = new Set(pendingMuxes.flatMap(m => [m.videoGid, m.audioGid]));
+
+    // Identify completed downloads that are not currently part of an active mux merge
+    const gidsToDelete = new Set<string>();
+    for (const d of completedList) {
+      if (!pendingMuxGids.has(d.gid)) {
+        gidsToDelete.add(d.gid);
+      }
+    }
+
     await aria2Client.purgeDownloadResult();
     await get().fetchDownloads();
+
+    try {
+      const metaStore = await getMetaStore();
+
+      if (typeof metaStore.keys === 'function') {
+        const allKeys = await metaStore.keys();
+        const activeOrWaitingGids = new Set([
+          ...(get().active || []).map(d => d.gid),
+          ...(get().failed || []).map(d => d.gid),
+          ...pendingMuxGids,
+        ]);
+        for (const key of allKeys) {
+          if (!activeOrWaitingGids.has(key)) {
+            gidsToDelete.add(key);
+          }
+        }
+      }
+
+      // Explicitly protect any GIDs associated with in-flight pending muxes
+      for (const gid of pendingMuxGids) {
+        gidsToDelete.delete(gid);
+      }
+
+      if (gidsToDelete.size > 0) {
+        for (const gid of gidsToDelete) {
+          await metaStore.delete(gid);
+        }
+        await metaStore.save();
+
+        const currentMeta = { ...get().downloadMetadata };
+        for (const gid of gidsToDelete) {
+          delete currentMeta[gid];
+        }
+        set({ downloadMetadata: currentMeta });
+      }
+    } catch (e) {
+      console.warn('Failed to clean up completed downloads metadata from store:', e);
+    }
   },
 
   setSpeedLimit: async (bytesPerSecond: string) => {

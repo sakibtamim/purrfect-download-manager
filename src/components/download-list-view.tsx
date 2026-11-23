@@ -7,7 +7,7 @@ import { DownloadCard } from "@/components/download-card";
 import { DownloadTable } from "@/components/download-table";
 import { AddDownloadModal } from "@/components/add-download-modal";
 import { Button } from "@/components/ui/button";
-import { List, LayoutGrid, Search, X, Inbox } from "lucide-react";
+import { List, LayoutGrid, Search, X, Inbox, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DownloadListViewProps {
@@ -30,6 +30,8 @@ export function DownloadListView({
   const viewMode = useAppStore((state) => state.viewMode);
   const setViewMode = useAppStore((state) => state.setViewMode);
   const isPlayfulMode = useAppStore((state) => state.isPlayfulMode);
+  const engineStatus = useAppStore((state) => state.engineStatus);
+  const engineError = useAppStore((state) => state.engineError);
   const [searchQuery, setSearchQuery] = useState("");
 
   const filteredDownloads = useMemo(() => {
@@ -120,6 +122,19 @@ export function DownloadListView({
           </div>
         </div>
       </div>
+
+      {/* Engine Status Banner */}
+      {engineStatus === "error" && (
+        <div className="flex items-center gap-2.5 p-3 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-xs">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">Engine Connection Failure</p>
+            <p className="text-muted-foreground text-[11px] truncate">
+              {engineError || "Unable to reach aria2 daemon. A port collision may have occurred or daemon failed to bind."}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Content Area */}
       {downloads.length === 0 ? (

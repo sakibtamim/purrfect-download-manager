@@ -3,9 +3,9 @@ import { DetectedChecksum } from '@/lib/utils';
 import { UISlice, ViewMode } from './slices/uiSlice';
 import { SettingsSlice } from './slices/settingsSlice';
 import { MuxSlice } from './slices/muxSlice';
-import { DownloadDataSlice } from './slices/downloadSlice';
+import { DownloadDataSlice, EngineStatus } from './slices/downloadSlice';
 
-export type { ViewMode };
+export type { ViewMode, EngineStatus };
 
 export interface StagedDownload {
   url: string;
