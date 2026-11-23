@@ -129,7 +129,7 @@ function sendHash(url, checksum) {
       url: url,
       checksum: checksum // structured DetectedChecksum object
     });
-  } catch (_) {
+  } catch {
     // Extension context may be invalidated
   }
 }
