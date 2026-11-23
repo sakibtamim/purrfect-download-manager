@@ -10,7 +10,91 @@ use tauri::{
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_store::StoreExt;
-use tiny_http::{Response, Server};
+use tiny_http::{Header, Response, Server};
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct Aria2Config {
+    pub port: u16,
+    pub secret: String,
+}
+
+#[derive(Clone)]
+pub struct Aria2Secret(pub String);
+
+#[derive(Clone, Default)]
+pub struct Aria2ErrorState(pub std::sync::Arc<std::sync::Mutex<Option<String>>>);
+
+#[tauri::command]
+fn get_aria2_config(
+    state: tauri::State<Aria2Config>,
+    error_state: tauri::State<Aria2ErrorState>,
+) -> Result<Aria2Config, String> {
+    if let Ok(guard) = error_state.0.lock() {
+        if let Some(ref err) = *guard {
+            return Err(err.clone());
+        }
+    }
+    if state.port == 0 {
+        return Err("Failed to find available port for aria2: all ports in range 6800-6820 are occupied".to_string());
+    }
+    Ok(state.inner().clone())
+}
+
+#[tauri::command]
+fn get_aria2_secret(state: tauri::State<Aria2Config>) -> String {
+    state.secret.clone()
+}
+
+#[tauri::command]
+fn get_aria2_error(state: tauri::State<Aria2ErrorState>) -> Option<String> {
+    state.0.lock().ok().and_then(|guard| guard.clone())
+}
+
+fn find_available_port(start: u16, end: u16) -> Option<u16> {
+    (start..=end).find(|&port| std::net::TcpListener::bind(("127.0.0.1", port)).is_ok())
+}
+
+fn generate_ephemeral_token() -> String {
+    #[cfg(unix)]
+    {
+        if let Ok(mut file) = std::fs::File::open("/dev/urandom") {
+            use std::io::Read;
+            let mut bytes = [0u8; 16];
+            if file.read_exact(&mut bytes).is_ok() {
+                return bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            }
+        }
+    }
+
+    let time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let pid = std::process::id();
+    let stack_addr = &time as *const _ as usize;
+    format!("{:016x}{:08x}{:016x}", (time ^ (stack_addr as u128)) as u64, pid, (time >> 64) as u64)
+}
+
+fn resolve_downloads_folder(
+    configured_dir: Option<std::path::PathBuf>,
+    system_download_dir: Option<std::path::PathBuf>,
+) -> Option<std::path::PathBuf> {
+    if let Some(conf) = configured_dir {
+        if !conf.as_os_str().is_empty() {
+            let _ = fs::create_dir_all(&conf);
+            if conf.exists() {
+                return Some(conf);
+            }
+        }
+    }
+    if let Some(sys) = system_download_dir {
+        let _ = fs::create_dir_all(&sys);
+        if sys.exists() {
+            return Some(sys);
+        }
+    }
+    None
+}
 
 #[tauri::command]
 fn set_taskbar_progress(
@@ -59,27 +143,163 @@ fn update_tray_tooltip(app: tauri::AppHandle, tooltip: String) -> Result<(), Str
     Ok(())
 }
 
+fn safe_remove_file(target: &std::path::Path) -> std::io::Result<()> {
+    let mut last_err = None;
+    for _ in 0..5 {
+        match std::fs::remove_file(target) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                if !target.exists() {
+                    return Ok(());
+                }
+                last_err = Some(e);
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+    }
+    Err(last_err.unwrap())
+}
+
+fn safe_remove_dir_all(target: &std::path::Path) -> std::io::Result<()> {
+    let mut last_err = None;
+    for _ in 0..5 {
+        match std::fs::remove_dir_all(target) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                if !target.exists() {
+                    return Ok(());
+                }
+                last_err = Some(e);
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+    }
+    Err(last_err.unwrap())
+}
+
+fn validate_and_delete_path(
+    target: &std::path::Path,
+    download_dir: Option<&std::path::Path>,
+    app_data_dir: Option<&std::path::Path>,
+    configured_dir: Option<&std::path::Path>,
+    custom_target_dir: Option<&std::path::Path>,
+    home_dir: Option<&std::path::Path>,
+) -> Result<(), String> {
+    let is_in_download = download_dir.map(|d| target.starts_with(d)).unwrap_or(false);
+    let is_in_app_data = app_data_dir.map(|d| target.starts_with(d)).unwrap_or(false);
+    let is_in_configured = configured_dir.map(|d| target.starts_with(d)).unwrap_or(false);
+    let is_in_custom = custom_target_dir.map(|d| target.starts_with(d)).unwrap_or(false);
+
+    if !is_in_download && !is_in_app_data && !is_in_configured && !is_in_custom {
+        return Err("Permission denied: Target file is outside allowed download directories".to_string());
+    }
+
+    if target.is_file() {
+        safe_remove_file(target).map_err(|e| e.to_string())
+    } else if target.is_dir() {
+        let is_root_dir = download_dir.map(|d| target == d).unwrap_or(false)
+            || app_data_dir.map(|d| target == d).unwrap_or(false)
+            || configured_dir.map(|d| target == d).unwrap_or(false)
+            || custom_target_dir.map(|d| target == d).unwrap_or(false);
+
+        if is_root_dir {
+            return Err("Cannot remove root download directory".to_string());
+        }
+
+        if target.parent().is_none() {
+            return Err("Cannot remove filesystem root".to_string());
+        }
+
+        if home_dir.map(|h| target == h).unwrap_or(false) {
+            return Err("Cannot remove home directory".to_string());
+        }
+
+        if let Some(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok().and_then(|h| std::path::PathBuf::from(h).canonicalize().ok()) {
+            if target == home {
+                return Err("Cannot remove home directory".to_string());
+            }
+        }
+
+        safe_remove_dir_all(target).map_err(|e| e.to_string())
+    } else {
+        safe_remove_file(target).map_err(|e| e.to_string())
+    }
+}
+
 #[tauri::command]
 fn delete_downloaded_file(app: tauri::AppHandle, path: String, custom_dir: Option<String>) -> Result<(), String> {
-    let p = std::path::Path::new(&path);
-    let target = p.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
-    if !target.is_file() {
-        return Err("File not found or is a directory".to_string());
+    if path.trim().is_empty() {
+        return Ok(());
     }
 
     let download_dir = app.path().download_dir().ok().and_then(|d| d.canonicalize().ok());
     let app_data_dir = app.path().app_local_data_dir().ok().and_then(|d| d.canonicalize().ok());
-    let custom_target_dir = custom_dir.and_then(|cd| std::path::PathBuf::from(cd).canonicalize().ok());
+    let configured_dir = app
+        .store("settings.json")
+        .ok()
+        .and_then(|store| store.get("defaultDownloadDir"))
+        .and_then(|v| v.as_str().filter(|s| !s.trim().is_empty()).map(std::path::PathBuf::from))
+        .and_then(|d| d.canonicalize().ok());
+    let custom_target_dir = custom_dir
+        .filter(|cd| !cd.trim().is_empty())
+        .and_then(|cd| std::path::PathBuf::from(cd).canonicalize().ok());
+    let home_dir = app.path().home_dir().ok().and_then(|h| h.canonicalize().ok());
 
-    let is_in_download = download_dir.map(|d| target.starts_with(&d)).unwrap_or(false);
-    let is_in_app_data = app_data_dir.map(|d| target.starts_with(&d)).unwrap_or(false);
-    let is_in_custom = custom_target_dir.map(|d| target.starts_with(&d)).unwrap_or(false);
+    let mut p = std::path::PathBuf::from(&path);
 
-    if is_in_download || is_in_app_data || is_in_custom {
-        std::fs::remove_file(target).map_err(|e| e.to_string())
-    } else {
-        Err("Permission denied: Target file is outside allowed download directories".to_string())
+    // If relative, resolve against custom_dir, configured_dir, or download_dir
+    if p.is_relative() {
+        if let Some(ref cd) = custom_target_dir {
+            let candidate = cd.join(&p);
+            if candidate.symlink_metadata().is_ok() {
+                p = candidate;
+            }
+        } else if let Some(ref cd) = configured_dir {
+            let candidate = cd.join(&p);
+            if candidate.symlink_metadata().is_ok() {
+                p = candidate;
+            }
+        } else if let Some(ref dd) = download_dir {
+            let candidate = dd.join(&p);
+            if candidate.symlink_metadata().is_ok() {
+                p = candidate;
+            }
+        }
     }
+
+    if p.symlink_metadata().is_err() {
+        return Ok(());
+    }
+
+    let is_symlink = p.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false);
+    let target = match p.canonicalize() {
+        Ok(t) => t,
+        Err(_) if is_symlink => {
+            // Broken symlink: validate the symlink's parent against allowed download directories
+            let parent = p.parent().and_then(|p| p.canonicalize().ok());
+            if let Some(ref par) = parent {
+                let is_in_download = download_dir.as_ref().map(|d| par.starts_with(d)).unwrap_or(false);
+                let is_in_app_data = app_data_dir.as_ref().map(|d| par.starts_with(d)).unwrap_or(false);
+                let is_in_configured = configured_dir.as_ref().map(|d| par.starts_with(d)).unwrap_or(false);
+                let is_in_custom = custom_target_dir.as_ref().map(|d| par.starts_with(d)).unwrap_or(false);
+
+                if is_in_download || is_in_app_data || is_in_configured || is_in_custom {
+                    return std::fs::remove_file(&p).map_err(|e| e.to_string());
+                }
+            }
+            return Err("Permission denied: Broken symlink is outside allowed download directories".to_string());
+        }
+        Err(e) => return Err(format!("Invalid path: {}", e)),
+    };
+
+    validate_and_delete_path(
+        &target,
+        download_dir.as_deref(),
+        app_data_dir.as_deref(),
+        configured_dir.as_deref(),
+        custom_target_dir.as_deref(),
+        home_dir.as_deref(),
+    )
 }
 
 #[tauri::command]
@@ -398,9 +618,16 @@ pub fn run() {
                     "pause-all" => { let _ = app.emit("tray-pause-all", ()); }
                     "resume-all" => { let _ = app.emit("tray-resume-all", ()); }
                     "open-downloads" => {
-                        if let Ok(download_dir) = app.path().download_dir() {
+                        let configured_dir = app
+                            .store("settings.json")
+                            .ok()
+                            .and_then(|store| store.get("defaultDownloadDir"))
+                            .and_then(|v| v.as_str().filter(|s| !s.trim().is_empty()).map(std::path::PathBuf::from));
+                        let sys_dir = app.path().download_dir().ok();
+
+                        if let Some(dir) = resolve_downloads_folder(configured_dir, sys_dir) {
                             #[allow(deprecated)]
-                            let _ = app.shell().open(download_dir.to_string_lossy().to_string(), None);
+                            let _ = app.shell().open(dir.to_string_lossy().to_string(), None);
                         }
                     }
                     "start-on-boot" => {
@@ -448,66 +675,137 @@ pub fn run() {
         })
         .build(app)?;
 
-      let download_dir = app.handle().path().download_dir().unwrap_or_default();
-      let dir_arg = format!("--dir={}", download_dir.to_string_lossy());
+      let secret_token = generate_ephemeral_token();
+      let error_state = Aria2ErrorState::default();
+      app.manage(error_state.clone());
 
-      let app_local_data_dir = app.handle().path().app_local_data_dir().unwrap();
-      if !app_local_data_dir.exists() {
-          fs::create_dir_all(&app_local_data_dir).unwrap();
-      }
-      
-      let session_file = app_local_data_dir.join("session.txt");
-      if !session_file.exists() {
-          fs::File::create(&session_file).unwrap();
-      }
-      let session_arg = format!("--save-session={}", session_file.to_string_lossy());
-      let input_file_arg = format!("--input-file={}", session_file.to_string_lossy());
-
-      let current_pid = std::process::id();
-      let stop_with_process_arg = format!("--stop-with-process={}", current_pid);
-
-      let aria2_args = [
-          "--enable-rpc", 
-          "--rpc-listen-all=false", 
-          "--rpc-allow-origin-all=true",
-          "--rpc-listen-port=6800", 
-          "--check-certificate=true",
-          "--file-allocation=falloc",
-          "--save-session-interval=10",
-          "--continue=true",
-          "--split=32",
-          "--max-connection-per-server=16",
-          "--min-split-size=1M",
-          "--disk-cache=64M",
-          "--piece-length=1M",
-          &stop_with_process_arg,
-          &session_arg,
-          &input_file_arg,
-          &dir_arg,
-          "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
-      ];
-
-      // Try bundled pdm-aria2c sidecar first; fall back to system aria2c if spawn fails
-      let sidecar_spawn = app.shell().sidecar("pdm-aria2c").and_then(|cmd| cmd.args(&aria2_args).spawn());
-      let final_spawn = match sidecar_spawn {
-          Ok(child) => Ok(child),
-          Err(err) => {
-              log::warn!("Bundled pdm-aria2c sidecar spawn failed ({}), falling back to system-aria2c...", err);
-              app.shell().command("system-aria2c").args(&aria2_args).spawn()
+      let aria2_port_opt = find_available_port(6800, 6820);
+      let aria2_port = match aria2_port_opt {
+          Some(port) => port,
+          None => {
+              let err_msg = "Failed to find available port for aria2: all ports in range 6800-6820 are occupied".to_string();
+              log::error!("{}", err_msg);
+              eprintln!("{}", err_msg);
+              if let Ok(mut guard) = error_state.0.lock() {
+                  *guard = Some(err_msg.clone());
+              }
+              let _ = app.emit("aria2-error", err_msg);
+              0
           }
       };
 
-      match final_spawn {
-          Ok((mut rx, _child)) => {
-              tauri::async_runtime::spawn(async move {
-                  let _child_keep_alive = _child;
-                  while let Some(_event) = rx.recv().await {
-                      // Keep receiver active
-                  }
-              });
+      app.manage(Aria2Config {
+          port: aria2_port,
+          secret: secret_token.clone(),
+      });
+      app.manage(Aria2Secret(secret_token.clone()));
+
+      if aria2_port > 0 {
+          let secret_arg = format!("--rpc-secret={}", secret_token);
+          let port_arg = format!("--rpc-listen-port={}", aria2_port);
+
+          let download_dir = app.handle().path().download_dir().unwrap_or_default();
+          let dir_arg = format!("--dir={}", download_dir.to_string_lossy());
+
+          let app_local_data_dir = app.handle().path().app_local_data_dir().unwrap();
+          if !app_local_data_dir.exists() {
+              fs::create_dir_all(&app_local_data_dir).unwrap();
           }
-          Err(err) => {
-              eprintln!("Failed to spawn aria2 daemon: {}. Please ensure aria2 is installed via pacman -S aria2 or run pnpm setup.", err);
+          
+          let session_file = app_local_data_dir.join("session.txt");
+          if !session_file.exists() {
+              fs::File::create(&session_file).unwrap();
+          }
+          let session_arg = format!("--save-session={}", session_file.to_string_lossy());
+          let input_file_arg = format!("--input-file={}", session_file.to_string_lossy());
+
+          let current_pid = std::process::id();
+          let stop_with_process_arg = format!("--stop-with-process={}", current_pid);
+
+          let aria2_args = [
+              "--enable-rpc", 
+              "--rpc-listen-all=false", 
+              &port_arg, 
+              "--check-certificate=true",
+              "--file-allocation=falloc",
+              "--save-session-interval=10",
+              "--continue=true",
+              "--split=32",
+              "--max-connection-per-server=16",
+              "--min-split-size=1M",
+              "--disk-cache=64M",
+              "--piece-length=1M",
+              &stop_with_process_arg,
+              &session_arg,
+              &input_file_arg,
+              &dir_arg,
+              &secret_arg,
+              "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+          ];
+
+          // Try bundled pdm-aria2c sidecar first; fall back to system aria2c if spawn fails
+          let sidecar_spawn = app.shell().sidecar("pdm-aria2c").and_then(|cmd| cmd.args(aria2_args).spawn());
+          let final_spawn = match sidecar_spawn {
+              Ok(child) => Ok(child),
+              Err(err) => {
+                  log::warn!("Bundled pdm-aria2c sidecar spawn failed ({}), falling back to system-aria2c...", err);
+                  app.shell().command("system-aria2c").args(aria2_args).spawn()
+              }
+          };
+
+          let app_handle_for_events = app.handle().clone();
+          let error_state_for_events = error_state.clone();
+          match final_spawn {
+              Ok((mut rx, _child)) => {
+                  tauri::async_runtime::spawn(async move {
+                      let _child_keep_alive = _child;
+                      while let Some(event) = rx.recv().await {
+                          use tauri_plugin_shell::process::CommandEvent;
+                          match event {
+                              CommandEvent::Stderr(bytes) => {
+                                  let msg = String::from_utf8_lossy(&bytes);
+                                  if msg.contains("Failed to bind") || msg.contains("Exception") || msg.contains("errorCode=") {
+                                      log::error!("aria2 error: {}", msg);
+                                      eprintln!("aria2 error: {}", msg);
+                                      if let Ok(mut guard) = error_state_for_events.0.lock() {
+                                          *guard = Some(msg.to_string());
+                                      }
+                                      let _ = app_handle_for_events.emit("aria2-error", msg.to_string());
+                                  }
+                              }
+                              CommandEvent::Terminated(payload) => {
+                                  if payload.code != Some(0) {
+                                      let err_msg = format!("aria2 daemon terminated unexpectedly with exit code: {:?}", payload.code);
+                                      log::error!("{}", err_msg);
+                                      eprintln!("{}", err_msg);
+                                      if let Ok(mut guard) = error_state_for_events.0.lock() {
+                                          *guard = Some(err_msg.clone());
+                                      }
+                                      let _ = app_handle_for_events.emit("aria2-error", err_msg);
+                                  }
+                              }
+                              CommandEvent::Error(err) => {
+                                  log::error!("aria2 process error: {}", err);
+                                  eprintln!("aria2 process error: {}", err);
+                                  if let Ok(mut guard) = error_state_for_events.0.lock() {
+                                      *guard = Some(err.clone());
+                                  }
+                                  let _ = app_handle_for_events.emit("aria2-error", err);
+                              }
+                              _ => {}
+                          }
+                      }
+                  });
+              }
+              Err(err) => {
+                  let err_msg = format!("Failed to spawn aria2 daemon: {}. Please ensure aria2 is installed via pacman -S aria2 or run pnpm setup.", err);
+                  log::error!("{}", err_msg);
+                  eprintln!("{}", err_msg);
+                  if let Ok(mut guard) = error_state.0.lock() {
+                      *guard = Some(err_msg.clone());
+                  }
+                  let _ = app.emit("aria2-error", err_msg);
+              }
           }
       }
       
@@ -530,9 +828,17 @@ pub fn run() {
           };
 
           for mut request in server.incoming_requests() {
-              // Handle harmless read-only endpoints without Origin check
+              let origin = request.headers().iter()
+                  .find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("Origin"))
+                  .map(|h| h.value.as_str().to_string());
+
+              // Handle harmless read-only endpoints with permissive CORS so popups can connect
               if request.method().as_str() == "GET" && request.url() == "/health" {
-                  let _ = request.respond(Response::from_string("OK"));
+                  let mut resp = Response::from_string("OK");
+                  if let Ok(h) = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]) {
+                      resp.add_header(h);
+                  }
+                  let _ = request.respond(resp);
                   continue;
               } else if request.method().as_str() == "GET" && request.url() == "/show" {
                   #[cfg(target_os = "linux")]
@@ -544,16 +850,45 @@ pub fn run() {
                       let _ = window.show();
                       let _ = window.set_focus();
                   }
-                  let _ = request.respond(Response::from_string("OK"));
+                  let mut resp = Response::from_string("OK");
+                  if let Ok(h) = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]) {
+                      resp.add_header(h);
+                  }
+                  let _ = request.respond(resp);
                   continue;
               }
 
               // Security: Validate Origin header for sensitive endpoints
-              let origin = request.headers().iter().find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("Origin")).map(|h| h.value.as_str());
-              let is_valid_origin = origin.map(|o| o.starts_with("chrome-extension://") || o.starts_with("moz-extension://")).unwrap_or(false);
+              let is_valid_origin = origin.as_deref()
+                  .map(|o| o.starts_with("chrome-extension://") || o.starts_with("moz-extension://") || o.starts_with("safari-web-extension://"))
+                  .unwrap_or(false);
               
               if !is_valid_origin {
                   let _ = request.respond(Response::from_string("Forbidden").with_status_code(403));
+                  continue;
+              }
+
+              if request.method().as_str() == "OPTIONS" {
+                  let mut response = Response::empty(204);
+                  if let Some(ref o) = origin {
+                      if let Ok(h) = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], o.as_bytes()) {
+                          response.add_header(h);
+                      }
+                  }
+                  if let Ok(h) = Header::from_bytes(&b"Access-Control-Allow-Methods"[..], &b"POST, GET, OPTIONS"[..]) {
+                      response.add_header(h);
+                  }
+                  let req_headers = request.headers().iter()
+                      .find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("Access-Control-Request-Headers"))
+                      .map(|h| h.value.as_str().to_string())
+                      .unwrap_or_else(|| "Content-Type, Authorization, *".to_string());
+                  if let Ok(h) = Header::from_bytes(&b"Access-Control-Allow-Headers"[..], req_headers.as_bytes()) {
+                      response.add_header(h);
+                  }
+                  if let Ok(h) = Header::from_bytes(&b"Access-Control-Max-Age"[..], &b"86400"[..]) {
+                      response.add_header(h);
+                  }
+                  let _ = request.respond(response);
                   continue;
               }
 
@@ -575,7 +910,13 @@ pub fn run() {
                       let _ = app_handle.emit("browser-download", json);
                   }
                   
-                  let _ = request.respond(Response::from_string("OK"));
+                  let mut response = Response::from_string("OK");
+                  if let Some(ref o) = origin {
+                      if let Ok(h) = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], o.as_bytes()) {
+                          response.add_header(h);
+                      }
+                  }
+                  let _ = request.respond(response);
               } else {
                   let _ = request.respond(Response::from_string("Not Found").with_status_code(404));
               }
@@ -584,7 +925,244 @@ pub fn run() {
       
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![delete_downloaded_file, check_downloaded_file_exists, reveal_in_folder, raise_window, update_tray_tooltip, set_taskbar_progress, sync_tray_autostart])
+    .invoke_handler(tauri::generate_handler![
+        delete_downloaded_file,
+        check_downloaded_file_exists,
+        reveal_in_folder,
+        raise_window,
+        update_tray_tooltip,
+        set_taskbar_progress,
+        sync_tray_autostart,
+        get_aria2_secret,
+        get_aria2_config,
+        get_aria2_error
+    ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_delete_file_in_allowed_directory() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_allowed_{}", std::process::id()));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let test_file = temp_dir.join("test_file.txt");
+        fs::write(&test_file, b"content").unwrap();
+
+        let target = test_file.canonicalize().unwrap();
+        let allowed = temp_dir.canonicalize().unwrap();
+
+        let res = validate_and_delete_path(&target, None, None, None, Some(&allowed), None);
+        assert!(res.is_ok());
+        assert!(!target.exists());
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_delete_file_outside_allowed_directory_rejected() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_outside_{}", std::process::id()));
+        let foreign_dir = std::env::temp_dir().join(format!("pdm_test_foreign_{}", std::process::id()));
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::create_dir_all(&foreign_dir).unwrap();
+
+        let test_file = foreign_dir.join("foreign.txt");
+        fs::write(&test_file, b"danger").unwrap();
+
+        let target = test_file.canonicalize().unwrap();
+        let allowed = temp_dir.canonicalize().unwrap();
+
+        let res = validate_and_delete_path(&target, None, None, None, Some(&allowed), None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Permission denied"));
+        assert!(target.exists());
+
+        let _ = fs::remove_dir_all(temp_dir);
+        let _ = fs::remove_dir_all(foreign_dir);
+    }
+
+    #[test]
+    fn test_delete_directory_in_allowed_directory() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_sub_{}", std::process::id()));
+        let sub_dir = temp_dir.join("torrent_folder");
+        fs::create_dir_all(&sub_dir).unwrap();
+        fs::write(sub_dir.join("subfile.bin"), b"123").unwrap();
+
+        let target = sub_dir.canonicalize().unwrap();
+        let allowed = temp_dir.canonicalize().unwrap();
+
+        let res = validate_and_delete_path(&target, None, None, None, Some(&allowed), None);
+        assert!(res.is_ok());
+        assert!(!target.exists());
+        assert!(allowed.exists());
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_refuse_delete_root_download_directory() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_root_{}", std::process::id()));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let allowed = temp_dir.canonicalize().unwrap();
+        let target = allowed.clone();
+
+        let res = validate_and_delete_path(&target, None, None, None, Some(&allowed), None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Cannot remove root download directory"));
+        assert!(allowed.exists());
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_refuse_delete_home_directory() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_home_sub_{}", std::process::id()));
+        let fake_home = temp_dir.join("fake_home");
+        fs::create_dir_all(&fake_home).unwrap();
+
+        let home_target = fake_home.canonicalize().unwrap();
+        let allowed = temp_dir.canonicalize().unwrap();
+
+        let res = validate_and_delete_path(&home_target, None, None, None, Some(&allowed), Some(&home_target));
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Cannot remove home directory"));
+        assert!(home_target.exists());
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_safe_remove_file_retry_success() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_retry_{}", std::process::id()));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let test_file = temp_dir.join("retry.txt");
+        fs::write(&test_file, b"data").unwrap();
+
+        assert!(safe_remove_file(&test_file).is_ok());
+        assert!(!test_file.exists());
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_generate_ephemeral_token() {
+        let token1 = generate_ephemeral_token();
+        let token2 = generate_ephemeral_token();
+        assert!(!token1.is_empty());
+        assert!(!token2.is_empty());
+        assert_ne!(token1, token2);
+        assert!(token1.len() >= 16);
+    }
+
+    #[test]
+    fn test_resolve_downloads_folder_custom_preferred() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_custom_dl_{}", std::process::id()));
+        let custom = temp_dir.join("custom_downloads");
+        let sys = temp_dir.join("sys_downloads");
+        fs::create_dir_all(&sys).unwrap();
+
+        let resolved = resolve_downloads_folder(Some(custom.clone()), Some(sys.clone()));
+        assert_eq!(resolved, Some(custom.clone()));
+        assert!(custom.exists());
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_resolve_downloads_folder_fallback_to_system() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_fallback_dl_{}", std::process::id()));
+        let sys = temp_dir.join("sys_downloads");
+        fs::create_dir_all(&sys).unwrap();
+
+        let resolved = resolve_downloads_folder(None, Some(sys.clone()));
+        assert_eq!(resolved, Some(sys));
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_resolve_downloads_folder_creates_nonexistent_system_dir() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_sys_create_{}", std::process::id()));
+        let sys = temp_dir.join("future_system_downloads");
+        assert!(!sys.exists());
+
+        let resolved = resolve_downloads_folder(None, Some(sys.clone()));
+        assert_eq!(resolved, Some(sys.clone()));
+        assert!(sys.exists());
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_cors_preflight_headers_creation() {
+        let origin = "chrome-extension://abcdefghijklmnopqrstuvwxyz123456";
+        let allow_origin_h = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], origin.as_bytes()).unwrap();
+        assert_eq!(allow_origin_h.field.as_str(), "Access-Control-Allow-Origin");
+        assert_eq!(allow_origin_h.value.as_str(), origin);
+
+        let allow_methods_h = Header::from_bytes(&b"Access-Control-Allow-Methods"[..], &b"POST, GET, OPTIONS"[..]).unwrap();
+        assert_eq!(allow_methods_h.value.as_str(), "POST, GET, OPTIONS");
+
+        let allow_headers_h = Header::from_bytes(&b"Access-Control-Allow-Headers"[..], &b"Content-Type, X-Custom-Header, *"[..]).unwrap();
+        assert_eq!(allow_headers_h.value.as_str(), "Content-Type, X-Custom-Header, *");
+    }
+
+    #[test]
+    fn test_find_available_port_success() {
+        let port = find_available_port(6800, 6820);
+        assert!(port.is_some());
+        let p = port.unwrap();
+        assert!(p >= 6800 && p <= 6820);
+    }
+
+    #[test]
+    fn test_find_available_port_skips_occupied() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("Failed to bind ephemeral test socket");
+        let occupied_port = listener.local_addr().unwrap().port();
+
+        // When probing a range containing only the occupied port, it must return None
+        assert_eq!(find_available_port(occupied_port, occupied_port), None);
+
+        // When probing a range where occupied_port is first, it must not return occupied_port
+        let found = find_available_port(occupied_port, occupied_port.saturating_add(1));
+        assert_ne!(found, Some(occupied_port));
+
+        drop(listener);
+        // After dropping the listener, the port becomes available again
+        assert_eq!(find_available_port(occupied_port, occupied_port), Some(occupied_port));
+    }
+
+    #[test]
+    fn test_find_available_port_invalid_range_returns_none() {
+        assert_eq!(find_available_port(6820, 6800), None);
+    }
+
+    #[test]
+    fn test_aria2_config_serialization() {
+        let config = Aria2Config {
+            port: 6815,
+            secret: "test_secret_abc".to_string(),
+        };
+        let serialized = serde_json::to_string(&config).unwrap();
+        assert!(serialized.contains("\"port\":6815"));
+        assert!(serialized.contains("\"secret\":\"test_secret_abc\""));
+
+        let deserialized: Aria2Config = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.port, 6815);
+        assert_eq!(deserialized.secret, "test_secret_abc");
+    }
+
+    #[test]
+    fn test_aria2_error_state_management() {
+        let error_state = Aria2ErrorState::default();
+        assert!(error_state.0.lock().unwrap().is_none());
+
+        *error_state.0.lock().unwrap() = Some("Aria2 port collision".to_string());
+        assert_eq!(error_state.0.lock().unwrap().as_deref(), Some("Aria2 port collision"));
+    }
 }

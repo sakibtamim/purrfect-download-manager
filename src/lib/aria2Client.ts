@@ -20,11 +20,133 @@ export interface Aria2Download {
   pieceLength?: string;
 }
 
-class Aria2Client {
-  private rpcUrl = "http://127.0.0.1:6800/jsonrpc";
+export interface Aria2Config {
+  port: number;
+  secret: string;
+}
+
+export class Aria2Client {
+  // Default fallback port for test / non-Tauri environments before dynamic discovery
+  public port = 6800;
+  public rpcUrl = "http://127.0.0.1:6800/jsonrpc";
   private idCount = 0;
+  private secretToken: string | null = null;
+  private configPromise: Promise<{ port: number; secret: string | null }> | null = null;
+  private isConfigInitialized = false;
+
+  constructor() {
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      this.getConfig().catch(() => {});
+    }
+  }
+
+  getPort(): number {
+    return this.port;
+  }
+
+  getRpcUrl(): string {
+    return this.rpcUrl;
+  }
+
+  resetConfig() {
+    this.port = 6800;
+    this.rpcUrl = "http://127.0.0.1:6800/jsonrpc";
+    this.secretToken = null;
+    this.isConfigInitialized = false;
+    this.configPromise = null;
+  }
+
+  async getConfig(): Promise<{ port: number; secret: string | null }> {
+    if (this.isConfigInitialized) {
+      return { port: this.port, secret: this.secretToken };
+    }
+    if (!this.configPromise) {
+      this.configPromise = (async () => {
+        if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+          let invoke: typeof import('@tauri-apps/api/core').invoke;
+          try {
+            const core = await import('@tauri-apps/api/core');
+            invoke = core.invoke;
+          } catch (e) {
+            console.warn('Failed to access Tauri core api:', e);
+            return { port: this.port, secret: this.secretToken };
+          }
+
+          try {
+            const config = await invoke<{ port: number; secret: string }>('get_aria2_config');
+            if (config && typeof config === 'object' && typeof config.port === 'number' && config.port > 0) {
+              this.port = config.port;
+              this.rpcUrl = `http://127.0.0.1:${this.port}/jsonrpc`;
+              this.secretToken = config.secret && config.secret.trim() ? config.secret.trim() : null;
+              this.isConfigInitialized = true;
+              return { port: this.port, secret: this.secretToken };
+            }
+          } catch (configErr: unknown) {
+            const errMsg = configErr instanceof Error ? configErr.message : String(configErr);
+            // Only fall back to get_aria2_secret if get_aria2_config command is not found (legacy backend)
+            if (errMsg.toLowerCase().includes('not found')) {
+              console.warn('Failed to retrieve aria2 config via get_aria2_config, falling back:', configErr);
+              try {
+                const secret = await invoke<string>('get_aria2_secret');
+                if (typeof secret === 'string') {
+                  this.secretToken = secret.trim() ? secret.trim() : null;
+                  this.isConfigInitialized = true;
+                  return { port: this.port, secret: this.secretToken };
+                }
+              } catch (e) {
+                console.warn('Failed to retrieve aria2 secret from Tauri:', e);
+              }
+            } else {
+              console.error('Failed to retrieve aria2 dynamic config:', configErr);
+              throw configErr;
+            }
+          }
+        }
+        return { port: this.port, secret: this.secretToken };
+      })();
+    }
+    try {
+      const result = await this.configPromise;
+      if (!this.isConfigInitialized) {
+        this.configPromise = null;
+      }
+      return result;
+    } catch (err) {
+      this.configPromise = null;
+      throw err;
+    }
+  }
+
+  async getSecret(): Promise<string | null> {
+    if (this.secretToken !== null) {
+      return this.secretToken;
+    }
+    const config = await this.getConfig();
+    return config.secret;
+  }
+
+  setSecret(token: string | null) {
+    this.secretToken = token && token.trim() ? token.trim() : null;
+    this.isConfigInitialized = true;
+    this.configPromise = null;
+  }
+
+  setConfig(config: { port?: number; secret?: string | null }) {
+    if (typeof config.port === 'number' && config.port > 0) {
+      this.port = config.port;
+      this.rpcUrl = `http://127.0.0.1:${this.port}/jsonrpc`;
+    }
+    if (config.secret !== undefined) {
+      this.secretToken = config.secret && config.secret.trim() ? config.secret.trim() : null;
+    }
+    this.isConfigInitialized = true;
+    this.configPromise = null;
+  }
 
   private async call<T>(method: string, params: unknown[] = []): Promise<T> {
+    const config = await this.getConfig();
+    const secret = config.secret;
+    const finalParams = secret ? [`token:${secret}`, ...params] : params;
     const id = `pdm-${++this.idCount}`;
     const response = await fetch(this.rpcUrl, {
       method: "POST",
@@ -35,7 +157,7 @@ class Aria2Client {
         jsonrpc: "2.0",
         id,
         method: `aria2.${method}`,
-        params,
+        params: finalParams,
       }),
     });
 
