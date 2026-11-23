@@ -169,7 +169,7 @@ export class Aria2Client {
       }
     }
 
-    const response = await fetchFn(this.rpcUrl, {
+    const requestOptions = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -180,7 +180,18 @@ export class Aria2Client {
         method: `aria2.${method}`,
         params: finalParams,
       }),
-    });
+    };
+
+    let response: Response;
+    try {
+      response = await fetchFn(this.rpcUrl, requestOptions);
+    } catch (err: unknown) {
+      if (fetchFn !== fetch) {
+        response = await fetch(this.rpcUrl, requestOptions);
+      } else {
+        throw err;
+      }
+    }
 
     if (!response.ok) {
       throw new Error(`Aria2 RPC Error: ${response.statusText}`);

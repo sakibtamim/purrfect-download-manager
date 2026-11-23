@@ -301,4 +301,27 @@ describe('Aria2Client', () => {
     expect(tauriFetchMock).toHaveBeenCalledTimes(1);
     expect(tauriFetchMock.mock.calls[0][0]).toBe('http://127.0.0.1:6800/jsonrpc');
   });
+
+  it('falls back to window.fetch when tauriFetch encounters an error', async () => {
+    const tauriFetchMock = vi.fn().mockRejectedValue(new Error('url not allowed on the configured scope'));
+    const windowFetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'pdm-fallback', jsonrpc: '2.0', result: '1' }),
+    });
+
+    vi.doMock('@tauri-apps/plugin-http', () => ({
+      fetch: tauriFetchMock,
+    }));
+
+    (globalThis as unknown as { fetch: unknown }).fetch = windowFetchMock;
+    (globalThis as unknown as { window: unknown }).window = {
+      __TAURI_INTERNALS__: { invoke: vi.fn() },
+    };
+
+    client.setSecret('native-secret');
+    await client.pause('gid-fallback');
+
+    expect(tauriFetchMock).toHaveBeenCalledTimes(1);
+    expect(windowFetchMock).toHaveBeenCalledTimes(1);
+  });
 });
