@@ -159,10 +159,10 @@ function buildTargetManifest(baseManifest, target) {
 function packageExtension(extensionDir = EXTENSION_DIR, distDir = DIST_DIR) {
   const manifestPath = path.join(extensionDir, 'manifest.json');
   const baseManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  const version = baseManifest.version;
+  const version = typeof baseManifest.version === 'string' ? baseManifest.version.trim() : '';
 
   if (!version) {
-    throw new Error('extension/manifest.json is missing a "version" field.');
+    throw new Error('extension/manifest.json is missing a valid "version" field.');
   }
 
   fs.mkdirSync(distDir, { recursive: true });

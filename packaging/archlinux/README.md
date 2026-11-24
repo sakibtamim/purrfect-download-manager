@@ -48,7 +48,7 @@ To make PDM installable via `yay -S purrfect-download-manager`:
    cp PKGBUILD .SRCINFO purrfect-download-manager.desktop /tmp/aur-pdm/
    cd /tmp/aur-pdm
    git add PKGBUILD .SRCINFO purrfect-download-manager.desktop
-   git commit -m "chore: release v0.1.1"
+   git commit -m "chore: release v0.1.2"
    git push origin master
    ```
 4. **Install via yay**:

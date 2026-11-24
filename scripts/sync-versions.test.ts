@@ -76,7 +76,31 @@ describe('syncVersions', () => {
     const rootDir = createFixtureWorkspace();
     const execSpy = vi.spyOn(childProcess, 'execSync').mockImplementation(() => Buffer.from(''));
 
-    syncVersions(rootDir, { updateCargoLock: false });
+    const synced = syncVersions(rootDir, { updateCargoLock: false });
+    expect(synced).toBe('0.1.2');
     expect(execSpy).not.toHaveBeenCalled();
+    expect(fs.readFileSync(path.join(rootDir, 'src-tauri/Cargo.toml'), 'utf8')).toContain('version = "0.1.2"');
+    expect(fs.readFileSync(path.join(rootDir, 'packaging/archlinux/PKGBUILD'), 'utf8')).toContain('pkgver=0.1.2');
+  });
+
+  it('throws when package.json is missing a valid version and still updates empty tauri.conf.json version', () => {
+    const rootDir = createFixtureWorkspace();
+    fs.writeFileSync(
+      path.join(rootDir, 'package.json'),
+      JSON.stringify({ name: 'purrfect-download-manager', version: '   ' }, null, 2)
+    );
+    expect(() => syncVersions(rootDir, { updateCargoLock: false })).toThrow(/missing a valid "version"/);
+
+    fs.writeFileSync(
+      path.join(rootDir, 'package.json'),
+      JSON.stringify({ name: 'purrfect-download-manager', version: '0.1.2' }, null, 2)
+    );
+    fs.writeFileSync(
+      path.join(rootDir, 'src-tauri/tauri.conf.json'),
+      JSON.stringify({ productName: 'PDM', version: '' }, null, 2)
+    );
+    syncVersions(rootDir, { updateCargoLock: false });
+    const tauriConf = JSON.parse(fs.readFileSync(path.join(rootDir, 'src-tauri/tauri.conf.json'), 'utf8'));
+    expect(tauriConf.version).toBe('0.1.2');
   });
 });

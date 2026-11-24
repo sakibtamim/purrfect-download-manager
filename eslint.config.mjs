@@ -19,6 +19,8 @@ const eslintConfig = defineConfig([
     "build/**",
     "dist/**",
     "src-tauri/target/**",
+    "packaging/archlinux/src/**",
+    "packaging/archlinux/pkg/**",
     "next-env.d.ts",
     ".agents/**",
   ]),

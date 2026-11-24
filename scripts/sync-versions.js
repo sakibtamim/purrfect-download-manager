@@ -12,11 +12,14 @@ function syncVersions(rootDir = path.join(__dirname, '..'), options = {}) {
   const extensionManifestPath = path.join(rootDir, 'extension/manifest.json');
 
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-  const version = pkg.version;
+  const version = typeof pkg.version === 'string' ? pkg.version.trim() : '';
+  if (!version) {
+    throw new Error('package.json is missing a valid "version" field.');
+  }
 
   // 1. Update tauri.conf.json
   const tauriConf = JSON.parse(fs.readFileSync(tauriConfPath, 'utf8'));
-  if (tauriConf.version) {
+  if (Object.prototype.hasOwnProperty.call(tauriConf, 'version')) {
     tauriConf.version = version;
     fs.writeFileSync(tauriConfPath, JSON.stringify(tauriConf, null, 2) + '\n');
     console.log(`[sync-versions] Updated tauri.conf.json to version ${version}`);

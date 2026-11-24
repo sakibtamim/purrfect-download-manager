@@ -72,4 +72,18 @@ describe('packageExtension', () => {
       expect(buf.toString('utf8')).not.toContain('.DS_Store');
     }
   });
+
+  it('rejects extension manifest with missing or whitespace version', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pdm-ext-invalid-'));
+    tempDirs.push(tmpRoot);
+    const extDir = path.join(tmpRoot, 'extension');
+    const distDir = path.join(tmpRoot, 'dist');
+    fs.mkdirSync(extDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(extDir, 'manifest.json'),
+      JSON.stringify({ ...sampleManifest, version: '   ' }, null, 2)
+    );
+
+    expect(() => packageExtension(extDir, distDir)).toThrow(/missing a valid "version"/);
+  });
 });
