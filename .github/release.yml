@@ -1,0 +1,28 @@
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+    authors:
+      - dependabot[bot]
+  categories:
+    - title: "🚀 Features & Enhancements"
+      labels:
+        - "type: feature"
+        - "type: enhancement"
+        - "enhancement"
+        - "feature"
+    - title: "🛡️ Bug Fixes & Security Hardening"
+      labels:
+        - "type: bug"
+        - "bug"
+        - "security"
+    - title: "📦 Maintenance & Release"
+      labels:
+        - "type: infra"
+        - "type: docs"
+        - "chore"
+        - "ci"
+        - "documentation"
+    - title: "Other Changes"
+      labels:
+        - "*"
