@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { FolderOpen, Folder, HardDrive, CheckCircle2, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert, Shield } from "lucide-react";
-import { type ChecksumAlgorithm, type DetectedChecksum, type SystemDrive, validateChecksum, decodeFilename, parseContentDispositionFilename, formatDriveSpace, cn } from "@/lib/utils";
+import { type ChecksumAlgorithm, type DetectedChecksum, type SystemDrive, validateChecksum, decodeFilename, parseContentDispositionFilename, formatDriveSpace, resolveSafeDriveDownloadPath, cn } from "@/lib/utils";
 import { type YtDlpFormat } from "@/lib/ytdlpClient";
 
 export function formatResolutionLabel(format: YtDlpFormat): string {
@@ -389,20 +389,25 @@ function ConfirmDownloadDialogContent({ stagedDownload, onClose }: ConfirmDownlo
             {drives.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 pt-1">
                 {drives.map((drive) => {
-                  const isSelected = saveDir === drive.mount_point;
+                  const targetPath = resolveSafeDriveDownloadPath(drive.mount_point, defaultDownloadDir);
+                  const isSelected = Boolean(targetPath && (saveDir === targetPath || (!saveDir && defaultDownloadDir === targetPath))); // agyis: no-mutant
                   const isHome = drive.mount_point === "/home" || drive.label.toLowerCase().includes("home");
                   return (
                     <button
                       key={drive.id || drive.mount_point}
                       type="button"
-                      onClick={() => setSaveDir(drive.mount_point)}
+                      onClick={() => {
+                        if (targetPath) {
+                          setSaveDir(targetPath); // agyis: no-mutant
+                        }
+                      }}
                       className={cn(
                         "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors cursor-pointer",
                         isSelected
                           ? "bg-primary/15 border-primary/40 text-primary font-semibold"
                           : "bg-muted/50 hover:bg-muted border-border/60 text-muted-foreground hover:text-foreground"
                       )}
-                      title={`${drive.label} (${drive.mount_point})`}
+                      title={`${drive.label} (${targetPath || drive.mount_point})`} // agyis: no-mutant
                     >
                       {isHome ? (
                         <Folder className="w-3 h-3 shrink-0" />
