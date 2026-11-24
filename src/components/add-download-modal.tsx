@@ -40,6 +40,15 @@ export function AddDownloadModal() {
           }
         }).catch(console.warn);
       });
+
+      import('@tauri-apps/api/core').then(({ invoke }) => {
+        if (!active) return;
+        invoke<string | null>('take_pending_startup_action').then(action => {
+          if (active && action === 'new') {
+            setOpen(true);
+          }
+        }).catch(() => {});
+      }).catch(console.warn);
     }
 
     return () => {
