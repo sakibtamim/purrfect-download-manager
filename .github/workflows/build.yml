@@ -70,11 +70,12 @@ jobs:
         run: |
           sudo apt-get install -y ruby ruby-dev rubygems build-essential libarchive-tools
           sudo gem install --no-document fpm
+          APP_VERSION=$(node -p "require('./package.json').version")
           cd src-tauri/target/release/bundle/deb
           mv *.deb app.deb
           dpkg-deb -R app.deb app_extracted
           rm -rf app_extracted/DEBIAN
-          fpm -s dir -t pacman -n purrfect-download-manager -v "0.1.1" -a x86_64 -d "webkit2gtk-4.1" -d "gtk3" -d "libayatana-appindicator" --description "Purrfect Download Manager" -m "Purrfect Software Limited" -C app_extracted .
+          fpm -s dir -t pacman -n purrfect-download-manager -v "${APP_VERSION}" -a x86_64 -d "webkit2gtk-4.1" -d "gtk3" -d "libayatana-appindicator" --description "Purrfect Download Manager" -m "Purrfect Software Limited" -C app_extracted .
           mkdir -p ../pacman
           mv *.pkg.tar.* ../pacman/
 

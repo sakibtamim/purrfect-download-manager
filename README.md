@@ -78,7 +78,7 @@ Purrfect Download Manager is a cross-platform desktop application designed for h
 * **Rust Toolchain**: Stable (`rustup default stable`)
 * **System Dependencies (Linux)**:
   * Debian / Ubuntu: `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf`
-  * Arch / EndeavourOS: `sudo pacman -S webkit2gtk-4.1 libappindicator-gtk3`
+  * Arch / EndeavourOS: `sudo pacman -S webkit2gtk-4.1 libayatana-appindicator`
   * Fedora: `sudo dnf install webkit2gtk4.1-devel libappindicator-gtk3-devel`
 
 ### Installation & Local Setup
@@ -126,6 +126,7 @@ The browser extension source resides in the `extension/` directory.
 | :--- | :--- |
 | `pnpm run dev:app` | Cleans lingering sidecars and starts Tauri desktop app in dev mode |
 | `pnpm run setup` | Downloads precompiled sidecar binaries for the current platform |
+| `pnpm run package:extension` | Builds store-ready Chrome and Firefox extension `.zip` bundles under `dist/` |
 | `pnpm run clean` | Terminates zombie sidecar/application processes |
 | `pnpm run build` | Builds the Next.js production web bundle |
 | `pnpm run lint` | Runs ESLint across the TypeScript/JavaScript codebase |

@@ -1,6 +1,6 @@
 # Maintainer: Sakib <sakib@purrfectsoftwareltd.com>
 pkgname=purrfect-download-manager
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc="A fast, steady, lightweight modern download manager built with Tauri and Next.js"
 arch=('x86_64' 'aarch64')
@@ -10,7 +10,7 @@ depends=(
   'gtk3'
   'webkit2gtk-4.1'
   'libsoup3'
-  'libappindicator-gtk3'
+  'libayatana-appindicator'
   'openssl'
   'aria2'
   'yt-dlp'
@@ -46,7 +46,20 @@ prepare() {
   export PNPM_HOME="$srcdir/pnpm-home"
   pnpm fetch
   pnpm install --frozen-lockfile --offline
-  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+
+  local _triple
+  _triple="$(rustc -vV | sed -n 's/host: //p')"
+  cargo fetch --locked --manifest-path src-tauri/Cargo.toml --target "$_triple"
+
+  # Satisfy tauri-build externalBin check on clean source tarballs;
+  # Arch installs use system aria2, yt-dlp, and ffmpeg from depends().
+  mkdir -p src-tauri/bin
+  for _bin in pdm-aria2c pdm-yt-dlp pdm-ffmpeg; do
+    if [ ! -e "src-tauri/bin/${_bin}-${_triple}" ]; then
+      touch "src-tauri/bin/${_bin}-${_triple}"
+      chmod +x "src-tauri/bin/${_bin}-${_triple}"
+    fi
+  done
 }
 
 build() {
@@ -54,8 +67,15 @@ build() {
   export PNPM_HOME="$srcdir/pnpm-home"
   pnpm run build
   export RUSTUP_TOOLCHAIN=stable
-  export CARGO_TARGET_DIR=target
-  cargo build --frozen --release --manifest-path src-tauri/Cargo.toml
+  export CARGO_TARGET_DIR=src-tauri/target
+  cargo build --frozen --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=src-tauri/target
+  cargo test --frozen --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml
 }
 
 package() {
@@ -64,15 +84,12 @@ package() {
   # 1. Install Tauri compiled desktop binary
   install -Dm755 "src-tauri/target/release/PurrfectDownloadManager" \
     "$pkgdir/usr/bin/purrfect-download-manager"
-  
-  # 2. Symlink convenient short CLI alias: pdm
-  ln -sf /usr/bin/purrfect-download-manager "$pkgdir/usr/bin/pdm"
 
-  # 3. Install XDG Desktop Entry
+  # 2. Install XDG Desktop Entry
   install -Dm644 "$srcdir/purrfect-download-manager.desktop" \
     "$pkgdir/usr/share/applications/purrfect-download-manager.desktop"
 
-  # 4. Install Hicolor Icons across standard resolutions
+  # 3. Install Hicolor Icons across standard resolutions
   if [ -f "src-tauri/icons/32x32.png" ]; then
     install -Dm644 "src-tauri/icons/32x32.png" \
       "$pkgdir/usr/share/icons/hicolor/32x32/apps/purrfect-download-manager.png"
@@ -90,7 +107,7 @@ package() {
       "$pkgdir/usr/share/icons/hicolor/512x512/apps/purrfect-download-manager.png"
   fi
 
-  # 5. Install License if present
+  # 4. Install License if present
   if [ -f "LICENSE" ]; then
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   fi

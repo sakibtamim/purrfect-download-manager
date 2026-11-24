@@ -428,6 +428,476 @@ fn find_available_port(start: u16, end: u16) -> Option<u16> {
     (start..=end).find(|&port| std::net::TcpListener::bind(("127.0.0.1", port)).is_ok())
 }
 
+fn bind_extension_http_server(start: u16, end: u16, reserved_aria2_port: u16) -> Option<Server> {
+    if start > end {
+        return None;
+    }
+    for port in start..=end {
+        if reserved_aria2_port > 0 && port == reserved_aria2_port {
+            continue;
+        }
+        if let Ok(s) = Server::http(format!("127.0.0.1:{}", port)) {
+            return Some(s);
+        }
+    }
+    None
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SingleInstanceCommand {
+    Show,
+    New,
+    OpenFolder,
+}
+
+#[derive(Default)]
+struct StartupActionInner {
+    pending: Option<SingleInstanceCommand>,
+    frontend_ready: bool,
+}
+
+struct StartupActionState {
+    inner: std::sync::Mutex<StartupActionInner>,
+}
+
+impl StartupActionState {
+    fn new(initial: SingleInstanceCommand) -> Self {
+        let pending = if initial == SingleInstanceCommand::New {
+            Some(SingleInstanceCommand::New)
+        } else {
+            None
+        };
+        Self {
+            inner: std::sync::Mutex::new(StartupActionInner {
+                pending,
+                frontend_ready: false,
+            }),
+        }
+    }
+}
+
+#[tauri::command]
+fn take_pending_startup_action(state: tauri::State<StartupActionState>) -> Option<String> {
+    if let Ok(mut guard) = state.inner.lock() {
+        guard.frontend_ready = true;
+        if let Some(SingleInstanceCommand::New) = guard.pending.take() {
+            return Some("new".to_string());
+        }
+    }
+    None
+}
+
+impl SingleInstanceCommand {
+    #[cfg(any(unix, test))]
+    fn to_wire(self) -> &'static str {
+        match self {
+            Self::Show => "SHOW",
+            Self::New => "NEW",
+            Self::OpenFolder => "OPEN_FOLDER",
+        }
+    }
+
+    #[cfg(any(unix, test))]
+    fn from_wire(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "SHOW" => Some(Self::Show),
+            "NEW" => Some(Self::New),
+            "OPEN_FOLDER" => Some(Self::OpenFolder),
+            _ => None,
+        }
+    }
+}
+
+fn parse_action_value(value: &str) -> SingleInstanceCommand {
+    let v = value.trim();
+    if v.eq_ignore_ascii_case("new") {
+        SingleInstanceCommand::New
+    } else if v.eq_ignore_ascii_case("open-folder") || v.eq_ignore_ascii_case("open_folder") {
+        SingleInstanceCommand::OpenFolder
+    } else {
+        SingleInstanceCommand::Show
+    }
+}
+
+fn parse_single_instance_command<I, S>(args: I) -> SingleInstanceCommand
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut cmd = SingleInstanceCommand::Show;
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        let s = arg.as_ref();
+        if let Some(val) = s.strip_prefix("--action=") {
+            cmd = parse_action_value(val);
+        } else if s == "--action" {
+            if let Some(next_arg) = iter.next() {
+                cmd = parse_action_value(next_arg.as_ref());
+            }
+        }
+    }
+    cmd
+}
+
+#[cfg(unix)]
+const MAX_UNIX_SOCKET_PATH_BYTES: usize = 100;
+
+#[cfg(unix)]
+fn fits_unix_socket_path(path: &std::path::Path) -> bool {
+    path.as_os_str().as_encoded_bytes().len() <= MAX_UNIX_SOCKET_PATH_BYTES
+}
+
+#[cfg(unix)]
+fn resolve_single_instance_socket_path_from_env(
+    xdg_runtime_dir: Option<std::path::PathBuf>,
+    xdg_data_home: Option<std::path::PathBuf>,
+    home: Option<std::path::PathBuf>,
+    temp_dir: std::path::PathBuf,
+    uid: u32,
+) -> std::path::PathBuf {
+    if let Some(runtime_dir) = xdg_runtime_dir.filter(|p| !p.as_os_str().is_empty() && p.is_dir()) {
+        let candidate = runtime_dir.join("com.purrfectsoftwareltd.pdm.sock");
+        if fits_unix_socket_path(&candidate) {
+            return candidate;
+        }
+    }
+
+    if let Some(data_home) = xdg_data_home.filter(|p| !p.as_os_str().is_empty()) {
+        let app_dir = data_home.join("com.purrfectsoftwareltd.pdm");
+        let candidate = app_dir.join("pdm.sock");
+        if fits_unix_socket_path(&candidate) && fs::create_dir_all(&app_dir).is_ok() && app_dir.is_dir() {
+            return candidate;
+        }
+    }
+
+    if let Some(home_dir) = home.filter(|p| !p.as_os_str().is_empty()) {
+        let app_dir = home_dir.join(".local/share/com.purrfectsoftwareltd.pdm");
+        let candidate = app_dir.join("pdm.sock");
+        if fits_unix_socket_path(&candidate) && fs::create_dir_all(&app_dir).is_ok() && app_dir.is_dir() {
+            return candidate;
+        }
+    }
+
+    let temp_candidate = temp_dir.join(format!("com.purrfectsoftwareltd.pdm-{}.sock", uid));
+    if fits_unix_socket_path(&temp_candidate) {
+        return temp_candidate;
+    }
+
+    std::path::PathBuf::from(format!("/tmp/pdm-{}.sock", uid))
+}
+
+#[cfg(unix)]
+fn resolve_single_instance_socket_path() -> std::path::PathBuf {
+    resolve_single_instance_socket_path_from_env(
+        std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from),
+        std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from),
+        std::env::var_os("HOME").map(std::path::PathBuf::from),
+        std::env::temp_dir(),
+        unsafe { libc::geteuid() },
+    )
+}
+
+#[cfg(unix)]
+struct SingleInstanceCleanupGuard {
+    socket_path: std::path::PathBuf,
+    inode: Option<(u64, u64)>,
+}
+
+#[cfg(unix)]
+impl Drop for SingleInstanceCleanupGuard {
+    fn drop(&mut self) {
+        use std::os::unix::fs::MetadataExt;
+        if let Some((expected_dev, expected_ino)) = self.inode {
+            if let Ok(meta) = fs::symlink_metadata(&self.socket_path) {
+                if meta.dev() == expected_dev && meta.ino() == expected_ino {
+                    let _ = fs::remove_file(&self.socket_path);
+                }
+            }
+        } else {
+            let _ = fs::remove_file(&self.socket_path);
+        }
+    }
+}
+
+#[cfg(unix)]
+enum SingleInstanceAcquireResult {
+    Primary {
+        listener: std::os::unix::net::UnixListener,
+        cleanup_guard: SingleInstanceCleanupGuard,
+    },
+    ForwardedToExisting,
+}
+
+#[cfg(unix)]
+enum ForwardSocketError {
+    StaleSocket,
+    ConnectFailed(std::io::Error),
+    Io(std::io::Error),
+    UnexpectedResponse(String),
+}
+
+#[cfg(unix)]
+struct SingleInstanceLockFile {
+    _file: fs::File,
+}
+
+#[cfg(unix)]
+fn acquire_single_instance_lock(socket_path: &std::path::Path) -> std::io::Result<SingleInstanceLockFile> {
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::io::AsRawFd;
+
+    let mut lock_os = socket_path.as_os_str().to_os_string();
+    lock_os.push(".lock");
+    let lock_path = std::path::PathBuf::from(lock_os);
+
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .open(&lock_path)?;
+
+    let fd = file.as_raw_fd();
+    loop {
+        let rc = unsafe { libc::flock(fd, libc::LOCK_EX) };
+        if rc == 0 {
+            return Ok(SingleInstanceLockFile { _file: file });
+        }
+        let err = std::io::Error::last_os_error();
+        if err.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(err);
+    }
+}
+
+#[cfg(unix)]
+fn send_command_on_stream(
+    mut stream: std::os::unix::net::UnixStream,
+    command: SingleInstanceCommand,
+) -> Result<(), ForwardSocketError> {
+    use std::io::{Read, Write};
+    use std::net::Shutdown;
+
+    let timeout = Some(std::time::Duration::from_secs(5));
+    let _ = stream.set_read_timeout(timeout);
+    let _ = stream.set_write_timeout(timeout);
+
+    let payload = format!("{}\n", command.to_wire());
+    stream.write_all(payload.as_bytes()).map_err(ForwardSocketError::Io)?;
+    stream.flush().map_err(ForwardSocketError::Io)?;
+    let _ = stream.shutdown(Shutdown::Write);
+
+    let mut resp = [0u8; 64];
+    let mut total = 0usize;
+    loop {
+        if total >= resp.len() {
+            break;
+        }
+        match stream.read(&mut resp[total..]) {
+            Ok(0) => break,
+            Ok(n) => {
+                total += n;
+                if resp[..total].contains(&b'\n') {
+                    break;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(ForwardSocketError::Io(e)),
+        }
+    }
+
+    let reply = String::from_utf8_lossy(&resp[..total]);
+    if reply.trim() == "OK" {
+        Ok(())
+    } else {
+        Err(ForwardSocketError::UnexpectedResponse(reply.into_owned()))
+    }
+}
+
+#[cfg(unix)]
+fn acquire_or_forward_single_instance(
+    socket_path: &std::path::Path,
+    command: SingleInstanceCommand,
+) -> Result<SingleInstanceAcquireResult, String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::net::{UnixListener, UnixStream};
+
+    if let Some(parent) = socket_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    for attempt in 0..5 {
+        let lock_guard = acquire_single_instance_lock(socket_path).map_err(|e| {
+            format!(
+                "Failed to acquire single-instance lock for {}: {}",
+                socket_path.display(),
+                e
+            )
+        })?;
+
+        match UnixListener::bind(socket_path) {
+            Ok(listener) => {
+                let _ = fs::set_permissions(socket_path, fs::Permissions::from_mode(0o600));
+                let inode = fs::symlink_metadata(socket_path)
+                    .ok()
+                    .map(|m| (m.dev(), m.ino()));
+                drop(lock_guard);
+                return Ok(SingleInstanceAcquireResult::Primary {
+                    listener,
+                    cleanup_guard: SingleInstanceCleanupGuard {
+                        socket_path: socket_path.to_path_buf(),
+                        inode,
+                    },
+                });
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                let connect_result = match UnixStream::connect(socket_path) {
+                    Ok(stream) => Ok(stream),
+                    Err(err)
+                        if matches!(
+                            err.kind(),
+                            std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
+                        ) =>
+                    {
+                        Err(ForwardSocketError::StaleSocket)
+                    }
+                    Err(err) => Err(ForwardSocketError::ConnectFailed(err)),
+                };
+
+                match connect_result {
+                    Err(ForwardSocketError::StaleSocket) => {
+                        // Safe under LOCK_EX: no competing process can bind/reclaim concurrently.
+                        let _ = fs::remove_file(socket_path);
+                        drop(lock_guard);
+                        continue;
+                    }
+                    Err(ForwardSocketError::ConnectFailed(err)) => {
+                        drop(lock_guard);
+                        if attempt < 4 {
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                            continue;
+                        }
+                        return Err(format!(
+                            "Failed to connect to existing single-instance socket {}: {}",
+                            socket_path.display(),
+                            err
+                        ));
+                    }
+                    Ok(stream) => {
+                        // Release LOCK_EX before waiting for peer response so concurrent waiters aren't serialized.
+                        drop(lock_guard);
+                        match send_command_on_stream(stream, command) {
+                            Ok(()) => return Ok(SingleInstanceAcquireResult::ForwardedToExisting),
+                            Err(ForwardSocketError::UnexpectedResponse(ref resp))
+                                if resp.is_empty() && attempt < 4 =>
+                            {
+                                std::thread::sleep(std::time::Duration::from_millis(25));
+                                continue;
+                            }
+                            Err(ForwardSocketError::Io(ref err))
+                                if matches!(
+                                    err.kind(),
+                                    std::io::ErrorKind::ConnectionReset
+                                        | std::io::ErrorKind::BrokenPipe
+                                ) && attempt < 4 =>
+                            {
+                                std::thread::sleep(std::time::Duration::from_millis(25));
+                                continue;
+                            }
+                            Err(ForwardSocketError::Io(err)) => {
+                                return Err(format!(
+                                    "I/O error communicating with existing single-instance socket {}: {}",
+                                    socket_path.display(),
+                                    err
+                                ));
+                            }
+                            Err(ForwardSocketError::UnexpectedResponse(resp)) => {
+                                return Err(format!(
+                                    "Unexpected response from existing single-instance socket {}: {:?}",
+                                    socket_path.display(),
+                                    resp
+                                ));
+                            }
+                            Err(ForwardSocketError::StaleSocket | ForwardSocketError::ConnectFailed(_)) => {
+                                unreachable!()
+                            }
+                        }
+                    }
+                    Err(ForwardSocketError::Io(_) | ForwardSocketError::UnexpectedResponse(_)) => {
+                        unreachable!()
+                    }
+                }
+            }
+            Err(e) => {
+                drop(lock_guard);
+                return Err(format!(
+                    "Failed to bind single-instance socket {}: {}",
+                    socket_path.display(),
+                    e
+                ));
+            }
+        }
+    }
+
+    Err(format!(
+        "Exhausted retries acquiring single-instance socket {}",
+        socket_path.display()
+    ))
+}
+
+#[cfg(unix)]
+fn spawn_single_instance_server<F>(listener: std::os::unix::net::UnixListener, on_command: F)
+where
+    F: Fn(SingleInstanceCommand) + Send + 'static,
+{
+    thread::spawn(move || {
+        use std::io::{Read, Write};
+        for stream in listener.incoming() {
+            match stream {
+                Ok(mut stream) => {
+                    let timeout = Some(std::time::Duration::from_secs(2));
+                    let _ = stream.set_read_timeout(timeout);
+                    let _ = stream.set_write_timeout(timeout);
+
+                    let mut buf = [0u8; 256];
+                    let mut total = 0usize;
+                    loop {
+                        if total >= buf.len() {
+                            break;
+                        }
+                        match stream.read(&mut buf[total..]) {
+                            Ok(0) => break,
+                            Ok(n) => {
+                                total += n;
+                                if buf[..total].contains(&b'\n') {
+                                    break;
+                                }
+                            }
+                            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                            Err(_) => break,
+                        }
+                    }
+
+                    let raw = String::from_utf8_lossy(&buf[..total]);
+                    let first_line = raw.lines().next().unwrap_or("");
+                    if let Some(cmd) = SingleInstanceCommand::from_wire(first_line) {
+                        on_command(cmd);
+                        let _ = stream.write_all(b"OK\n");
+                    } else {
+                        let _ = stream.write_all(b"ERR\n");
+                    }
+                    let _ = stream.flush();
+                }
+                Err(e) => {
+                    log::warn!("Single-instance socket accept error: {}", e);
+                    break;
+                }
+            }
+        }
+    });
+}
+
 fn generate_ephemeral_token() -> String {
     #[cfg(unix)]
     {
@@ -790,7 +1260,7 @@ fn activate_linux_window(app_handle: &tauri::AppHandle) {
             let script_content = r#"
 for (var i = 0; i < workspace.windowList().length; i++) {
     var w = workspace.windowList()[i];
-    if (w.resourceClass === 'PurrfectDownloadManager' || (w.caption && w.caption.indexOf('Purrfect Download Manager') !== -1)) {
+    if (w.resourceClass === 'PurrfectDownloadManager' || w.resourceClass === 'purrfect-download-manager' || (w.caption && w.caption.indexOf('Purrfect Download Manager') !== -1)) {
         w.minimized = false;
         workspace.activeWindow = w;
         break;
@@ -848,10 +1318,9 @@ for (var i = 0; i < workspace.windowList().length; i++) {
     }
 }
 
-#[tauri::command]
-fn raise_window(app_handle: tauri::AppHandle) {
+fn activate_app_window(app_handle: &tauri::AppHandle) {
     #[cfg(target_os = "linux")]
-    activate_linux_window(&app_handle);
+    activate_linux_window(app_handle);
 
     #[cfg(not(target_os = "linux"))]
     if let Some(window) = app_handle.get_webview_window("main") {
@@ -862,6 +1331,220 @@ fn raise_window(app_handle: tauri::AppHandle) {
     }
 }
 
+fn open_downloads_folder(app: &tauri::AppHandle) {
+    let configured_dir = app
+        .store("settings.json")
+        .ok()
+        .and_then(|store| store.get("defaultDownloadDir"))
+        .and_then(|v| v.as_str().filter(|s| !s.trim().is_empty()).map(std::path::PathBuf::from));
+    let sys_dir = app.path().download_dir().ok();
+
+    if let Some(dir) = resolve_downloads_folder(configured_dir, sys_dir) {
+        #[allow(deprecated)]
+        let _ = app.shell().open(dir.to_string_lossy().to_string(), None);
+    }
+}
+
+#[cfg(unix)]
+fn handle_single_instance_command(app: &tauri::AppHandle, cmd: SingleInstanceCommand) {
+    match cmd {
+        SingleInstanceCommand::Show => {
+            activate_app_window(app);
+        }
+        SingleInstanceCommand::New => {
+            let mut should_emit = true;
+            if let Some(state) = app.try_state::<StartupActionState>() {
+                if let Ok(mut guard) = state.inner.lock() {
+                    if !guard.frontend_ready {
+                        guard.pending = Some(SingleInstanceCommand::New);
+                        should_emit = false;
+                    }
+                }
+            }
+            if should_emit {
+                let _ = app.emit("tray-new-download", ());
+            }
+            activate_app_window(app);
+        }
+        SingleInstanceCommand::OpenFolder => {
+            open_downloads_folder(app);
+        }
+    }
+}
+
+#[tauri::command]
+fn raise_window(app_handle: tauri::AppHandle) {
+    activate_app_window(&app_handle);
+}
+
+#[cfg(target_os = "linux")]
+fn system_xdg_data_dirs() -> Vec<std::path::PathBuf> {
+    let raw = std::env::var("XDG_DATA_DIRS")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "/usr/local/share:/usr/share".to_string());
+    raw.split(':')
+        .filter(|s| !s.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn paths_refer_to_same_dir(a: &std::path::Path, b: &std::path::Path) -> bool {
+    if a == b {
+        return true;
+    }
+    match (fs::canonicalize(a), fs::canonicalize(b)) {
+        (Ok(ca), Ok(cb)) => ca == cb,
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn has_system_desktop_entry(data_dirs: &[std::path::PathBuf], user_data_dir: &std::path::Path) -> bool {
+    let candidate_names = [
+        "purrfect-download-manager.desktop",
+        "Purrfect Download Manager.desktop",
+        "PurrfectDownloadManager.desktop",
+        "com.purrfectsoftwareltd.pdm.desktop",
+    ];
+    data_dirs
+        .iter()
+        .filter(|dir| !paths_refer_to_same_dir(dir, user_data_dir))
+        .any(|dir| {
+            let apps_dir = dir.join("applications");
+            candidate_names.iter().any(|name| apps_dir.join(name).is_file())
+        })
+}
+
+#[cfg(target_os = "linux")]
+fn is_pdm_generated_desktop_file(content: &str) -> bool {
+    content.contains("Name=Purrfect Download Manager")
+        && content.contains("Comment=Fast and aesthetic download manager")
+        && (content.contains("StartupWMClass=PurrfectDownloadManager")
+            || content.contains("Icon=PurrfectDownloadManager"))
+}
+
+#[cfg(target_os = "linux")]
+fn format_desktop_exec_arg(path: &std::path::Path) -> String {
+    let s = path.to_string_lossy();
+    let needs_quoting = s.chars().any(|c| {
+        c.is_whitespace() || matches!(c, '"' | '\'' | '\\' | '$' | '`' | '>' | '<' | '~' | '|' | '&' | ';' | '*' | '?' | '#' | '(' | ')')
+    });
+    if !needs_quoting {
+        return s.into_owned();
+    }
+    let mut escaped = String::with_capacity(s.len() + 2);
+    escaped.push('"');
+    for ch in s.chars() {
+        match ch {
+            '"' | '$' | '`' | '\\' => {
+                escaped.push('\\');
+                escaped.push(ch);
+            }
+            _ => escaped.push(ch),
+        }
+    }
+    escaped.push('"');
+    escaped
+}
+
+#[cfg(target_os = "linux")]
+fn build_user_desktop_entry(exec_path: &std::path::Path, no_display: bool) -> String {
+    let exec_str = format_desktop_exec_arg(exec_path);
+    let wm_class = exec_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("PurrfectDownloadManager");
+    let no_display_line = if no_display { "NoDisplay=true\n" } else { "" };
+    format!(
+        "[Desktop Entry]\n\
+Name=Purrfect Download Manager\n\
+Comment=Fast and aesthetic download manager\n\
+Exec={exec_str}\n\
+Icon=PurrfectDownloadManager\n\
+Type=Application\n\
+StartupWMClass={wm_class}\n\
+Terminal=false\n\
+{no_display_line}Categories=Network;FileTransfer;\n"
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn remove_stale_pdm_desktop_file(path: &std::path::Path) -> bool {
+    if let Ok(content) = fs::read_to_string(path) {
+        if is_pdm_generated_desktop_file(&content) {
+            return fs::remove_file(path).is_ok();
+        }
+    }
+    false
+}
+
+#[cfg(target_os = "linux")]
+fn sync_linux_user_desktop_entry(
+    user_data_dir: &std::path::Path,
+    system_data_dirs: &[std::path::PathBuf],
+    exec_path: Option<&std::path::Path>,
+    is_debug_build: bool,
+) -> bool {
+    let apps_dir = user_data_dir.join("applications");
+    let primary_desktop = apps_dir.join("PurrfectDownloadManager.desktop");
+    let legacy_alias_desktop = apps_dir.join("com.purrfectsoftwareltd.pdm.desktop");
+
+    let mut changed = false;
+
+    if has_system_desktop_entry(system_data_dirs, user_data_dir) {
+        // System package already installs a .desktop entry and hicolor icons;
+        // remove any legacy user-space .desktop entries generated by older builds
+        // so the application launcher does not display duplicate or broken entries.
+        if remove_stale_pdm_desktop_file(&primary_desktop) {
+            changed = true;
+        }
+        if remove_stale_pdm_desktop_file(&legacy_alias_desktop) {
+            changed = true;
+        }
+        return changed;
+    }
+
+    // Running uninstalled (e.g. `pnpm dev:app` or standalone binary):
+    // remove the duplicate com.purrfectsoftwareltd.pdm.desktop if present.
+    if remove_stale_pdm_desktop_file(&legacy_alias_desktop) {
+        changed = true;
+    }
+
+    let _ = fs::create_dir_all(&apps_dir);
+
+    let icon_variants: [(&str, &[u8]); 3] = [
+        ("icons/hicolor/128x128/apps", include_bytes!("../icons/128x128.png")),
+        ("icons/hicolor/256x256/apps", include_bytes!("../icons/128x128@2x.png")),
+        ("icons/hicolor/512x512/apps", include_bytes!("../icons/icon.png")),
+    ];
+
+    for (rel_path, bytes) in icon_variants {
+        let target_dir = user_data_dir.join(rel_path);
+        let _ = fs::create_dir_all(&target_dir);
+        let _ = fs::write(target_dir.join("PurrfectDownloadManager.png"), bytes);
+        let _ = fs::write(target_dir.join("com.purrfectsoftwareltd.pdm.png"), bytes);
+    }
+
+    if let Some(exe) = exec_path {
+        let is_ephemeral_path = exe.starts_with("/tmp") || exe.starts_with("/var/tmp");
+        let no_display = is_debug_build || is_ephemeral_path;
+        let desktop_content = build_user_desktop_entry(exe, no_display);
+        let needs_write = fs::read_to_string(&primary_desktop)
+            .map(|existing| existing != desktop_content)
+            .unwrap_or(true);
+        if needs_write && fs::write(&primary_desktop, desktop_content).is_ok() {
+            changed = true;
+        }
+    } else if remove_stale_pdm_desktop_file(&primary_desktop) {
+        changed = true;
+    }
+
+    changed
+}
+
 #[cfg(target_os = "linux")]
 fn ensure_linux_desktop_window_rules() {
     let is_kde = std::env::var("XDG_CURRENT_DESKTOP")
@@ -869,43 +1552,29 @@ fn ensure_linux_desktop_window_rules() {
         .unwrap_or(false);
 
     std::thread::spawn(move || {
-        // Install .desktop and icon files in user-space so Wayland matches app_id
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let data_dir = std::env::var("XDG_DATA_HOME")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| std::path::PathBuf::from(&home).join(".local/share"));
 
-        let apps_dir = data_dir.join("applications");
-        let _ = fs::create_dir_all(&apps_dir);
+        let system_dirs = system_xdg_data_dirs();
+        let exec_path = std::env::var_os("APPIMAGE")
+            .filter(|v| !v.is_empty())
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::current_exe().ok());
 
-        let icon_variants: [(&str, &[u8]); 3] = [
-            ("icons/hicolor/128x128/apps", include_bytes!("../icons/128x128.png")),
-            ("icons/hicolor/256x256/apps", include_bytes!("../icons/128x128@2x.png")),
-            ("icons/hicolor/512x512/apps", include_bytes!("../icons/icon.png")),
-        ];
+        let desktop_changed = sync_linux_user_desktop_entry(
+            &data_dir,
+            &system_dirs,
+            exec_path.as_deref(),
+            cfg!(debug_assertions),
+        );
 
-        for (rel_path, bytes) in icon_variants {
-            let target_dir = data_dir.join(rel_path);
-            let _ = fs::create_dir_all(&target_dir);
-            let _ = fs::write(target_dir.join("PurrfectDownloadManager.png"), bytes);
-            let _ = fs::write(target_dir.join("com.purrfectsoftwareltd.pdm.png"), bytes);
+        if desktop_changed {
+            let apps_dir = data_dir.join("applications");
+            let _ = std::process::Command::new("kbuildsycoca6").status();
+            let _ = std::process::Command::new("update-desktop-database").arg(&apps_dir).status();
         }
-
-        let desktop_content = "[Desktop Entry]\n\
-Name=Purrfect Download Manager\n\
-Comment=Fast and aesthetic download manager\n\
-Exec=PurrfectDownloadManager\n\
-Icon=PurrfectDownloadManager\n\
-Type=Application\n\
-StartupWMClass=PurrfectDownloadManager\n\
-Terminal=false\n\
-Categories=Network;FileTransfer;\n";
-
-        let _ = fs::write(apps_dir.join("PurrfectDownloadManager.desktop"), desktop_content);
-        let _ = fs::write(apps_dir.join("com.purrfectsoftwareltd.pdm.desktop"), desktop_content);
-
-        let _ = std::process::Command::new("kbuildsycoca6").status();
-        let _ = std::process::Command::new("update-desktop-database").arg(&apps_dir).status();
 
         if is_kde {
             // Configure KWin Focus Stealing Prevention bypass rule for PurrfectDownloadManager
@@ -914,10 +1583,10 @@ Categories=Network;FileTransfer;\n";
                 .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "Description", "Purrfect Download Manager Focus Rule"])
                 .status();
             let _ = std::process::Command::new("kwriteconfig6")
-                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "wmclass", "PurrfectDownloadManager"])
+                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "wmclass", "PurrfectDownloadManager|purrfect-download-manager"])
                 .status();
             let _ = std::process::Command::new("kwriteconfig6")
-                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "wmclassmatch", "1"])
+                .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "wmclassmatch", "3"])
                 .status();
             let _ = std::process::Command::new("kwriteconfig6")
                 .args(["--file", "kwinrulesrc", "--group", "pdm-focus", "--key", "focusstealing", "0"])
@@ -941,6 +1610,38 @@ Categories=Network;FileTransfer;\n";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let initial_cli_command = parse_single_instance_command(std::env::args());
+
+    #[cfg(unix)]
+    let (single_instance_rx, single_instance_cleanup_guard) = {
+        let socket_path = resolve_single_instance_socket_path();
+        match acquire_or_forward_single_instance(&socket_path, initial_cli_command) {
+            Ok(SingleInstanceAcquireResult::ForwardedToExisting) => {
+                return;
+            }
+            Ok(SingleInstanceAcquireResult::Primary { listener, cleanup_guard }) => {
+                // Start accepting IPC connections immediately before Tauri/WebKit init
+                // so concurrent launches never time out waiting for .setup().
+                let (cmd_tx, cmd_rx) = std::sync::mpsc::channel::<SingleInstanceCommand>();
+                spawn_single_instance_server(listener, move |cmd| {
+                    let _ = cmd_tx.send(cmd);
+                });
+                (
+                    Some(cmd_rx),
+                    Some(std::sync::Arc::new(std::sync::Mutex::new(Some(cleanup_guard)))),
+                )
+            }
+            Err(err) => {
+                log::warn!("Single-instance guard unavailable, continuing startup: {}", err);
+                eprintln!("Single-instance guard unavailable, continuing startup: {}", err);
+                (None, None)
+            }
+        }
+    };
+
+    #[cfg(unix)]
+    let cleanup_guard_for_run = single_instance_cleanup_guard.clone();
+
     tauri::Builder::default()
     .plugin(tauri_plugin_autostart::Builder::new().build())
     .plugin(tauri_plugin_store::Builder::new().build())
@@ -988,9 +1689,25 @@ pub fn run() {
       }
       _ => {}
     })
-    .setup(|app| {
+    .setup(move |app| {
       #[cfg(target_os = "linux")]
       ensure_linux_desktop_window_rules();
+
+      app.manage(StartupActionState::new(initial_cli_command));
+
+      #[cfg(unix)]
+      if let Some(cmd_rx) = single_instance_rx {
+          let app_handle_for_ipc = app.handle().clone();
+          thread::spawn(move || {
+              while let Ok(cmd) = cmd_rx.recv() {
+                  handle_single_instance_command(&app_handle_for_ipc, cmd);
+              }
+          });
+      }
+
+      if initial_cli_command == SingleInstanceCommand::OpenFolder {
+          open_downloads_folder(app.handle());
+      }
 
       let start_minimized = app
           .store("settings.json")
@@ -999,7 +1716,7 @@ pub fn run() {
           .and_then(|v| v.as_bool())
           .unwrap_or(false);
 
-      if start_minimized {
+      if start_minimized && initial_cli_command != SingleInstanceCommand::New {
           if let Some(window) = app.get_webview_window("main") {
               let _ = window.hide();
           }
@@ -1080,17 +1797,7 @@ pub fn run() {
                     "pause-all" => { let _ = app.emit("tray-pause-all", ()); }
                     "resume-all" => { let _ = app.emit("tray-resume-all", ()); }
                     "open-downloads" => {
-                        let configured_dir = app
-                            .store("settings.json")
-                            .ok()
-                            .and_then(|store| store.get("defaultDownloadDir"))
-                            .and_then(|v| v.as_str().filter(|s| !s.trim().is_empty()).map(std::path::PathBuf::from));
-                        let sys_dir = app.path().download_dir().ok();
-
-                        if let Some(dir) = resolve_downloads_folder(configured_dir, sys_dir) {
-                            #[allow(deprecated)]
-                            let _ = app.shell().open(dir.to_string_lossy().to_string(), None);
-                        }
+                        open_downloads_folder(app);
                     }
                     "start-on-boot" => {
                         let autostart_manager = app.autolaunch();
@@ -1210,8 +1917,8 @@ pub fn run() {
           let final_spawn = match sidecar_spawn {
               Ok(child) => Ok(child),
               Err(err) => {
-                  log::warn!("Bundled pdm-aria2c sidecar spawn failed ({}), falling back to system-aria2c...", err);
-                  app.shell().command("system-aria2c").args(aria2_args).spawn()
+                  log::warn!("Bundled pdm-aria2c sidecar spawn failed ({}), falling back to system aria2c...", err);
+                  app.shell().command("aria2c").args(aria2_args).spawn()
               }
           };
 
@@ -1273,15 +1980,7 @@ pub fn run() {
       
       let app_handle = app.handle().clone();
       thread::spawn(move || {
-          let mut server_opt = None;
-          for port in 6801..=6810 {
-              if let Ok(s) = Server::http(format!("127.0.0.1:{}", port)) {
-                  server_opt = Some(s);
-                  break;
-              }
-          }
-          
-          let server = match server_opt {
+          let server = match bind_extension_http_server(6801, 6810, aria2_port) {
               Some(s) => s,
               None => {
                   eprintln!("Failed to bind to any port in range 6801-6810");
@@ -1412,6 +2111,7 @@ pub fn run() {
         check_downloaded_file_exists,
         reveal_in_folder,
         raise_window,
+        take_pending_startup_action,
         update_tray_tooltip,
         set_taskbar_progress,
         sync_tray_autostart,
@@ -1420,8 +2120,22 @@ pub fn run() {
         get_aria2_error,
         get_system_drives
     ])
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(move |_app_handle, event| {
+        #[cfg(unix)]
+        if let tauri::RunEvent::Exit = event {
+            if let Some(ref guard_arc) = cleanup_guard_for_run {
+                if let Ok(mut guard_opt) = guard_arc.lock() {
+                    drop(guard_opt.take());
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = event;
+    });
+    #[cfg(unix)]
+    drop(single_instance_cleanup_guard);
 }
 
 #[cfg(test)]
@@ -1753,5 +2467,486 @@ mod tests {
     fn test_unescape_proc_mount() {
         assert_eq!(unescape_proc_mount("/mnt/My\\040Drive"), "/mnt/My Drive");
         assert_eq!(unescape_proc_mount("/home"), "/home");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_sync_linux_desktop_removes_stale_entries_when_system_desktop_exists() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_sys_desktop_{}", std::process::id()));
+        let user_data = temp_dir.join("user_share");
+        let user_apps = user_data.join("applications");
+        let sys_data = temp_dir.join("sys_share");
+        let sys_apps = sys_data.join("applications");
+        fs::create_dir_all(&user_apps).unwrap();
+        fs::create_dir_all(&sys_apps).unwrap();
+
+        fs::write(sys_apps.join("purrfect-download-manager.desktop"), "[Desktop Entry]\nName=Purrfect Download Manager\n").unwrap();
+
+        let stale_content = build_user_desktop_entry(std::path::Path::new("PurrfectDownloadManager"), false);
+        let primary = user_apps.join("PurrfectDownloadManager.desktop");
+        let alias = user_apps.join("com.purrfectsoftwareltd.pdm.desktop");
+        let unrelated = user_apps.join("other-app.desktop");
+        fs::write(&primary, &stale_content).unwrap();
+        fs::write(&alias, &stale_content).unwrap();
+        fs::write(&unrelated, "[Desktop Entry]\nName=Other App\n").unwrap();
+
+        let changed = sync_linux_user_desktop_entry(
+            &user_data,
+            &[sys_data.clone()],
+            Some(std::path::Path::new("/usr/bin/purrfect-download-manager")),
+            false,
+        );
+
+        assert!(changed);
+        assert!(!primary.exists());
+        assert!(!alias.exists());
+        assert!(unrelated.exists());
+
+        // Second run should be a no-op
+        let changed_again = sync_linux_user_desktop_entry(
+            &user_data,
+            &[sys_data],
+            Some(std::path::Path::new("/usr/bin/purrfect-download-manager")),
+            false,
+        );
+        assert!(!changed_again);
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_sync_linux_desktop_uninstalled_uses_real_exec_and_hides_debug() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_dev_desktop_{}", std::process::id()));
+        let user_data = temp_dir.join("user_share");
+        let sys_data = temp_dir.join("empty_sys_share");
+        fs::create_dir_all(&sys_data).unwrap();
+
+        let dev_exe = std::path::Path::new("/home/user/My Projects/PurrfectDownloadManager");
+        let changed = sync_linux_user_desktop_entry(&user_data, &[sys_data.clone()], Some(dev_exe), true);
+        assert!(changed);
+
+        let primary = user_data.join("applications/PurrfectDownloadManager.desktop");
+        let alias = user_data.join("applications/com.purrfectsoftwareltd.pdm.desktop");
+        assert!(primary.exists());
+        assert!(!alias.exists());
+
+        let content = fs::read_to_string(&primary).unwrap();
+        assert!(content.contains("Exec=\"/home/user/My Projects/PurrfectDownloadManager\""));
+        assert!(content.contains("NoDisplay=true"));
+
+        // Idempotent on repeat call
+        assert!(!sync_linux_user_desktop_entry(&user_data, &[sys_data], Some(dev_exe), true));
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_sync_linux_desktop_ignores_user_data_dir_in_xdg_data_dirs_and_matches_bin_wmclass() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_xdg_self_{}", std::process::id()));
+        let user_data = temp_dir.join("user_share");
+        let empty_sys = temp_dir.join("empty_sys_share");
+        fs::create_dir_all(&user_data).unwrap();
+        fs::create_dir_all(&empty_sys).unwrap();
+
+        let custom_exe = std::path::Path::new("/opt/pdm/purrfect-download-manager");
+        // Simulate XDG_DATA_DIRS containing user_data itself
+        let sys_dirs = vec![user_data.clone(), empty_sys];
+        let changed = sync_linux_user_desktop_entry(&user_data, &sys_dirs, Some(custom_exe), false);
+        assert!(changed);
+
+        let primary = user_data.join("applications/PurrfectDownloadManager.desktop");
+        assert!(primary.exists());
+        let content = fs::read_to_string(&primary).unwrap();
+        assert!(content.contains("StartupWMClass=purrfect-download-manager"));
+        assert!(!content.contains("NoDisplay=true"));
+
+        // Second run must keep the entry instead of treating it as a system entry and deleting it
+        let changed_again = sync_linux_user_desktop_entry(&user_data, &sys_dirs, Some(custom_exe), false);
+        assert!(!changed_again);
+        assert!(primary.exists());
+
+        // When a real system desktop entry appears later, even custom WMClass entry is cleaned up
+        let real_sys = temp_dir.join("real_sys");
+        fs::create_dir_all(real_sys.join("applications")).unwrap();
+        fs::write(
+            real_sys.join("applications/purrfect-download-manager.desktop"),
+            "[Desktop Entry]\nName=Purrfect Download Manager\n",
+        )
+        .unwrap();
+        let cleaned = sync_linux_user_desktop_entry(&user_data, &[user_data.clone(), real_sys], Some(custom_exe), false);
+        assert!(cleaned);
+        assert!(!primary.exists());
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_parse_single_instance_command() {
+        assert_eq!(
+            parse_single_instance_command(["purrfect-download-manager"]),
+            SingleInstanceCommand::Show
+        );
+        assert_eq!(
+            parse_single_instance_command(["purrfect-download-manager", "--disable-dmabuf"]),
+            SingleInstanceCommand::Show
+        );
+        assert_eq!(
+            parse_single_instance_command(["purrfect-download-manager", "--action=new"]),
+            SingleInstanceCommand::New
+        );
+        assert_eq!(
+            parse_single_instance_command(["purrfect-download-manager", "--action", "NEW"]),
+            SingleInstanceCommand::New
+        );
+        assert_eq!(
+            parse_single_instance_command(["purrfect-download-manager", "--action=open-folder"]),
+            SingleInstanceCommand::OpenFolder
+        );
+        assert_eq!(
+            parse_single_instance_command(["purrfect-download-manager", "--action", "open-folder"]),
+            SingleInstanceCommand::OpenFolder
+        );
+        assert_eq!(
+            parse_single_instance_command(["purrfect-download-manager", "--action=unknown"]),
+            SingleInstanceCommand::Show
+        );
+        assert_eq!(
+            parse_single_instance_command(std::iter::empty::<&str>()),
+            SingleInstanceCommand::Show
+        );
+    }
+
+    #[test]
+    fn test_single_instance_command_wire_roundtrip() {
+        for cmd in [
+            SingleInstanceCommand::Show,
+            SingleInstanceCommand::New,
+            SingleInstanceCommand::OpenFolder,
+        ] {
+            let wire = cmd.to_wire();
+            assert_eq!(SingleInstanceCommand::from_wire(wire), Some(cmd));
+            assert_eq!(SingleInstanceCommand::from_wire(&format!(" {} \n", wire)), Some(cmd));
+        }
+        assert_eq!(SingleInstanceCommand::from_wire("INVALID"), None);
+        assert_eq!(SingleInstanceCommand::from_wire(""), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_resolve_single_instance_socket_path() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_sock_path_{}", std::process::id()));
+        let runtime_dir = temp_dir.join("runtime");
+        let data_home = temp_dir.join("data");
+        let home_dir = temp_dir.join("home");
+        fs::create_dir_all(&runtime_dir).unwrap();
+
+        let p1 = resolve_single_instance_socket_path_from_env(
+            Some(runtime_dir.clone()),
+            Some(data_home.clone()),
+            Some(home_dir.clone()),
+            temp_dir.clone(),
+            1000,
+        );
+        assert_eq!(p1, runtime_dir.join("com.purrfectsoftwareltd.pdm.sock"));
+
+        let p2 = resolve_single_instance_socket_path_from_env(
+            None,
+            Some(data_home.clone()),
+            Some(home_dir.clone()),
+            temp_dir.clone(),
+            1000,
+        );
+        assert_eq!(p2, data_home.join("com.purrfectsoftwareltd.pdm/pdm.sock"));
+
+        let p3 = resolve_single_instance_socket_path_from_env(
+            None,
+            None,
+            None,
+            temp_dir.clone(),
+            1042,
+        );
+        assert_eq!(p3, temp_dir.join("com.purrfectsoftwareltd.pdm-1042.sock"));
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_single_instance_handoff_to_alive_instance() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_ipc_alive_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+        let sock_path = temp_dir.join("pdm.sock");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let guard = match acquire_or_forward_single_instance(&sock_path, SingleInstanceCommand::Show) {
+            Ok(SingleInstanceAcquireResult::Primary { listener, cleanup_guard }) => {
+                spawn_single_instance_server(listener, move |cmd| {
+                    let _ = tx.send(cmd);
+                });
+                cleanup_guard
+            }
+            Ok(SingleInstanceAcquireResult::ForwardedToExisting) => {
+                panic!("Expected primary instance acquisition");
+            }
+            Err(e) => panic!("Failed to acquire primary socket: {}", e),
+        };
+
+        assert!(sock_path.exists());
+
+        // Invalid wire commands must return ERR without firing callback or crashing listener
+        {
+            use std::io::{Read, Write};
+            use std::os::unix::net::UnixStream;
+            let mut bad_stream = UnixStream::connect(&sock_path).unwrap();
+            bad_stream.write_all(b"BOGUS\n").unwrap();
+            bad_stream.flush().unwrap();
+            let mut resp = String::new();
+            bad_stream.read_to_string(&mut resp).unwrap();
+            assert_eq!(resp.trim(), "ERR");
+            assert!(rx.try_recv().is_err());
+        }
+
+        for cmd in [
+            SingleInstanceCommand::New,
+            SingleInstanceCommand::OpenFolder,
+            SingleInstanceCommand::Show,
+        ] {
+            let res = acquire_or_forward_single_instance(&sock_path, cmd).unwrap();
+            assert!(matches!(res, SingleInstanceAcquireResult::ForwardedToExisting));
+            let received = rx
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .expect("Primary instance should receive forwarded command");
+            assert_eq!(received, cmd);
+        }
+
+        drop(guard);
+        assert!(!sock_path.exists());
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_single_instance_reclaims_stale_socket() {
+        use std::os::unix::net::UnixListener;
+
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_ipc_stale_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+        let sock_path = temp_dir.join("pdm.sock");
+
+        // Simulate a crashed prior instance leaving a dead socket file behind
+        let stale_listener = UnixListener::bind(&sock_path).unwrap();
+        drop(stale_listener);
+        assert!(sock_path.exists());
+
+        let guard = match acquire_or_forward_single_instance(&sock_path, SingleInstanceCommand::Show) {
+            Ok(SingleInstanceAcquireResult::Primary { listener, cleanup_guard }) => {
+                drop(listener);
+                cleanup_guard
+            }
+            Ok(SingleInstanceAcquireResult::ForwardedToExisting) => {
+                panic!("Stale socket should have been reclaimed");
+            }
+            Err(e) => panic!("Failed to reclaim stale socket: {}", e),
+        };
+
+        drop(guard);
+        assert!(!sock_path.exists());
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_single_instance_concurrent_stale_socket_race() {
+        use std::os::unix::net::UnixListener;
+        use std::sync::{Arc, Barrier, Mutex};
+
+        for round in 0..10 {
+            let temp_dir = std::env::temp_dir().join(format!(
+                "pdm_test_ipc_race_{}_{}",
+                std::process::id(),
+                round
+            ));
+            let _ = fs::remove_dir_all(&temp_dir);
+            fs::create_dir_all(&temp_dir).unwrap();
+            let sock_path = temp_dir.join("pdm.sock");
+
+            // Leave a dead stale socket file behind before concurrent startup
+            let stale = UnixListener::bind(&sock_path).unwrap();
+            drop(stale);
+
+            let workers = 8usize;
+            let barrier = Arc::new(Barrier::new(workers));
+            let (tx, rx) = std::sync::mpsc::channel();
+            let primary_guards = Arc::new(Mutex::new(Vec::new()));
+            let forwarded_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let errors = Arc::new(Mutex::new(Vec::new()));
+
+            let mut handles = Vec::with_capacity(workers);
+            for i in 0..workers {
+                let b = Arc::clone(&barrier);
+                let sp = sock_path.clone();
+                let tx_i = tx.clone();
+                let guards = Arc::clone(&primary_guards);
+                let fwd = Arc::clone(&forwarded_count);
+                let errs = Arc::clone(&errors);
+                handles.push(std::thread::spawn(move || {
+                    b.wait();
+                    match acquire_or_forward_single_instance(&sp, SingleInstanceCommand::New) {
+                        Ok(SingleInstanceAcquireResult::Primary { listener, cleanup_guard }) => {
+                            spawn_single_instance_server(listener, move |cmd| {
+                                let _ = tx_i.send(cmd);
+                            });
+                            guards.lock().unwrap().push((i, cleanup_guard));
+                        }
+                        Ok(SingleInstanceAcquireResult::ForwardedToExisting) => {
+                            fwd.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        Err(e) => {
+                            errs.lock().unwrap().push((i, e));
+                        }
+                    }
+                }));
+            }
+            drop(tx);
+
+            for h in handles {
+                h.join().unwrap();
+            }
+
+            let err_list = errors.lock().unwrap();
+            assert!(
+                err_list.is_empty(),
+                "Round {}: unexpected errors during concurrent startup: {:?}",
+                round,
+                *err_list
+            );
+            let mut guards = primary_guards.lock().unwrap();
+            assert_eq!(
+                guards.len(),
+                1,
+                "Round {}: expected exactly 1 primary instance, got {}",
+                round,
+                guards.len()
+            );
+            assert_eq!(
+                forwarded_count.load(std::sync::atomic::Ordering::SeqCst),
+                workers - 1,
+                "Round {}: expected {} forwarded instances",
+                round,
+                workers - 1
+            );
+
+            for _ in 0..(workers - 1) {
+                let cmd = rx
+                    .recv_timeout(std::time::Duration::from_secs(2))
+                    .expect("Primary should receive every forwarded command");
+                assert_eq!(cmd, SingleInstanceCommand::New);
+            }
+
+            guards.clear();
+            let _ = fs::remove_dir_all(temp_dir);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_resolve_single_instance_socket_path_enforces_sun_len_limit() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_sunlen_{}", std::process::id()));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let overlong_runtime = temp_dir.join("a".repeat(90));
+        fs::create_dir_all(&overlong_runtime).unwrap();
+
+        let resolved = resolve_single_instance_socket_path_from_env(
+            Some(overlong_runtime),
+            None,
+            None,
+            temp_dir.clone(),
+            1000,
+        );
+        assert!(fits_unix_socket_path(&resolved));
+        assert!(resolved.starts_with(&temp_dir));
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_cleanup_guard_does_not_unlink_replaced_socket_inode() {
+        let temp_dir = std::env::temp_dir().join(format!("pdm_test_inode_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+        let sock_path = temp_dir.join("pdm.sock");
+
+        let guard1 = match acquire_or_forward_single_instance(&sock_path, SingleInstanceCommand::Show).unwrap() {
+            SingleInstanceAcquireResult::Primary { listener, cleanup_guard } => {
+                drop(listener);
+                cleanup_guard
+            }
+            SingleInstanceAcquireResult::ForwardedToExisting => panic!("Expected primary"),
+        };
+
+        // Simulate socket file replaced by a newer instance (new inode)
+        fs::remove_file(&sock_path).unwrap();
+        let guard2 = match acquire_or_forward_single_instance(&sock_path, SingleInstanceCommand::Show).unwrap() {
+            SingleInstanceAcquireResult::Primary { listener, cleanup_guard } => {
+                drop(listener);
+                cleanup_guard
+            }
+            SingleInstanceAcquireResult::ForwardedToExisting => panic!("Expected second primary"),
+        };
+
+        // Dropping stale guard1 must NOT remove guard2's socket file
+        drop(guard1);
+        assert!(sock_path.exists());
+
+        drop(guard2);
+        assert!(!sock_path.exists());
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_bind_extension_http_server_skips_reserved_aria2_port() {
+        let probe = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("Failed to probe free ephemeral port");
+        let free_port = probe.local_addr().unwrap().port();
+        drop(probe);
+
+        // Even though free_port is free, reserving it for aria2 must prevent binding it
+        assert!(bind_extension_http_server(free_port, free_port, free_port).is_none());
+
+        // When reserved_aria2_port is 0 or a different port, binding the free port succeeds
+        let server = bind_extension_http_server(free_port, free_port, 0);
+        assert!(server.is_some());
+        drop(server);
+
+        // Find a consecutive free pair (p, p+1) and verify reserving p causes binding p+1
+        let mut pair = None;
+        for _ in 0..20 {
+            if let Ok(l1) = std::net::TcpListener::bind(("127.0.0.1", 0)) {
+                let p = l1.local_addr().unwrap().port();
+                if let Some(p_next) = p.checked_add(1) {
+                    if let Ok(l2) = std::net::TcpListener::bind(("127.0.0.1", p_next)) {
+                        drop(l2);
+                        drop(l1);
+                        pair = Some((p, p_next));
+                        break;
+                    }
+                }
+            }
+        }
+
+        if let Some((reserved, expected_next)) = pair {
+            let server = bind_extension_http_server(reserved, expected_next, reserved)
+                .expect("Should bind expected_next when reserved port is skipped");
+            let bound_port = server
+                .server_addr()
+                .to_ip()
+                .expect("HTTP server should have IP socket address")
+                .port();
+            assert_eq!(bound_port, expected_next);
+        }
     }
 }
