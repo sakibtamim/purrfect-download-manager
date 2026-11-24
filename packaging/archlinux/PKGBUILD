@@ -49,7 +49,7 @@ prepare() {
 
   local _triple
   _triple="$(rustc -vV | sed -n 's/host: //p')"
-  cargo fetch --locked --target "$_triple"
+  cargo fetch --locked --manifest-path src-tauri/Cargo.toml --target "$_triple"
 
   # Satisfy tauri-build externalBin check on clean source tarballs;
   # Arch installs use system aria2, yt-dlp, and ffmpeg from depends().
