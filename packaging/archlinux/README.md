@@ -14,18 +14,19 @@ makepkg -si
 ```
 
 ### What this does:
-1. Resolves and installs system dependencies (`aria2`, `yt-dlp`, `ffmpeg`, `webkit2gtk-4.1`, `gtk3`).
+1. Resolves and installs system dependencies (`aria2`, `yt-dlp`, `ffmpeg`, `webkit2gtk-4.1`, `gtk3`, `libayatana-appindicator`).
 2. Builds the Tauri desktop binary.
 3. Installs the application to `/usr/bin/purrfect-download-manager`.
-4. Creates a convenient CLI symlink: `/usr/bin/pdm`.
-5. Installs the desktop entry and application icons in `/usr/share/applications/` and `/usr/share/icons/hicolor/`.
+4. Installs the desktop entry and application icons in `/usr/share/applications/` and `/usr/share/icons/hicolor/`.
+
+*(Note: `/usr/bin/pdm` is intentionally not packaged to avoid file collisions with `extra/python-pdm`. Add `alias pdm="purrfect-download-manager"` to your shell config if you want a short CLI alias.)*
 
 ---
 
 ## 2. Launching PDM
 
 Once installed, you can launch it in two ways:
-- **CLI**: Run `pdm` (or `purrfect-download-manager`) in your terminal.
+- **CLI**: Run `purrfect-download-manager` in your terminal (or `pdm` if you configured a shell alias).
 - **Application Launcher**: Search for **Purrfect Download Manager** in your KDE Plasma Kickoff, GNOME App Grid, or Rofi/Wofi.
 
 ---

@@ -19,6 +19,13 @@
 
 # production
 /build
+/dist
+
+# Arch Linux makepkg artifacts
+packaging/archlinux/*.tar.gz
+packaging/archlinux/*.pkg.tar.*
+packaging/archlinux/src/
+packaging/archlinux/pkg/
 
 # misc
 .DS_Store
