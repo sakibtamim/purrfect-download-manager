@@ -30,8 +30,6 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Get pnpm store directory
         id: pnpm-cache
@@ -67,5 +65,12 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
 
-      - name: Check Tauri Rust Backend
-        run: cd src-tauri && cargo check
+      - name: Check & Test Tauri Rust Backend
+        run: |
+          mkdir -p src-tauri/bin
+          for bin in pdm-aria2c pdm-yt-dlp pdm-ffmpeg; do
+            touch "src-tauri/bin/${bin}-x86_64-unknown-linux-gnu"
+            chmod +x "src-tauri/bin/${bin}-x86_64-unknown-linux-gnu"
+          done
+          cargo check --manifest-path src-tauri/Cargo.toml
+          cargo test --manifest-path src-tauri/Cargo.toml
