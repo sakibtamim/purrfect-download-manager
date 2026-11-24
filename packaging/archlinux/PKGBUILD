@@ -68,14 +68,14 @@ build() {
   pnpm run build
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=src-tauri/target
-  cargo build --frozen --release --manifest-path src-tauri/Cargo.toml
+  cargo build --frozen --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml
 }
 
 check() {
   cd "$pkgname-$pkgver"
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=src-tauri/target
-  cargo test --frozen --manifest-path src-tauri/Cargo.toml
+  cargo test --frozen --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml
 }
 
 package() {
