@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: install dependencies (Linux)
         run: |
@@ -70,15 +72,62 @@ jobs:
           sudo gem install --no-document fpm
           APP_VERSION=$(node -p "require('./package.json').version")
           cd src-tauri/target/release/bundle/deb
-          mv *.deb app.deb
-          dpkg-deb -R app.deb app_extracted
-          rm -rf app_extracted/DEBIAN
-          fpm -s dir -t pacman -n purrfect-download-manager -v "${APP_VERSION}" -a x86_64 -d "webkit2gtk-4.1" -d "gtk3" -d "libayatana-appindicator" --description "Purrfect Download Manager" -m "Purrfect Software Limited" -C app_extracted .
+          cp *.deb /tmp/app.deb
+          dpkg-deb -R /tmp/app.deb /tmp/app_extracted
+          rm -rf /tmp/app_extracted/DEBIAN /tmp/app.deb
+          fpm -s dir -t pacman -n purrfect-download-manager -v "${APP_VERSION}" -a x86_64 -d "webkit2gtk-4.1" -d "gtk3" -d "libayatana-appindicator" --description "Purrfect Download Manager" -m "Purrfect Software Limited" -C /tmp/app_extracted .
+          rm -rf /tmp/app_extracted
           mkdir -p ../pacman
           mv *.pkg.tar.* ../pacman/
+
+      - name: package browser extensions
+        run: pnpm run package:extension
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: tauri-build-linux
-          path: src-tauri/target/release/bundle/**
+          path: |
+            src-tauri/target/release/bundle/**
+            dist/*.zip
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          APP_VERSION=$(node -p "require('./package.json').version")
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+            if [[ "${RELEASE_TAG}" == *-* ]]; then
+              PRERELEASE_FLAG="--prerelease"
+            else
+              PRERELEASE_FLAG=""
+            fi
+          else
+            RELEASE_TAG="v${APP_VERSION}-rc.${GITHUB_RUN_NUMBER}"
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          ASSETS=(
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/pacman/*.pkg.tar.*
+            dist/pdm-extension-*-v*.zip
+          )
+
+          if [ ${#ASSETS[@]} -eq 0 ]; then
+            echo "No release assets found" >&2
+            exit 1
+          fi
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" "${ASSETS[@]}" --clobber
+          else
+            gh release create "${RELEASE_TAG}" \
+              --target "${GITHUB_SHA}" \
+              --title "Release ${RELEASE_TAG}" \
+              --generate-notes \
+              ${PRERELEASE_FLAG} \
+              "${ASSETS[@]}"
+          fi
