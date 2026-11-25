@@ -18,6 +18,9 @@ interface CachedMeta {
   sourceUrl?: string;
   title?: string;
   path?: string;
+  dir?: string;
+  status?: string;
+  files?: { path: string; length: string; completedLength: string; uris: { status: string; uri: string }[] }[];
 }
 
 const mockMetaStore = new Map<string, unknown>();
@@ -188,8 +191,36 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
 
         dl.addedAt = cached.addedAt;
 
-        if (cached.path && dl.files && dl.files.length > 0) {
-          dl.files = dl.files.map(f => ({ ...f, path: cached.path! }));
+        if (dl.status === 'complete') {
+          const resolvedDir = dl.dir || cached.dir;
+          const resolvedFiles = (dl.files && dl.files.length > 0) ? dl.files : cached.files;
+          const resolvedPath = cached.path || dl.files?.[0]?.path;
+          const resolvedTitle = cached.title || (dl.files?.[0]?.path ? decodeFilename(dl.files[0].path.split(/[/\\]/).pop() || '') : undefined);
+
+          if (
+            cached.status !== 'complete' ||
+            cached.dir !== resolvedDir ||
+            cached.path !== resolvedPath ||
+            cached.title !== resolvedTitle ||
+            (!cached.files && resolvedFiles) ||
+            (resolvedFiles && cached.files && cached.files.length !== resolvedFiles.length)
+          ) {
+            cached = {
+              ...cached,
+              status: 'complete',
+              dir: resolvedDir,
+              files: resolvedFiles,
+              path: resolvedPath,
+              title: resolvedTitle,
+            };
+            await metaStore.set(dl.gid, cached);
+            hasChanges = true;
+          }
+        }
+
+        const targetPath = cached.path;
+        if (targetPath && dl.files && dl.files.length > 0) {
+          dl.files = dl.files.map(f => ({ ...f, path: targetPath }));
         }
 
         if (cached.sourceUrl || cached.title) {
@@ -202,7 +233,8 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         }
 
         if (total > 0 && (cached.totalLength !== dl.totalLength || (dl.status !== 'active' && cached.completedLength !== dl.completedLength))) {
-          await metaStore.set(dl.gid, { ...cached, totalLength: dl.totalLength, completedLength: dl.completedLength } as CachedMeta);
+          cached = { ...cached, totalLength: dl.totalLength, completedLength: dl.completedLength };
+          await metaStore.set(dl.gid, cached);
           hasChanges = true;
         }
       }
@@ -307,7 +339,21 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                     getMetaStore().then(async metaStore => {
                       try {
                         const cached = await metaStore.get<CachedMeta>(mux.videoGid) || { totalLength: '0', completedLength: '0' };
-                        await metaStore.set(mux.videoGid, { ...cached, path: finalPath, title: mux.finalFilename });
+                        const updatedFiles = cached.files && cached.files.length > 0
+                          ? cached.files.map(f => ({ ...f, path: finalPath }))
+                          : [{
+                              path: finalPath,
+                              length: cached.totalLength || '0',
+                              completedLength: cached.completedLength || '0',
+                              uris: cached.sourceUrl ? [{ status: 'used', uri: cached.sourceUrl }] : []
+                            }];
+                        await metaStore.set(mux.videoGid, {
+                          ...cached,
+                          status: 'complete',
+                          path: finalPath,
+                          title: mux.finalFilename,
+                          files: updatedFiles,
+                        });
                         await metaStore.delete(mux.audioGid);
                         await metaStore.save();
                       } catch (err) {
@@ -400,6 +446,53 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
             filteredActive.push(dl);
           }
         }
+      }
+
+      if (typeof metaStore.keys === 'function') {
+        const allStoreKeys = await metaStore.keys();
+        const liveGids = new Set(allDownloads.map(d => d.gid));
+        const pendingMuxGids = new Set(pendingMuxes.flatMap(m => [m.videoGid, m.audioGid]));
+
+        for (const key of allStoreKeys) {
+          if (!liveGids.has(key) && !audioGidSet.has(key) && !pendingMuxGids.has(key)) {
+            const cached = await metaStore.get<CachedMeta>(key);
+            if (cached) {
+              const isComplete = cached.status === 'complete' ||
+                (Boolean(cached.totalLength) && cached.totalLength !== '0' && cached.totalLength === cached.completedLength);
+
+              if (isComplete) {
+                const rehydratedDl: Aria2Download = {
+                  gid: key,
+                  status: 'complete',
+                  totalLength: cached.totalLength,
+                  completedLength: cached.completedLength,
+                  downloadSpeed: '0',
+                  dir: cached.dir || (cached.path ? cached.path.substring(0, Math.max(cached.path.lastIndexOf('/'), cached.path.lastIndexOf('\\'))) : (get().defaultDownloadDir || '')),
+                  files: cached.files && cached.files.length > 0
+                    ? cached.files
+                    : [{
+                        path: cached.path || (cached.title ? `${(get().defaultDownloadDir || '').replace(/\\/g, '/').replace(/\/+$/, '')}/${cached.title}` : ''),
+                        length: cached.totalLength,
+                        completedLength: cached.completedLength,
+                        uris: cached.sourceUrl ? [{ status: 'used', uri: cached.sourceUrl }] : []
+                      }],
+                  addedAt: cached.addedAt || Date.now(),
+                };
+
+                if (!filteredCompleted.some(d => d.gid === key)) {
+                  filteredCompleted.push(rehydratedDl);
+                }
+
+                metadataUpdates[key] = {
+                  sourceUrl: cached.sourceUrl,
+                  title: cached.title,
+                };
+              }
+            }
+          }
+        }
+
+        filteredCompleted.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
       }
 
       set({
@@ -839,7 +932,6 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
     }
 
     await aria2Client.purgeDownloadResult();
-    await get().fetchDownloads();
 
     try {
       const metaStore = await getMetaStore();
@@ -878,6 +970,8 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
     } catch (e) {
       console.warn('Failed to clean up completed downloads metadata from store:', e);
     }
+
+    await get().fetchDownloads();
   },
 
   setSpeedLimit: async (bytesPerSecond: string) => {

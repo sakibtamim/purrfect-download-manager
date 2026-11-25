@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import { create, StoreApi } from 'zustand';
 import { createDownloadSlice, DownloadDataSlice, getMetaStore, _resetMetaStoreForTesting } from './downloadSlice';
 import { createSettingsSlice, SettingsSlice } from './settingsSlice';
@@ -323,6 +323,7 @@ describe('downloadSlice metadata tracking', () => {
 describe('Unified dual-stream encapsulation and tandem controls', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    _resetMetaStoreForTesting();
   });
 
   it('filters companion audio tasks out of active/completed and combines metrics onto the video card', async () => {
@@ -467,6 +468,14 @@ describe('stageDownload and clearStagedDownload window elevation lifecycle', () 
     (globalThis as unknown as { window?: unknown }).window = originalWindow;
   });
 
+  afterEach(() => {
+    (globalThis as unknown as { window?: unknown }).window = originalWindow;
+  });
+
+  afterAll(() => {
+    (globalThis as unknown as { window?: unknown }).window = originalWindow;
+  });
+
   const sampleStaged: StagedDownload = {
     url: 'https://example.com/archive.tar.gz',
     filename: 'archive.tar.gz',
@@ -580,6 +589,7 @@ describe('stageDownload and clearStagedDownload window elevation lifecycle', () 
 describe('deleteDownload disk hygiene, mux stream cleanup, and directory removal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetMetaStoreForTesting();
     vi.mocked(invoke).mockResolvedValue(undefined);
     vi.spyOn(aria2Client, 'remove').mockResolvedValue('OK');
     vi.spyOn(aria2Client, 'removeDownloadResult').mockResolvedValue('OK');
@@ -898,5 +908,227 @@ describe('deleteDownload disk hygiene, mux stream cleanup, and directory removal
     expect(useTestStore.getState().downloadMetadata['audio-gid-100']).toEqual({ title: 'audio.m4a' });
     expect(await metaStore.get('video-gid-100')).not.toBeNull();
     expect(await metaStore.get('audio-gid-100')).not.toBeNull();
+  });
+});
+
+describe('Persistent completed download rehydration across app restarts', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _resetMetaStoreForTesting();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    vi.spyOn(aria2Client, 'remove').mockResolvedValue('OK');
+    vi.spyOn(aria2Client, 'removeDownloadResult').mockResolvedValue('OK');
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'getGlobalStat').mockResolvedValue({ downloadSpeed: '0', numActive: '0', numWaiting: '0', numStopped: '0' });
+  });
+
+  it('rehydrates completed downloads from metaStore when aria2Client.tellStopped returns []', async () => {
+    const metaStore = await getMetaStore();
+    await metaStore.set('persisted-gid-1', {
+      status: 'complete',
+      totalLength: '10485760',
+      completedLength: '10485760',
+      title: 'archive.tar.gz',
+      path: '/downloads/archive.tar.gz',
+      dir: '/downloads',
+      sourceUrl: 'https://example.com/archive.tar.gz',
+      addedAt: 1700000000000,
+      files: [{
+        path: '/downloads/archive.tar.gz',
+        length: '10485760',
+        completedLength: '10485760',
+        uris: [{ status: 'used', uri: 'https://example.com/archive.tar.gz' }],
+      }],
+    });
+    // Incomplete download in metaStore should NOT be rehydrated
+    await metaStore.set('incomplete-gid-2', {
+      status: 'active',
+      totalLength: '10000',
+      completedLength: '5000',
+      title: 'incomplete.iso',
+      path: '/downloads/incomplete.iso',
+    });
+    await metaStore.save();
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().fetchDownloads();
+
+    const completed = useTestStore.getState().completed;
+    expect(completed).toHaveLength(1);
+    expect(completed[0].gid).toBe('persisted-gid-1');
+    expect(completed[0].status).toBe('complete');
+    expect(completed[0].totalLength).toBe('10485760');
+    expect(completed[0].completedLength).toBe('10485760');
+    expect(completed[0].downloadSpeed).toBe('0');
+    expect(completed[0].dir).toBe('/downloads');
+    expect(completed[0].files[0].path).toBe('/downloads/archive.tar.gz');
+    expect(completed[0].addedAt).toBe(1700000000000);
+
+    const meta = useTestStore.getState().downloadMetadata['persisted-gid-1'];
+    expect(meta).toBeDefined();
+    expect(meta?.title).toBe('archive.tar.gz');
+    expect(meta?.sourceUrl).toBe('https://example.com/archive.tar.gz');
+
+    // Incomplete task must not be in active or completed
+    expect(useTestStore.getState().active).toEqual([]);
+    expect(useTestStore.getState().downloadMetadata['incomplete-gid-2']).toBeUndefined();
+  });
+
+  it('rehydrates completed downloads matching totalLength === completedLength when status field was omitted', async () => {
+    const metaStore = await getMetaStore();
+    await metaStore.set('legacy-gid-1', {
+      totalLength: '5000',
+      completedLength: '5000',
+      title: 'legacy.bin',
+      path: '/downloads/legacy.bin',
+      dir: '/downloads',
+      addedAt: 1700000001000,
+    });
+    await metaStore.save();
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().fetchDownloads();
+
+    const completed = useTestStore.getState().completed;
+    expect(completed).toHaveLength(1);
+    expect(completed[0].gid).toBe('legacy-gid-1');
+    expect(completed[0].status).toBe('complete');
+    expect(completed[0].files[0].path).toBe('/downloads/legacy.bin');
+  });
+
+  it('preserves both live aria2 completed downloads and persisted rehydrated downloads without duplicates', async () => {
+    const metaStore = await getMetaStore();
+    await metaStore.set('persisted-gid-1', {
+      status: 'complete',
+      totalLength: '2000',
+      completedLength: '2000',
+      title: 'persisted.pdf',
+      path: '/downloads/persisted.pdf',
+      dir: '/downloads',
+      addedAt: 1000,
+    });
+    await metaStore.set('live-gid-2', {
+      status: 'complete',
+      totalLength: '4000',
+      completedLength: '4000',
+      title: 'live.pdf',
+      path: '/downloads/live.pdf',
+      dir: '/downloads',
+      addedAt: 2000,
+    });
+    await metaStore.save();
+
+    const liveDl: Aria2Download = {
+      gid: 'live-gid-2',
+      status: 'complete',
+      totalLength: '4000',
+      completedLength: '4000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/live.pdf', length: '4000', completedLength: '4000', uris: [] }],
+      addedAt: 2000,
+    };
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([liveDl]);
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().fetchDownloads();
+
+    const completed = useTestStore.getState().completed;
+    expect(completed).toHaveLength(2);
+    // Verified no duplicate GIDs
+    const gids = completed.map(d => d.gid);
+    expect(gids).toContain('live-gid-2');
+    expect(gids).toContain('persisted-gid-1');
+    expect(new Set(gids).size).toBe(2);
+
+    // Verified chronological sorting (addedAt descending: 2000 before 1000)
+    expect(completed[0].gid).toBe('live-gid-2');
+    expect(completed[1].gid).toBe('persisted-gid-1');
+  });
+
+  it('successfully deletes a rehydrated download and removes it from metaStore', async () => {
+    const metaStore = await getMetaStore();
+    await metaStore.set('to-delete-gid', {
+      status: 'complete',
+      totalLength: '8000',
+      completedLength: '8000',
+      title: 'remove-me.iso',
+      path: '/downloads/remove-me.iso',
+      dir: '/downloads',
+      addedAt: 1500,
+    });
+    await metaStore.save();
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    // Rehydrate first
+    await useTestStore.getState().fetchDownloads();
+    expect(useTestStore.getState().completed).toHaveLength(1);
+    expect(useTestStore.getState().completed[0].gid).toBe('to-delete-gid');
+
+    // Delete with removeLocalFile = true
+    await useTestStore.getState().deleteDownload('to-delete-gid', true);
+
+    expect(invoke).toHaveBeenCalledWith('delete_downloaded_file', {
+      path: '/downloads/remove-me.iso',
+      customDir: '/downloads',
+    });
+    expect(await metaStore.get('to-delete-gid')).toBeNull();
+    expect(useTestStore.getState().completed).toHaveLength(0);
+    expect(useTestStore.getState().downloadMetadata['to-delete-gid']).toBeUndefined();
+  });
+
+  it('persists status: complete, dir, files, path, and title to metaStore when a live download completes', async () => {
+    const completedAria2Task: Aria2Download = {
+      gid: 'live-task-1',
+      status: 'complete',
+      totalLength: '123456',
+      completedLength: '123456',
+      downloadSpeed: '0',
+      dir: '/media/downloads',
+      files: [{
+        path: '/media/downloads/song.flac',
+        length: '123456',
+        completedLength: '123456',
+        uris: [{ status: 'used', uri: 'https://example.com/song.flac' }],
+      }],
+    };
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([completedAria2Task]);
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().fetchDownloads();
+
+    const metaStore = await getMetaStore();
+    interface PersistedTaskMeta {
+      status?: string;
+      dir?: string;
+      path?: string;
+      title?: string;
+      files?: { path: string }[];
+    }
+    const cached = await metaStore.get<PersistedTaskMeta>('live-task-1');
+    expect(cached).toBeDefined();
+    expect(cached?.status).toBe('complete');
+    expect(cached?.dir).toBe('/media/downloads');
+    expect(cached?.path).toBe('/media/downloads/song.flac');
+    expect(cached?.title).toBe('song.flac');
+    expect(cached?.files).toHaveLength(1);
+    expect(cached?.files?.[0].path).toBe('/media/downloads/song.flac');
   });
 });
