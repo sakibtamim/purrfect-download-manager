@@ -99,14 +99,19 @@ jobs:
           APP_VERSION=$(node -p "require('./package.json').version")
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             RELEASE_TAG="${GITHUB_REF_NAME}"
-            if [[ "${RELEASE_TAG}" == *-* ]]; then
-              PRERELEASE_FLAG="--prerelease"
-            else
-              PRERELEASE_FLAG=""
-            fi
+          elif [[ "${APP_VERSION}" == 0.* || "${APP_VERSION}" == *-* ]]; then
+            RELEASE_TAG="v${APP_VERSION}"
           else
-            RELEASE_TAG="v${APP_VERSION}-rc.${GITHUB_RUN_NUMBER}"
+            ESCAPED_VERSION="${APP_VERSION//./\\.}"
+            LAST_RC=$(git tag -l "v${APP_VERSION}-rc*" | sed -nE "s/^v${ESCAPED_VERSION}-rc\.?([0-9]+)$/\1/p" | sort -n | tail -n 1 || true)
+            NEXT_RC=$(( ${LAST_RC:-0} + 1 ))
+            RELEASE_TAG="v${APP_VERSION}-rc${NEXT_RC}"
+          fi
+
+          if [[ "${RELEASE_TAG}" == *-* || "${RELEASE_TAG}" == v0.* ]]; then
             PRERELEASE_FLAG="--prerelease"
+          else
+            PRERELEASE_FLAG=""
           fi
 
           ASSETS=(
@@ -121,13 +126,19 @@ jobs:
             exit 1
           fi
 
+          NOTES_FILE="/tmp/release-notes-${RELEASE_TAG}.md"
+          node scripts/generate-release-notes.js \
+            --tag "${RELEASE_TAG}" \
+            --target "${GITHUB_SHA}" \
+            --out "${NOTES_FILE}"
+
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             gh release upload "${RELEASE_TAG}" "${ASSETS[@]}" --clobber
           else
             gh release create "${RELEASE_TAG}" \
               --target "${GITHUB_SHA}" \
               --title "Release ${RELEASE_TAG}" \
-              --generate-notes \
+              --notes-file "${NOTES_FILE}" \
               ${PRERELEASE_FLAG} \
               "${ASSETS[@]}"
           fi

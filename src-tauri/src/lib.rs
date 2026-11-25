@@ -2889,8 +2889,10 @@ mod tests {
             SingleInstanceAcquireResult::ForwardedToExisting => panic!("Expected primary"),
         };
 
-        // Simulate socket file replaced by a newer instance (new inode)
-        fs::remove_file(&sock_path).unwrap();
+        // Keep the original socket inode linked via rename so filesystems like ext4
+        // cannot immediately reuse the freed inode for the replacement socket.
+        let old_sock_path = temp_dir.join("pdm.sock.old");
+        fs::rename(&sock_path, &old_sock_path).unwrap();
         let guard2 = match acquire_or_forward_single_instance(&sock_path, SingleInstanceCommand::Show).unwrap() {
             SingleInstanceAcquireResult::Primary { listener, cleanup_guard } => {
                 drop(listener);
@@ -2898,6 +2900,9 @@ mod tests {
             }
             SingleInstanceAcquireResult::ForwardedToExisting => panic!("Expected second primary"),
         };
+        assert!(guard1.inode.is_some());
+        assert!(guard2.inode.is_some());
+        assert_ne!(guard1.inode, guard2.inode);
 
         // Dropping stale guard1 must NOT remove guard2's socket file
         drop(guard1);
