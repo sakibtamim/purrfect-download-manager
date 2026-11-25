@@ -42,7 +42,9 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
   const fileCompleted = download.files[0] ? parseInt(download.files[0].completedLength, 10) : 0;
   const totalLength = rawTotal > 0 ? rawTotal : fileTotal;
   const completedLength = rawCompleted > 0 ? rawCompleted : fileCompleted;
-  const progress = totalLength > 0 ? (completedLength / totalLength) * 100 : 0;
+  const progress = isMuxing
+    ? (download.muxProgress ?? 0)
+    : (totalLength > 0 ? (completedLength / totalLength) * 100 : 0);
   
   const speed = parseInt(download.downloadSpeed, 10);
   const formatBytes = (bytes: number) => {
@@ -77,7 +79,7 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
       }
     } else {
       switch (download.status) {
-        case "muxing": return "Merging Audio & Video... 🎬";
+        case "muxing": return isMuxing && download.muxProgress !== undefined ? `Merging Audio & Video (${download.muxProgress}%)... 🎬` : "Merging Audio & Video... 🎬";
         case "active": return "Downloading";
         case "paused": return "Paused";
         case "complete": return "Completed";
@@ -259,7 +261,7 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-muted-foreground">
                 <div className="flex items-center gap-2">
-                  <span>{download.status === "active" ? formatSpeed(speed, speedUnit) : download.status === "muxing" ? "Merging..." : '--'}</span>
+                  <span>{download.status === "active" ? formatSpeed(speed, speedUnit) : download.status === "muxing" ? `Merging ${download.muxProgress ?? 0}%` : '--'}</span>
                   {download.status === "active" && speed > 0 && (
                     <span className="text-muted-foreground/60">
                       • {getETA()}

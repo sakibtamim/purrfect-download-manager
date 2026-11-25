@@ -134,10 +134,12 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
             const fileCompleted = download.files[0] ? parseInt(download.files[0].completedLength, 10) : 0;
             const totalLength = rawTotal > 0 ? rawTotal : fileTotal;
             const completedLength = rawCompleted > 0 ? rawCompleted : fileCompleted;
-            const progress = totalLength > 0 ? (completedLength / totalLength) * 100 : 0;
+            const isMuxing = download.status === "muxing";
+            const progress = isMuxing
+              ? (download.muxProgress ?? 0)
+              : (totalLength > 0 ? (completedLength / totalLength) * 100 : 0);
             const speed = parseInt(download.downloadSpeed, 10);
             const isSelected = selectedDownloadId === download.gid;
-            const isMuxing = download.status === "muxing";
 
             let etaStr = "--";
             if (download.status === "active" && speed > 0 && totalLength > completedLength) {
@@ -198,7 +200,7 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
                   <div className="space-y-1">
                     <div className="flex justify-between text-[11px] text-muted-foreground font-mono">
                       <span>{progress.toFixed(0)}%</span>
-                      {isMuxing && <span className="text-primary font-sans text-[10px]">Merging</span>}
+                      {isMuxing && <span className="text-primary font-sans text-[10px]">Merging {download.muxProgress ?? 0}%</span>}
                     </div>
                     <Progress value={progress} className="h-1 bg-muted" />
                   </div>

@@ -18,6 +18,7 @@ export interface Aria2Download {
   numPieces?: string;
   connections?: string;
   pieceLength?: string;
+  muxProgress?: number;
 }
 
 export interface Aria2Config {

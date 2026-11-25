@@ -25,6 +25,7 @@ interface CachedMeta {
 
 const mockMetaStore = new Map<string, unknown>();
 let metaStoreCache: Store | null = null;
+let isInitialFetch = true;
 
 export async function getMetaStore(): Promise<Store> {
   if (!metaStoreCache) {
@@ -46,6 +47,7 @@ export async function getMetaStore(): Promise<Store> {
 export function _resetMetaStoreForTesting() {
   metaStoreCache = null;
   mockMetaStore.clear();
+  isInitialFetch = false;
 }
 
 export type EngineStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
@@ -156,6 +158,18 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       const waiting = await aria2Client.tellWaiting(0, 100, keys);
       const stopped = await aria2Client.tellStopped(0, 100, keys);
       const stats = await aria2Client.getGlobalStat();
+
+      if (isInitialFetch) {
+        isInitialFetch = false;
+        if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window && active.length > 0) {
+          for (const dl of active) {
+            try {
+              await aria2Client.pause(dl.gid);
+              dl.status = 'paused';
+            } catch {}
+          }
+        }
+      }
 
       const combinedActive = [...active, ...waiting];
       const completed = stopped.filter(d => d.status === 'complete');
@@ -298,8 +312,13 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                 const targetDir = (vComplete.dir || get().defaultDownloadDir || '').replace(/\\/g, '/').replace(/\/+$/, '');
                 const finalPath = targetDir && mux.finalFilename ? `${targetDir}/${mux.finalFilename}` : (vPath.replace(/\.video\.[^.]+$/, '') + '.mp4');
 
+                const vTotal = parseInt(vComplete.totalLength || '0', 10);
+                const aTotal = parseInt(aComplete.totalLength || '0', 10);
+                const totalBytesToMux = (vTotal + aTotal) || 1;
+
                 const ffmpegArgs = [
                   '-y',
+                  '-progress', 'pipe:1',
                   '-i', vPath,
                   '-i', aPath,
                   '-c:v', 'copy',
@@ -307,12 +326,55 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                   finalPath
                 ];
 
-                const runFfmpeg = async () => {
-                  try {
-                    return await Command.sidecar('bin/pdm-ffmpeg', ffmpegArgs).execute();
-                  } catch {
-                    return await Command.create('system-ffmpeg', ffmpegArgs).execute();
-                  }
+                const runFfmpeg = async (): Promise<{ code: number }> => {
+                  return new Promise((resolve) => {
+                    let cmd: Command<string>;
+                    try {
+                      cmd = Command.sidecar('bin/pdm-ffmpeg', ffmpegArgs);
+                    } catch {
+                      cmd = Command.create('system-ffmpeg', ffmpegArgs);
+                    }
+
+                    const onProgressData = (line: string) => {
+                      const match = line.match(/total_size=(\d+)/);
+                      if (match) {
+                        const currentBytes = parseInt(match[1], 10);
+                        if (!isNaN(currentBytes) && currentBytes > 0 && totalBytesToMux > 0) {
+                          const pct = Math.min(99, Math.max(0, Math.round((currentBytes / totalBytesToMux) * 100)));
+                          mux.progress = pct;
+                          set(state => ({
+                            pendingMuxes: state.pendingMuxes.map(m => m.videoGid === mux.videoGid ? { ...m, progress: pct } : m),
+                            active: state.active.map(a => a.gid === mux.videoGid ? { ...a, muxProgress: pct } : a)
+                          }));
+                        }
+                      }
+                    };
+
+                    cmd.stdout.on('data', onProgressData);
+                    cmd.stderr.on('data', onProgressData);
+
+                    cmd.on('close', data => {
+                      resolve({ code: data.code ?? 0 });
+                    });
+
+                    cmd.on('error', err => {
+                      console.error('FFmpeg error:', err);
+                      resolve({ code: 1 });
+                    });
+
+                    cmd.spawn().catch(() => {
+                      try {
+                        const fallbackCmd = Command.create('system-ffmpeg', ffmpegArgs);
+                        fallbackCmd.stdout.on('data', onProgressData);
+                        fallbackCmd.stderr.on('data', onProgressData);
+                        fallbackCmd.on('close', data => resolve({ code: data.code ?? 0 }));
+                        fallbackCmd.on('error', () => resolve({ code: 1 }));
+                        fallbackCmd.spawn().catch(() => resolve({ code: 1 }));
+                      } catch {
+                        resolve({ code: 1 });
+                      }
+                    });
+                  });
                 };
 
                 runFfmpeg().then(output => {
@@ -430,6 +492,7 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
 
         if (mux.status === 'muxing') {
           dl.status = 'muxing';
+          dl.muxProgress = mux.progress ?? 0;
         }
       };
 
@@ -452,6 +515,8 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         const allStoreKeys = await metaStore.keys();
         const liveGids = new Set(allDownloads.map(d => d.gid));
         const pendingMuxGids = new Set(pendingMuxes.flatMap(m => [m.videoGid, m.audioGid]));
+        const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+        let storeMutated = false;
 
         for (const key of allStoreKeys) {
           if (!liveGids.has(key) && !audioGidSet.has(key) && !pendingMuxGids.has(key)) {
@@ -461,17 +526,69 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                 (Boolean(cached.totalLength) && cached.totalLength !== '0' && cached.totalLength === cached.completedLength);
 
               if (isComplete) {
+                // Disk Reality Check: Verify candidate paths to ensure the file was not deleted from disk
+                let resolvedFilePath: string | null = null;
+                let resolvedDir = cached.dir;
+
+                if (isTauriEnv) {
+                  const candidatePaths: string[] = [];
+                  if (cached.path) {
+                    candidatePaths.push(cached.path);
+                  }
+                  if (cached.dir && cached.title) {
+                    const normDir = cached.dir.replace(/\\/g, '/').replace(/\/+$/, '');
+                    candidatePaths.push(`${normDir}/${cached.title}`);
+                  }
+                  const defaultDir = (get().defaultDownloadDir || '').replace(/\\/g, '/').replace(/\/+$/, '');
+                  if (defaultDir && cached.title) {
+                    candidatePaths.push(`${defaultDir}/${cached.title}`);
+                  }
+                  if (cached.title) {
+                    candidatePaths.push(`/mnt/WDC240/${cached.title}`);
+                  }
+
+                  for (const candPath of candidatePaths) {
+                    try {
+                      const exists = await invoke<boolean>('check_downloaded_file_exists', { path: candPath });
+                      if (exists) {
+                        resolvedFilePath = candPath;
+                        const lastSlash = Math.max(candPath.lastIndexOf('/'), candPath.lastIndexOf('\\'));
+                        resolvedDir = lastSlash !== -1 ? candPath.substring(0, lastSlash) : resolvedDir;
+                        break;
+                      }
+                    } catch {}
+                  }
+
+                  // If candidate paths were checked and none exist on disk, the file was removed outside PDM!
+                  if (!resolvedFilePath) {
+                    await metaStore.delete(key);
+                    delete metadataUpdates[key];
+                    storeMutated = true;
+                    continue;
+                  }
+
+                  // Update cached with validated disk path
+                  if (cached.path !== resolvedFilePath || cached.dir !== resolvedDir) {
+                    cached.path = resolvedFilePath;
+                    cached.dir = resolvedDir;
+                    await metaStore.set(key, cached);
+                    storeMutated = true;
+                  }
+                } else {
+                  resolvedFilePath = cached.path || (cached.title ? `${(get().defaultDownloadDir || '').replace(/\\/g, '/').replace(/\/+$/, '')}/${cached.title}` : '');
+                }
+
                 const rehydratedDl: Aria2Download = {
                   gid: key,
                   status: 'complete',
                   totalLength: cached.totalLength,
                   completedLength: cached.completedLength,
                   downloadSpeed: '0',
-                  dir: cached.dir || (cached.path ? cached.path.substring(0, Math.max(cached.path.lastIndexOf('/'), cached.path.lastIndexOf('\\'))) : (get().defaultDownloadDir || '')),
+                  dir: resolvedDir || (resolvedFilePath ? resolvedFilePath.substring(0, Math.max(resolvedFilePath.lastIndexOf('/'), resolvedFilePath.lastIndexOf('\\'))) : (get().defaultDownloadDir || '')),
                   files: cached.files && cached.files.length > 0
-                    ? cached.files
+                    ? cached.files.map(f => resolvedFilePath ? { ...f, path: resolvedFilePath } : f)
                     : [{
-                        path: cached.path || (cached.title ? `${(get().defaultDownloadDir || '').replace(/\\/g, '/').replace(/\/+$/, '')}/${cached.title}` : ''),
+                        path: resolvedFilePath || '',
                         length: cached.totalLength,
                         completedLength: cached.completedLength,
                         uris: cached.sourceUrl ? [{ status: 'used', uri: cached.sourceUrl }] : []
@@ -487,12 +604,48 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                   sourceUrl: cached.sourceUrl,
                   title: cached.title,
                 };
+              } else if (cached.status === 'removed' || cached.status === 'error') {
+                // Decision 2 - Option A: Retain cancelled & failed downloads in the Failed tab across restarts
+                const rehydratedFailed: Aria2Download = {
+                  gid: key,
+                  status: cached.status as 'error' | 'removed',
+                  totalLength: cached.totalLength || '0',
+                  completedLength: cached.completedLength || '0',
+                  downloadSpeed: '0',
+                  dir: cached.dir || (get().defaultDownloadDir || ''),
+                  files: cached.files && cached.files.length > 0
+                    ? cached.files
+                    : [{
+                        path: cached.path || '',
+                        length: cached.totalLength || '0',
+                        completedLength: cached.completedLength || '0',
+                        uris: cached.sourceUrl ? [{ status: 'used', uri: cached.sourceUrl }] : []
+                      }],
+                  addedAt: cached.addedAt || Date.now(),
+                  errorMessage: cached.status === 'removed' ? 'Download was cancelled' : 'Download failed',
+                };
+
+                if (!filteredFailed.some(d => d.gid === key)) {
+                  filteredFailed.push(rehydratedFailed);
+                }
+
+                if (cached.sourceUrl || cached.title) {
+                  metadataUpdates[key] = {
+                    sourceUrl: cached.sourceUrl,
+                    title: cached.title,
+                  };
+                }
               }
             }
           }
         }
 
+        if (storeMutated) {
+          await metaStore.save();
+        }
+
         filteredCompleted.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+        filteredFailed.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
       }
 
       set({
@@ -749,6 +902,21 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         pendingMuxes: state.pendingMuxes.filter(m => m !== mux)
       }));
     }
+
+    try {
+      const metaStore = await getMetaStore();
+      const cached = await metaStore.get<CachedMeta>(gid);
+      if (cached) {
+        await metaStore.set(gid, { ...cached, status: 'removed' });
+        if (mux) {
+          await metaStore.delete(mux.audioGid);
+        }
+        await metaStore.save();
+      }
+    } catch (e) {
+      console.warn('Failed to persist cancelled status to metaStore', e);
+    }
+
     await get().fetchDownloads();
   },
 

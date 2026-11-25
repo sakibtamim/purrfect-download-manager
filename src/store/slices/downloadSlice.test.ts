@@ -1131,4 +1131,114 @@ describe('Persistent completed download rehydration across app restarts', () => 
     expect(cached?.files).toHaveLength(1);
     expect(cached?.files?.[0].path).toBe('/media/downloads/song.flac');
   });
+
+  it('prunes ghost completed downloads from metaStore when file does not exist on disk in Tauri environment', async () => {
+    const metaStore = await getMetaStore();
+    await metaStore.set('ghost-1', {
+      status: 'complete',
+      totalLength: '1000',
+      completedLength: '1000',
+      title: 'deleted-movie.mp4',
+      path: '/downloads/deleted-movie.mp4',
+      dir: '/downloads',
+    });
+    await metaStore.set('existing-1', {
+      status: 'complete',
+      totalLength: '2000',
+      completedLength: '2000',
+      title: 'real-movie.mp4',
+      path: '/downloads/real-movie.mp4',
+      dir: '/downloads',
+    });
+    await metaStore.save();
+
+    const originalWindow = (globalThis as unknown as { window?: unknown }).window;
+    (globalThis as unknown as { window: unknown }).window = {
+      __TAURI_INTERNALS__: {},
+    };
+
+    try {
+
+      vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+        if (cmd === 'check_downloaded_file_exists') {
+          const p = (args as { path: string }).path;
+          return p.includes('real-movie.mp4');
+        }
+        return undefined;
+      });
+
+      const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+        createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+      );
+
+      await useTestStore.getState().fetchDownloads();
+
+      // ghost-1 must be pruned from completed list and metaStore
+      const completed = useTestStore.getState().completed;
+      expect(completed).toHaveLength(1);
+      expect(completed[0].gid).toBe('existing-1');
+      expect(await metaStore.get('ghost-1')).toBeNull();
+      expect(await metaStore.get('existing-1')).not.toBeNull();
+    } finally {
+      (globalThis as unknown as { window?: unknown }).window = originalWindow;
+    }
+  });
+
+  it('rehydrates cancelled downloads into the failed list with status removed across app restarts', async () => {
+    const metaStore = await getMetaStore();
+    await metaStore.set('cancelled-gid-1', {
+      status: 'removed',
+      totalLength: '50000',
+      completedLength: '12000',
+      title: 'cancelled-installer.exe',
+      sourceUrl: 'https://example.com/cancelled.exe',
+      addedAt: 1600000000000,
+    });
+    await metaStore.save();
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().fetchDownloads();
+
+    const failed = useTestStore.getState().failed;
+    expect(failed).toHaveLength(1);
+    expect(failed[0].gid).toBe('cancelled-gid-1');
+    expect(failed[0].status).toBe('removed');
+    expect(failed[0].errorMessage).toBe('Download was cancelled');
+    expect(useTestStore.getState().downloadMetadata['cancelled-gid-1']?.title).toBe('cancelled-installer.exe');
+  });
+
+  it('updates muxProgress on video cards while actively muxing', async () => {
+    const mockVideo = {
+      gid: 'vid-mux-1',
+      status: 'complete' as const,
+      totalLength: '2000',
+      completedLength: '2000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/Clip.video.mp4', length: '2000', completedLength: '2000', uris: [] }]
+    };
+
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([mockVideo]);
+
+    const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      pendingMuxes: [{
+        videoGid: 'vid-mux-1',
+        audioGid: 'aud-mux-1',
+        finalFilename: 'Clip.mp4',
+        status: 'muxing',
+        progress: 68
+      }]
+    }));
+
+    await useTestStore.getState().fetchDownloads();
+
+    const active = useTestStore.getState().active;
+    expect(active).toHaveLength(1);
+    expect(active[0].status).toBe('muxing');
+    expect(active[0].muxProgress).toBe(68);
+  });
 });
