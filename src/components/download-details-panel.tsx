@@ -228,7 +228,7 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
     <section 
       role="region"
       aria-label="Download Details Inspector"
-      className="h-[340px] max-h-[50vh] min-h-[280px] shrink-0 border-t border-border bg-card/95 backdrop-blur-xl shadow-2xl flex flex-col z-30 animate-in slide-in-from-bottom duration-200 ease-out overflow-hidden"
+      className="h-[360px] max-h-[55vh] min-h-[280px] shrink-0 border-t border-border bg-card/95 backdrop-blur-xl shadow-2xl flex flex-col z-30 animate-in slide-in-from-bottom duration-200 ease-out overflow-hidden"
     >
       {/* HEADER SECTION (EXACT PROTOTYPE MATCH) */}
       <div className="px-4 py-3.5 border-b border-border bg-card/50 flex items-start justify-between gap-3 shrink-0">
@@ -452,8 +452,8 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
               </div>
             </div>
 
-            {/* Storage & Origin Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Storage & Origin Stacked (One per row) */}
+            <div className="space-y-3">
               {/* Storage & Destination Card */}
               <div className="p-3 rounded-xl bg-background border border-border space-y-2">
                 <div className="flex items-center justify-between">
@@ -504,7 +504,7 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
                 
                 {/* URL row */}
                 <div className="flex items-center gap-2 text-[11px]">
-                  <span className="text-muted-foreground w-12 shrink-0">URL:</span>
+                  <span className="text-muted-foreground w-20 shrink-0 whitespace-nowrap font-medium">URL:</span>
                   <span className="text-blue-500 truncate flex-1 font-mono text-[11px]" title={displayUrl}>
                     {displayUrl}
                   </span>
@@ -512,7 +512,7 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
 
                 {/* Hash row */}
                 <div className="flex items-center gap-2 text-[11px] pt-1 border-t border-border/60">
-                  <span className="text-muted-foreground w-12 shrink-0">{hashAlgo}:</span>
+                  <span className="text-muted-foreground w-20 shrink-0 whitespace-nowrap font-medium">{hashAlgo}:</span>
                   <span className="font-mono text-foreground truncate flex-1 opacity-80 text-[10px]" title={hashDigest}>
                     {hashDigest}
                   </span>
