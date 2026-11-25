@@ -112,10 +112,10 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
         <thead className="bg-muted/40 text-muted-foreground border-b border-border font-medium select-none">
           <tr>
             <th className="py-2 px-3 w-auto min-w-0">File Name</th>
-            <th className="py-2 px-2.5 w-[76px]">Size</th>
+            <th className="py-2 px-2.5 w-[80px]">Size</th>
             <th className="py-2 px-2.5 w-[100px] sm:w-[110px]">Progress</th>
-            <th className="py-2 px-2.5 w-[76px]">Speed</th>
-            <th className="py-2 px-2.5 w-[58px] hidden sm:table-cell">ETA</th>
+            <th className="py-2 px-2.5 w-[96px] sm:w-[104px]">Speed</th>
+            <th className="py-2 px-2.5 w-[64px] sm:w-[72px] hidden sm:table-cell">ETA</th>
             <th className="py-2 px-2.5 w-[100px] sm:w-[112px]">Status</th>
             <th className="py-2 pl-2 pr-3 w-[88px] sm:w-[96px] text-right">Actions</th>
           </tr>
@@ -184,7 +184,7 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
                 </td>
 
                 {/* Size */}
-                <td className="py-1.5 px-2.5 w-[76px] text-muted-foreground whitespace-nowrap">
+                <td className="py-1.5 px-2.5 w-[80px] text-muted-foreground whitespace-nowrap">
                   {formatBytes(completedLength)}
                   {totalLength > 0 && (
                     <span className="text-muted-foreground/60 text-[11px] block">
@@ -205,7 +205,7 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
                 </td>
 
                 {/* Speed */}
-                <td className="py-1.5 px-2.5 w-[76px] whitespace-nowrap text-muted-foreground font-mono">
+                <td className="py-1.5 px-2.5 w-[96px] sm:w-[104px] whitespace-nowrap text-muted-foreground font-mono">
                   {download.status === "active" && speed > 0 ? (
                     <span className="text-emerald-600 dark:text-emerald-400 font-medium">
                       {formatSpeed(speed, speedUnit)}
@@ -216,7 +216,7 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
                 </td>
 
                 {/* ETA */}
-                <td className="py-1.5 px-2.5 w-[58px] whitespace-nowrap text-muted-foreground font-mono text-[11px] hidden sm:table-cell">
+                <td className="py-1.5 px-2.5 w-[64px] sm:w-[72px] whitespace-nowrap text-muted-foreground font-mono text-[11px] hidden sm:table-cell">
                   {etaStr}
                 </td>
 
