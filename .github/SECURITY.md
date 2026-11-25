@@ -19,7 +19,7 @@ Please submit findings via **[GitHub Private Vulnerability Reporting](https://gi
 
 ### 2. Secondary Channel: Security Email
 If you are unable to use GitHub advisories, you may report findings via email:
-* **Security Contact**: `sakib@purrfectsoftwareltd.com`
+* **Security Contact**: `sakib.tamim@gmail.com`
 * **Subject**: `[PDM Security] Vulnerability Report: <Brief Description>`
 
 ### What to Include

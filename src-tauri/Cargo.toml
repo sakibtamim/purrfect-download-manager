@@ -2,7 +2,7 @@
 name = "purrfect-download-manager"
 version = "0.1.2"
 description = "Purrfect Download Manager - A fast and aesthetic download manager built with Tauri and Next.js"
-authors = ["Sakib"]
+authors = ["Sakib Tamim <sakib.tamim@gmail.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/sakibtamim/purrfect-download-manager"
 edition = "2021"
