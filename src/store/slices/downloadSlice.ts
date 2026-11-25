@@ -20,6 +20,7 @@ interface CachedMeta {
   path?: string;
   dir?: string;
   status?: string;
+  fileMissing?: boolean;
   files?: { path: string; length: string; completedLength: string; uris: { status: string; uri: string }[] }[];
 }
 
@@ -74,6 +75,7 @@ export interface DownloadDataSlice {
   pauseAllDownloads: () => Promise<void>;
   resumeAllDownloads: () => Promise<void>;
   clearCompletedDownloads: () => Promise<void>;
+  redownload: (gid: string) => Promise<void>;
   setSpeedLimit: (bytesPerSecond: string) => Promise<void>;
   getUniqueFilename: (name: string, dir?: string) => Promise<string>;
 }
@@ -529,6 +531,7 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                 // Disk Reality Check: Verify candidate paths to ensure the file was not deleted from disk
                 let resolvedFilePath: string | null = null;
                 let resolvedDir = cached.dir;
+                let isFileMissing = false;
 
                 if (isTauriEnv) {
                   const candidatePaths: string[] = [];
@@ -560,27 +563,40 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                   }
 
                   // If candidate paths were checked and none exist on disk, the file was removed outside PDM!
+                  // Retain in PDM with fileMissing: true instead of deleting metadata so user can redownload
                   if (!resolvedFilePath) {
-                    await metaStore.delete(key);
-                    delete metadataUpdates[key];
-                    storeMutated = true;
-                    continue;
-                  }
-
-                  // Update cached with validated disk path
-                  if (cached.path !== resolvedFilePath || cached.dir !== resolvedDir) {
-                    cached.path = resolvedFilePath;
-                    cached.dir = resolvedDir;
-                    await metaStore.set(key, cached);
-                    storeMutated = true;
+                    isFileMissing = true;
+                    resolvedFilePath = cached.path || (cached.title ? `${(get().defaultDownloadDir || '').replace(/\\/g, '/').replace(/\/+$/, '')}/${cached.title}` : '');
+                    if (cached.fileMissing !== true) {
+                      cached.fileMissing = true;
+                      await metaStore.set(key, cached);
+                      storeMutated = true;
+                    }
+                  } else {
+                    let shouldUpdate = false;
+                    if (cached.path !== resolvedFilePath || cached.dir !== resolvedDir) {
+                      cached.path = resolvedFilePath;
+                      cached.dir = resolvedDir;
+                      shouldUpdate = true;
+                    }
+                    if (cached.fileMissing) {
+                      delete cached.fileMissing;
+                      shouldUpdate = true;
+                    }
+                    if (shouldUpdate) {
+                      await metaStore.set(key, cached);
+                      storeMutated = true;
+                    }
                   }
                 } else {
+                  isFileMissing = Boolean(cached.fileMissing);
                   resolvedFilePath = cached.path || (cached.title ? `${(get().defaultDownloadDir || '').replace(/\\/g, '/').replace(/\/+$/, '')}/${cached.title}` : '');
                 }
 
                 const rehydratedDl: Aria2Download = {
                   gid: key,
                   status: 'complete',
+                  fileMissing: isFileMissing,
                   totalLength: cached.totalLength,
                   completedLength: cached.completedLength,
                   downloadSpeed: '0',
@@ -646,6 +662,21 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
 
         filteredCompleted.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
         filteredFailed.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+      }
+
+      // Live disk check for all completed downloads to catch deletions during active session
+      if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+        for (const dl of filteredCompleted) {
+          if (dl.fileMissing === undefined) {
+            const p = dl.files && dl.files[0] ? dl.files[0].path : null;
+            if (p) {
+              try {
+                const exists = await invoke<boolean>('check_downloaded_file_exists', { path: p });
+                dl.fileMissing = !exists;
+              } catch {}
+            }
+          }
+        }
       }
 
       set({
@@ -1140,6 +1171,53 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
     }
 
     await get().fetchDownloads();
+  },
+
+  redownload: async (gid: string) => {
+    const state = get();
+    const allDownloads = [...state.active, ...state.completed, ...state.failed];
+    const dl = allDownloads.find(d => d.gid === gid);
+    if (!dl) return;
+
+    const meta = state.downloadMetadata[gid];
+    const metaStore = await getMetaStore();
+    const cached = await metaStore.get<CachedMeta>(gid);
+
+    const sourceUrl = meta?.sourceUrl || cached?.sourceUrl || dl.files[0]?.uris[0]?.uri;
+    const rawPath = dl.files[0]?.path || cached?.path || '';
+    const lastSlash = Math.max(rawPath.lastIndexOf('/'), rawPath.lastIndexOf('\\'));
+    const fileName = meta?.title || cached?.title || (lastSlash !== -1 ? rawPath.substring(lastSlash + 1) : rawPath);
+    const dir = dl.dir || cached?.dir || state.defaultDownloadDir || undefined;
+
+    if (!sourceUrl) {
+      console.warn('Cannot redownload: source URL not found for gid', gid);
+      return;
+    }
+
+    // If it is a YouTube / stream URL, stage it or re-extract
+    if (sourceUrl.includes('youtube.com') || sourceUrl.includes('youtu.be')) {
+      try {
+        const { ytdlpClient } = await import('@/lib/ytdlpClient');
+        const info = await ytdlpClient.extractVideoInfo(sourceUrl);
+        if (info.formats && info.formats.length > 0) {
+          await state.stageDownload({
+            url: sourceUrl,
+            sourceUrl,
+            headers: [],
+            filename: fileName || info.title,
+            mediaFormats: info.formats,
+          });
+          await state.deleteDownload(gid, false);
+          return;
+        }
+      } catch (e) {
+        console.warn('Failed to re-extract video info, falling back to direct add:', e);
+      }
+    }
+
+    // Direct download: add to download queue and remove the old missing record
+    await state.addDownload(sourceUrl, [], dir, fileName, undefined, undefined, sourceUrl);
+    await state.deleteDownload(gid, false);
   },
 
   setSpeedLimit: async (bytesPerSecond: string) => {

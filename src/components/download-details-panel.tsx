@@ -17,7 +17,8 @@ import {
   Play,
   Copy,
   Check,
-  ExternalLink
+  ExternalLink,
+  RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +36,7 @@ export function DownloadDetailsPanel() {
 function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadId: string }) {
   const setSelectedDownload = useAppStore((state) => state.setSelectedDownload);
   const deleteDownload = useAppStore((state) => state.deleteDownload);
+  const redownload = useAppStore((state) => state.redownload);
   const isPlayfulMode = useAppStore((state) => state.isPlayfulMode);
   const speedUnit = useAppStore((state) => state.speedUnit);
   const downloadMetadata = useAppStore((state) => state.downloadMetadata);
@@ -159,6 +161,9 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
   };
 
   const getStatusText = (status: string) => {
+    if (download?.fileMissing) {
+      return isPlayfulMode ? "Missing 🐾" : "File Missing";
+    }
     if (isPlayfulMode) {
       switch (status) {
         case "active": return "Hunting 🐾";
@@ -234,11 +239,13 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
           <div className="flex items-center gap-2 shrink-0 text-xs">
             <span className="flex items-center gap-1.5 font-medium">
               <span className={`w-1.5 h-1.5 rounded-full ${
+                download.fileMissing ? 'bg-amber-500' :
                 download.status === 'complete' ? 'bg-emerald-500' :
                 download.status === 'active' ? 'bg-blue-500 animate-pulse' :
                 download.status === 'error' ? 'bg-red-500' : 'bg-amber-500'
               }`} />
               <span className={
+                download.fileMissing ? 'text-amber-500' :
                 download.status === 'complete' ? 'text-emerald-500' :
                 download.status === 'active' ? 'text-blue-400' :
                 download.status === 'error' ? 'text-red-500' : 'text-amber-500'
@@ -333,17 +340,29 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
         {/* Quick Action Bar */}
         <div className="flex items-center gap-1.5">
           {download.status === 'complete' && (
-            <button 
-              type="button"
-              onClick={async () => {
-                const fp = download.files[0]?.path;
-                if (fp) open(fp).catch(console.error);
-              }}
-              className="px-2.5 py-1 rounded-md text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              Play File
-            </button>
+            download.fileMissing ? (
+              <button 
+                type="button"
+                onClick={() => redownload(download.gid)}
+                className="px-2.5 py-1 rounded-md text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+                title="Redownload missing file"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Redownload
+              </button>
+            ) : (
+              <button 
+                type="button"
+                onClick={async () => {
+                  const fp = download.files[0]?.path;
+                  if (fp) open(fp).catch(console.error);
+                }}
+                className="px-2.5 py-1 rounded-md text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                Play File
+              </button>
+            )
           )}
           <button 
             type="button"
@@ -436,11 +455,13 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
               <div className="p-3 rounded-xl bg-background border border-border space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Storage Location</span>
-                  <span className="text-[10px] text-emerald-500 font-mono">
-                    {ext ? `${ext.toUpperCase()} File` : 'Local Storage'}
+                  <span className={`text-[10px] font-mono ${download.fileMissing ? 'text-amber-500 font-semibold' : 'text-emerald-500'}`}>
+                    {download.fileMissing ? 'File Missing on Disk' : (ext ? `${ext.toUpperCase()} File` : 'Local Storage')}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 p-2 rounded-lg bg-card border border-border font-mono text-[11px] text-foreground select-all">
+                <div className={`flex items-center gap-2 p-2 rounded-lg bg-card border font-mono text-[11px] select-all ${
+                  download.fileMissing ? 'border-amber-500/30 text-amber-500/90' : 'border-border text-foreground'
+                }`}>
                   <FolderOpen className="w-4 h-4 text-amber-500 shrink-0" />
                   <span className="truncate flex-1" title={filePath}>{filePath}</span>
                   <button 

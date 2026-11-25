@@ -1132,15 +1132,16 @@ describe('Persistent completed download rehydration across app restarts', () => 
     expect(cached?.files?.[0].path).toBe('/media/downloads/song.flac');
   });
 
-  it('prunes ghost completed downloads from metaStore when file does not exist on disk in Tauri environment', async () => {
+  it('retains completed downloads in metaStore with fileMissing: true when file does not exist on disk in Tauri environment', async () => {
     const metaStore = await getMetaStore();
-    await metaStore.set('ghost-1', {
+    await metaStore.set('missing-1', {
       status: 'complete',
       totalLength: '1000',
       completedLength: '1000',
       title: 'deleted-movie.mp4',
       path: '/downloads/deleted-movie.mp4',
       dir: '/downloads',
+      sourceUrl: 'https://example.com/deleted-movie.mp4',
     });
     await metaStore.set('existing-1', {
       status: 'complete',
@@ -1149,6 +1150,7 @@ describe('Persistent completed download rehydration across app restarts', () => 
       title: 'real-movie.mp4',
       path: '/downloads/real-movie.mp4',
       dir: '/downloads',
+      sourceUrl: 'https://example.com/real-movie.mp4',
     });
     await metaStore.save();
 
@@ -1173,12 +1175,27 @@ describe('Persistent completed download rehydration across app restarts', () => 
 
       await useTestStore.getState().fetchDownloads();
 
-      // ghost-1 must be pruned from completed list and metaStore
+      // missing-1 is retained in completed list with fileMissing: true
       const completed = useTestStore.getState().completed;
-      expect(completed).toHaveLength(1);
-      expect(completed[0].gid).toBe('existing-1');
-      expect(await metaStore.get('ghost-1')).toBeNull();
-      expect(await metaStore.get('existing-1')).not.toBeNull();
+      expect(completed).toHaveLength(2);
+      const missingDl = completed.find(d => d.gid === 'missing-1');
+      const existingDl = completed.find(d => d.gid === 'existing-1');
+      expect(missingDl).toBeDefined();
+      expect(missingDl?.fileMissing).toBe(true);
+      expect(existingDl).toBeDefined();
+      expect(existingDl?.fileMissing).toBe(false);
+
+      // Verify metaStore retained the record with fileMissing: true
+      const cachedMissing = await metaStore.get<{ fileMissing?: boolean }>('missing-1');
+      expect(cachedMissing).not.toBeNull();
+      expect(cachedMissing?.fileMissing).toBe(true);
+
+      // Test redownload action for the missing file
+      const addSpy = vi.spyOn(aria2Client, 'addUri').mockResolvedValue('new-gid-99');
+      await useTestStore.getState().redownload('missing-1');
+      expect(addSpy).toHaveBeenCalled();
+      // After redownload, old missing record is cleaned up
+      expect(await metaStore.get('missing-1')).toBeNull();
     } finally {
       (globalThis as unknown as { window?: unknown }).window = originalWindow;
     }

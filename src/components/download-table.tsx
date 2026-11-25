@@ -26,6 +26,7 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
   const cancelDownload = useAppStore((state) => state.cancelDownload);
   const addDownload = useAppStore((state) => state.addDownload);
   const deleteDownload = useAppStore((state) => state.deleteDownload);
+  const redownload = useAppStore((state) => state.redownload);
 
   const [deleteTargetGid, setDeleteTargetGid] = useState<string | null>(null);
   const [deleteLocalFile, setDeleteLocalFile] = useState(false);
@@ -71,7 +72,10 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
     }
   };
 
-  const getStatusText = (status: string) => {
+  const getStatusText = (status: string, fileMissing?: boolean) => {
+    if (fileMissing) {
+      return isPlayfulMode ? "Missing 🐾" : "File Missing";
+    }
     if (isPlayfulMode) {
       switch (status) {
         case "muxing": return "Merging 🎬";
@@ -225,15 +229,16 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
                 {/* Status */}
                 <td className="py-1.5 px-2.5 w-[100px] sm:w-[112px] whitespace-nowrap">
                   <Badge
-                    variant={getStatusBadgeVariant(download.status)}
+                    variant={download.fileMissing ? "outline" : getStatusBadgeVariant(download.status)}
                     className={cn(
                       "text-[10px] px-1.5 py-0 font-normal",
-                      download.status === "active" && "bg-primary/15 text-primary border-primary/20",
-                      download.status === "paused" && "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20",
-                      download.status === "complete" && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                      download.fileMissing && "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
+                      !download.fileMissing && download.status === "active" && "bg-primary/15 text-primary border-primary/20",
+                      !download.fileMissing && download.status === "paused" && "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20",
+                      !download.fileMissing && download.status === "complete" && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                     )}
                   >
-                    {getStatusText(download.status)}
+                    {getStatusText(download.status, download.fileMissing)}
                   </Badge>
                 </td>
 
@@ -282,28 +287,41 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
                       )}
 
                       {download.status === "complete" && (
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="h-6 w-6 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                          title="Open Folder"
-                          aria-label="Open download folder"
-                          onClick={async () => {
-                            const p = download.files[0]?.path;
-                            if (p) {
-                              try {
-                                await invoke("reveal_in_folder", { path: p });
-                              } catch (err) {
-                                console.warn("Reveal in folder failed:", err);
-                                if (download.dir) open(download.dir).catch(console.error);
+                        download.fileMissing ? (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="h-6 w-6 text-amber-500 hover:text-amber-400 hover:bg-amber-500/10"
+                            title="Redownload missing file"
+                            aria-label="Redownload missing file"
+                            onClick={() => redownload(download.gid)}
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="h-6 w-6 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                            title="Open Folder"
+                            aria-label="Open download folder"
+                            onClick={async () => {
+                              const p = download.files[0]?.path;
+                              if (p) {
+                                try {
+                                  await invoke("reveal_in_folder", { path: p });
+                                } catch (err) {
+                                  console.warn("Reveal in folder failed:", err);
+                                  if (download.dir) open(download.dir).catch(console.error);
+                                }
+                              } else if (download.dir) {
+                                open(download.dir).catch(console.error);
                               }
-                            } else if (download.dir) {
-                              open(download.dir).catch(console.error);
-                            }
-                          }}
-                        >
-                          <FolderOpen className="h-3 w-3" />
-                        </Button>
+                            }}
+                          >
+                            <FolderOpen className="h-3 w-3" />
+                          </Button>
+                        )
                       )}
 
                       {(download.status === "error" || download.status === "removed") && (

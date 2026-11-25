@@ -23,6 +23,7 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
   const cancelDownload = useAppStore((state) => state.cancelDownload);
   const addDownload = useAppStore((state) => state.addDownload);
   const deleteDownload = useAppStore((state) => state.deleteDownload);
+  const redownload = useAppStore((state) => state.redownload);
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteLocalFile, setDeleteLocalFile] = useState(false);
@@ -66,6 +67,9 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
   };
 
   const getStatusText = () => {
+    if (download.fileMissing) {
+      return isPlayfulMode ? "Where did it go? 🐾 (Missing)" : "File Missing";
+    }
     if (isPlayfulMode) {
       switch (download.status) {
         case "muxing": return "Merging your catch... 🎬";
@@ -109,6 +113,9 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
   };
 
   const getStatusColor = () => {
+    if (download.fileMissing) {
+      return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20";
+    }
     switch (download.status) {
       case "muxing":
       case "active": return "bg-primary/10 text-primary border-primary/20";
@@ -121,6 +128,9 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
   };
 
   const getLeftBorderColor = () => {
+    if (download.fileMissing) {
+      return "border-l-amber-500";
+    }
     switch (download.status) {
       case "muxing":
       case "active": return "border-l-primary";
@@ -197,29 +207,45 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                 </Button>
               )}
               {download.status === "complete" && (
-                <Button 
-                  variant="ghost" 
-                  size="icon-xs" 
-                  className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10" 
-                  title="Open Folder" 
-                  aria-label="Open download folder"
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    const filePath = download.files[0]?.path;
-                    if (filePath) {
-                      try {
-                        await invoke('reveal_in_folder', { path: filePath });
-                      } catch (err) {
-                        console.error("Reveal in folder failed:", err);
-                        if (download.dir) open(download.dir).catch(console.error);
+                download.fileMissing ? (
+                  <Button 
+                    variant="ghost" 
+                    size="icon-xs" 
+                    className="h-7 w-7 text-amber-500 hover:text-amber-400 hover:bg-amber-500/10" 
+                    title="Redownload missing file" 
+                    aria-label="Redownload missing file"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      redownload(download.gid);
+                    }}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  </Button>
+                ) : (
+                  <Button 
+                    variant="ghost" 
+                    size="icon-xs" 
+                    className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10" 
+                    title="Open Folder" 
+                    aria-label="Open download folder"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const filePath = download.files[0]?.path;
+                      if (filePath) {
+                        try {
+                          await invoke('reveal_in_folder', { path: filePath });
+                        } catch (err) {
+                          console.error("Reveal in folder failed:", err);
+                          if (download.dir) open(download.dir).catch(console.error);
+                        }
+                      } else if (download.dir) {
+                        open(download.dir).catch(console.error);
                       }
-                    } else if (download.dir) {
-                      open(download.dir).catch(console.error);
-                    }
-                  }}
-                >
-                  <FolderOpen className="h-3.5 w-3.5" />
-                </Button>
+                    }}
+                  >
+                    <FolderOpen className="h-3.5 w-3.5" />
+                  </Button>
+                )
               )}
               {(download.status === "error" || download.status === "removed") && (
                 <Button 
