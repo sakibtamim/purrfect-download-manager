@@ -5,7 +5,7 @@ pkgrel=1
 pkgdesc="A fast, steady, lightweight modern download manager built with Tauri and Next.js"
 arch=('x86_64' 'aarch64')
 url="https://github.com/sakibtamim/purrfect-download-manager"
-license=('MIT')
+license=('Apache-2.0')
 depends=(
   'gtk3'
   'webkit2gtk-4.1'
