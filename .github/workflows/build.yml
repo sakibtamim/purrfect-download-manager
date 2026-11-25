@@ -99,11 +99,11 @@ jobs:
           APP_VERSION=$(node -p "require('./package.json').version")
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             RELEASE_TAG="${GITHUB_REF_NAME}"
-          elif [[ "${APP_VERSION}" == 0.* || "${APP_VERSION}" == *-* ]]; then
+          elif [[ "${APP_VERSION}" == *-* ]]; then
             RELEASE_TAG="v${APP_VERSION}"
           else
             ESCAPED_VERSION="${APP_VERSION//./\\.}"
-            LAST_RC=$(git tag -l "v${APP_VERSION}-rc*" | sed -nE "s/^v${ESCAPED_VERSION}-rc\.?([0-9]+)$/\1/p" | sort -n | tail -n 1 || true)
+            LAST_RC=$(git tag -l "v${APP_VERSION}-rc*" | sed -nE "s/^v${ESCAPED_VERSION}-rc([0-9]+)$/\1/p" | sort -n | tail -n 1 || true)
             NEXT_RC=$(( ${LAST_RC:-0} + 1 ))
             RELEASE_TAG="v${APP_VERSION}-rc${NEXT_RC}"
           fi
