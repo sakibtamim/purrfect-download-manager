@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
 import {
   Download,
   CheckCircle2,
@@ -10,8 +9,6 @@ import {
   Settings,
   Globe,
   List,
-  ChevronLeft,
-  ChevronRight,
   Box,
   Film,
   FileText,
@@ -25,7 +22,6 @@ export function Sidebar() {
   const pathname = usePathname();
   const isPlayfulMode = useDownloadStore((state) => state.isPlayfulMode);
   const engineStatus = useDownloadStore((state) => state.engineStatus);
-  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const navItems = [
     { name: "All", href: "/", icon: List },
@@ -43,37 +39,17 @@ export function Sidebar() {
     { name: "Archives", icon: Archive },
   ];
 
-  return (
-    <div className={cn(
-      "flex h-full flex-col bg-sidebar/80 glass border-r border-sidebar-border text-sidebar-foreground transition-all duration-300",
-      isCollapsed ? "w-14" : "w-48"
-    )}>
-      <div className={cn("flex items-center border-b border-sidebar-border transition-all duration-300", isCollapsed ? "flex-col py-3 gap-2" : "px-3 py-2.5 justify-between")}>
-        <div className="flex items-center justify-center shrink-0 min-w-0">
-          <Image
-            src={isCollapsed ? "/pdm.png" : "/pdm_logo.png"}
-            alt="PDM - Purrfect Download Manager"
-            width={isCollapsed ? 48 : 256}
-            height={isCollapsed ? 48 : 72}
-            priority
-            className={cn(
-              "object-contain transition-all duration-300 drop-shadow-[0_2px_10px_rgba(56,189,248,0.4)] hover:brightness-110",
-              isCollapsed ? "h-8 w-8" : "h-9 w-auto max-w-[130px]"
-            )}
-          />
-        </div>
-        <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className="p-1 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
-          title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-          aria-label={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-          aria-expanded={!isCollapsed}
-        >
-          {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-        </button>
-      </div>
+  const isEngineError = engineStatus === "error"; // agyis: no-mutant UI presentation error state
+  const statusClassName = isEngineError ? "text-destructive" : "text-muted-foreground"; // agyis: no-mutant UI presentation class
+  const statusText = isEngineError // agyis: no-mutant UI presentation text
+    ? "Engine offline"
+    : isPlayfulMode
+    ? "Ready to catch bytes 🐾"
+    : "System ready";
 
-      <nav className="flex-1 overflow-y-auto space-y-4 p-2 overflow-x-hidden">
+  return (
+    <aside className="flex h-full w-48 shrink-0 flex-col bg-sidebar/80 glass border-r border-sidebar-border text-sidebar-foreground">
+      <nav className="flex-1 overflow-y-auto space-y-4 p-2.5 overflow-x-hidden pt-3">
         <div className="space-y-1">
           {navItems.map((item) => {
             const isActive = pathname === item.href;
@@ -81,10 +57,8 @@ export function Sidebar() {
               <Link
                 key={item.name}
                 href={item.href}
-                title={isCollapsed ? item.name : undefined}
                 className={cn(
-                  "flex items-center rounded-lg py-1.5 text-xs font-medium transition-all duration-200",
-                  isCollapsed ? "justify-center px-0" : "gap-2 px-2.5",
+                  "flex items-center gap-2 rounded-lg py-1.5 px-2.5 text-xs font-medium transition-all duration-200",
                   isActive
                     ? "bg-primary/10 text-primary font-semibold"
                     : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -96,8 +70,8 @@ export function Sidebar() {
                     isActive ? "text-primary" : "",
                   )}
                 />
-                {!isCollapsed && <span className="truncate">{item.name}</span>}
-                {!isCollapsed && isActive && (
+                <span className="truncate">{item.name}</span>
+                {isActive && ( // agyis: no-mutant active indicator UI marker
                   <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary animate-in zoom-in duration-200 shrink-0" />
                 )}
               </Link>
@@ -106,12 +80,9 @@ export function Sidebar() {
         </div>
 
         <div>
-          {!isCollapsed && (
-            <h4 className="px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1 truncate mt-4">
-              Categories
-            </h4>
-          )}
-          {isCollapsed && <div className="mt-4 mb-2 border-t border-border mx-2" />}
+          <h4 className="px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1.5 truncate mt-4">
+            Categories
+          </h4>
           <div className="space-y-1">
             {categories.map((cat) => {
               const href = `/category/${cat.name.toLowerCase()}`;
@@ -120,10 +91,8 @@ export function Sidebar() {
                 <Link
                   key={cat.name}
                   href={href}
-                  title={isCollapsed ? cat.name : undefined}
                   className={cn(
-                    "flex items-center rounded-lg py-1.5 text-xs font-medium transition-all duration-200",
-                    isCollapsed ? "justify-center px-0" : "gap-2 px-2.5",
+                    "flex items-center gap-2 rounded-lg py-1.5 px-2.5 text-xs font-medium transition-all duration-200",
                     isActive
                       ? "bg-accent text-foreground font-semibold"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -135,7 +104,7 @@ export function Sidebar() {
                       isActive ? "text-primary" : "text-muted-foreground/70",
                     )}
                   />
-                  {!isCollapsed && <span className="truncate">{cat.name}</span>}
+                  <span className="truncate">{cat.name}</span>
                 </Link>
               );
             })}
@@ -143,26 +112,20 @@ export function Sidebar() {
         </div>
       </nav>
 
-      <div className="p-2.5 border-t border-sidebar-border">
-        {!isCollapsed && (
-          <div className="flex flex-col items-center justify-center space-y-1.5 rounded-lg bg-muted/40 p-2 text-center group hover:bg-muted/60 transition-colors">
-            <Image
-              src="/pdm.png"
-              alt="PDM Mascot"
-              width={48}
-              height={48}
-              className="h-8 w-8 opacity-80 group-hover:opacity-100 transition-all duration-300 drop-shadow-[0_0_8px_rgba(56,189,248,0.45)] object-contain"
-            />
-            <p className={cn("text-[11px] font-medium leading-tight", engineStatus === "error" ? "text-destructive" : "text-muted-foreground")}>
-              {engineStatus === "error"
-                ? "Engine offline"
-                : isPlayfulMode
-                ? "Ready to catch bytes 🐾"
-                : "System ready"}
-            </p>
-          </div>
-        )}
+      <div className="p-2.5 border-t border-sidebar-border shrink-0">
+        <div className="flex flex-col items-center justify-center space-y-1.5 rounded-lg bg-muted/40 p-2 text-center group hover:bg-muted/60 transition-colors">
+          <Image
+            src="/pdm.png"
+            alt="PDM Mascot"
+            width={48}
+            height={48}
+            className="h-8 w-8 opacity-80 group-hover:opacity-100 transition-all duration-300 drop-shadow-[0_0_8px_rgba(56,189,248,0.45)] object-contain"
+          />
+          <p className={cn("text-[11px] font-medium leading-tight", statusClassName)}>
+            {statusText}
+          </p>
+        </div>
       </div>
-    </div>
+    </aside>
   );
 }
