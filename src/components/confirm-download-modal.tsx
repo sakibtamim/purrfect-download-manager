@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { useAppStore } from "@/store";
 import type { StagedDownload } from "@/store/types";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -94,6 +95,8 @@ interface ConfirmDownloadDialogContentProps {
 }
 
 function ConfirmDownloadDialogContent({ stagedDownload, onClose }: ConfirmDownloadDialogContentProps) {
+  const router = useRouter();
+  const pathname = usePathname();
   const addDownload = useAppStore((state) => state.addDownload);
   const defaultDownloadDir = useAppStore((state) => state.defaultDownloadDir);
 
@@ -291,6 +294,13 @@ function ConfirmDownloadDialogContent({ stagedDownload, onClose }: ConfirmDownlo
       await addDownload(urlToDownload, stagedDownload.headers || [], finalDir, displayFilename, undefined, finalChecksum, stagedDownload.sourceUrl, stagedDownload.fileSize);
     }
     onClose();
+    if (pathname === '/grabber' || stagedDownload.sourceUrl) {
+      try {
+        router.push('/');
+      } catch (err) {
+        console.warn("Navigation to / failed:", err);
+      }
+    }
   };
 
   return (
