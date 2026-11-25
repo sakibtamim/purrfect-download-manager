@@ -182,19 +182,6 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
     }
   };
 
-  const formatTypeBadge = () => {
-    if (ext === 'mp4' || ext === 'mkv' || ext === 'webm' || ext === 'avi' || ext === 'mov') {
-      return `MP4 Video • ${totalLength > 0 ? formatBytes(totalLength) : 'HD'}`;
-    }
-    if (ext === 'mp3' || ext === 'wav' || ext === 'flac' || ext === 'm4a' || ext === 'ogg') {
-      return `Audio Stream • ${totalLength > 0 ? formatBytes(totalLength) : 'HQ'}`;
-    }
-    if (ext === 'zip' || ext === 'rar' || ext === '7z' || ext === 'tar' || ext === 'gz') {
-      return `Archive • ${totalLength > 0 ? formatBytes(totalLength) : 'Compressed'}`;
-    }
-    return `${ext ? ext.toUpperCase() : 'File'} • ${totalLength > 0 ? formatBytes(totalLength) : 'Binary'}`;
-  };
-
   const speed = parseInt(download.downloadSpeed, 10);
   const progress = totalLength > 0 ? (completedLength / totalLength) * 100 : 0;
 
@@ -228,68 +215,59 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
     <section 
       role="region"
       aria-label="Download Details Inspector"
-      className="h-[360px] max-h-[55vh] min-h-[280px] shrink-0 border-t border-border bg-card/95 backdrop-blur-xl shadow-2xl flex flex-col z-30 animate-in slide-in-from-bottom duration-200 ease-out overflow-hidden"
+      className="h-[340px] max-h-[50vh] min-h-[260px] shrink-0 border-t border-border bg-card/95 backdrop-blur-xl shadow-2xl flex flex-col z-30 animate-in slide-in-from-bottom duration-200 ease-out overflow-hidden"
     >
-      {/* HEADER SECTION (EXACT PROTOTYPE MATCH) */}
-      <div className="px-4 py-3.5 border-b border-border bg-card/50 flex items-start justify-between gap-3 shrink-0">
-        <div className="flex items-start gap-3 min-w-0 flex-1">
-          {/* Large File Icon with glowing pill */}
-          <div className="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-500 shrink-0 shadow-inner">
-            {getFileIcon("w-5 h-5")}
+      {/* STREAMLINED COMPACT HEADER */}
+      <div className="px-4 py-2 border-b border-border bg-card/60 flex items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          {/* Clean File Icon */}
+          <div className="w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-500 shrink-0">
+            {getFileIcon("w-4 h-4")}
           </div>
 
-          {/* Title & Meta Badges */}
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase border ${
-                download.status === 'complete' 
-                  ? 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30' 
-                  : download.status === 'active'
-                  ? 'bg-blue-500/15 text-blue-400 border-blue-500/30'
-                  : download.status === 'error'
-                  ? 'bg-red-500/15 text-red-500 border-red-500/30'
-                  : download.status === 'paused'
-                  ? 'bg-amber-500/15 text-amber-500 border-amber-500/30'
-                  : 'bg-muted text-muted-foreground border-border'
-              }`}>
+          {/* Filename */}
+          <h3 className="text-sm font-bold text-foreground tracking-tight truncate max-w-xs sm:max-w-md lg:max-w-xl" title={fileName}>
+            {fileName}
+          </h3>
+
+          {/* Clean Inline Status & Size Meta */}
+          <div className="flex items-center gap-2 shrink-0 text-xs">
+            <span className="flex items-center gap-1.5 font-medium">
+              <span className={`w-1.5 h-1.5 rounded-full ${
+                download.status === 'complete' ? 'bg-emerald-500' :
+                download.status === 'active' ? 'bg-blue-500 animate-pulse' :
+                download.status === 'error' ? 'bg-red-500' : 'bg-amber-500'
+              }`} />
+              <span className={
+                download.status === 'complete' ? 'text-emerald-500' :
+                download.status === 'active' ? 'text-blue-400' :
+                download.status === 'error' ? 'text-red-500' : 'text-amber-500'
+              }>
                 {getStatusText(download.status)}
               </span>
+            </span>
 
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-background border border-border text-muted-foreground">
-                {formatTypeBadge()}
-              </span>
+            <span className="text-muted-foreground text-[11px] font-mono hidden sm:inline">
+              • {totalLength > 0 ? formatBytes(totalLength) : ''} {ext ? `• ${ext.toUpperCase()}` : ''}
+            </span>
 
-              {checksumOpt ? (
-                isChecksumError ? (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/10 text-red-500 border border-red-500/20 flex items-center gap-1">
-                    <X className="w-3 h-3" />
-                    Integrity Mismatch
-                  </span>
-                ) : download.status === 'complete' ? (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 flex items-center gap-1">
-                    <Check className="w-3 h-3" />
-                    Integrity Verified
-                  </span>
-                ) : (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center gap-1">
-                    Verifying Hash...
-                  </span>
-                )
-              ) : (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-background border border-border text-muted-foreground">
-                  Checksum: Optional
+            {/* Only show integrity pill if a real hash is verified or failed */}
+            {checksumOpt && (
+              isChecksumError ? (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500/10 text-red-500 border border-red-500/20 flex items-center gap-1">
+                  <X className="w-2.5 h-2.5" /> Mismatch
                 </span>
-              )}
-            </div>
-            
-            <h3 className="text-sm font-bold text-foreground tracking-tight truncate mt-1" title={fileName}>
-              {fileName}
-            </h3>
+              ) : download.status === 'complete' ? (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 flex items-center gap-1">
+                  <Check className="w-2.5 h-2.5" /> Verified
+                </span>
+              ) : null
+            )}
           </div>
         </div>
 
         {/* Top Close & Action Buttons */}
-        <div className="flex items-center gap-1 shrink-0 pt-0.5">
+        <div className="flex items-center gap-1 shrink-0">
           <button 
             type="button"
             title="Delete Download" 
@@ -305,7 +283,7 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
             type="button"
             title="Close (Esc)" 
             onClick={() => setSelectedDownload(null)}
-            className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors cursor-pointer"
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
