@@ -78,22 +78,34 @@ function normalizeRepoUrl(rawUrl, serverUrl = 'https://github.com') {
     return `${cleanServer}/${trimmed.replace(/\.git$/, '')}`;
   }
 
+  // Standard URLs (https://, http://, ssh://) — must be handled before SCP-like syntax
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      const cleanPath = parsed.pathname.replace(/\.git$/, '').replace(/\/+$/, '');
+      if (parsed.protocol === 'ssh:') {
+        return parsed.hostname ? `https://${parsed.hostname}${cleanPath}` : null;
+      }
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+        parsed.username = '';
+        parsed.password = '';
+        parsed.pathname = cleanPath;
+        parsed.search = '';
+        parsed.hash = '';
+        return parsed.toString().replace(/\/+$/, '');
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
   // SSH SCP-like syntax: git@github.com:owner/repo.git
-  const sshScpMatch = trimmed.match(/^[^@]+@([^:]+):(.+)$/);
+  const sshScpMatch = trimmed.match(/^[^@]+@([^:/]+):(.+)$/);
   if (sshScpMatch) {
     const host = sshScpMatch[1];
     const repoPath = sshScpMatch[2].replace(/^\/+/, '').replace(/\.git$/, '').replace(/\/+$/, '');
     return `https://${host}/${repoPath}`;
-  }
-
-  // ssh://git@github.com/owner/repo.git
-  if (trimmed.startsWith('ssh://')) {
-    const withoutScheme = trimmed.slice('ssh://'.length).replace(/^[^@]+@/, '');
-    return `https://${withoutScheme.replace(/\.git$/, '').replace(/\/+$/, '')}`;
-  }
-
-  if (trimmed.startsWith('https://') || trimmed.startsWith('http://')) {
-    return trimmed.replace(/\.git$/, '').replace(/\/+$/, '');
   }
 
   return null;
@@ -107,10 +119,33 @@ function runGit(cwd, args) {
   });
 }
 
+function getTagsPointingAt(cwd, targetRef = 'HEAD') {
+  try {
+    const stdout = runGit(cwd, ['tag', '--points-at', targetRef]);
+    return stdout
+      .split(/\r?\n/)
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 function findPreviousTag(cwd, currentTag, targetRef = 'HEAD') {
-  const args = ['describe', '--tags', '--abbrev=0'];
+  const excludedTags = new Set();
   if (currentTag && currentTag !== 'HEAD') {
-    args.push(`--exclude=${currentTag}`);
+    excludedTags.add(currentTag);
+    const tagsAtTarget = getTagsPointingAt(cwd, targetRef);
+    if (tagsAtTarget.includes(currentTag)) {
+      for (const tag of tagsAtTarget) {
+        excludedTags.add(tag);
+      }
+    }
+  }
+
+  const args = ['describe', '--tags', '--abbrev=0'];
+  for (const tag of excludedTags) {
+    args.push(`--exclude=${tag}`);
   }
   args.push(targetRef);
 

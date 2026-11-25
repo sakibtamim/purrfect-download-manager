@@ -132,6 +132,18 @@ describe('generate-release-notes', () => {
       expect(normalizeRepoUrl('ssh://git@github.com/sakibtamim/purrfect-download-manager.git')).toBe(
         'https://github.com/sakibtamim/purrfect-download-manager'
       );
+      expect(normalizeRepoUrl('ssh://git@github.com:22/sakibtamim/purrfect-download-manager.git')).toBe(
+        'https://github.com/sakibtamim/purrfect-download-manager'
+      );
+      expect(normalizeRepoUrl('https://x-access-token@github.com:443/sakibtamim/purrfect-download-manager.git')).toBe(
+        'https://github.com/sakibtamim/purrfect-download-manager'
+      );
+      expect(normalizeRepoUrl('https://x-access-token@github.com/sakibtamim/purrfect-download-manager.git')).toBe(
+        'https://github.com/sakibtamim/purrfect-download-manager'
+      );
+      expect(normalizeRepoUrl('http://localhost:3000/owner/repo.git')).toBe(
+        'http://localhost:3000/owner/repo'
+      );
       expect(normalizeRepoUrl('sakibtamim/purrfect-download-manager')).toBe(
         'https://github.com/sakibtamim/purrfect-download-manager'
       );
@@ -227,6 +239,27 @@ describe('generate-release-notes', () => {
       expect(result.commits).toHaveLength(1);
       expect(result.markdown).toContain('- **linux:** handle ext4 inode reuse');
       expect(result.markdown).toContain('compare/v0.1.1...v0.1.2');
+    });
+
+    it('excludes co-located tags on HEAD when currentTag already exists on HEAD (e.g. RC promotion)', () => {
+      const repo = createTempGitRepo();
+      commitFile(repo, 'a.txt', '1', 'feat: base');
+      git(repo, ['tag', 'v1.0.0-rc1']);
+      commitFile(repo, 'b.txt', '2', 'fix(core): finalize release candidate');
+      git(repo, ['tag', 'v1.0.0-rc2']);
+      git(repo, ['tag', 'v1.0.0']);
+
+      expect(findPreviousTag(repo, 'v1.0.0', 'HEAD')).toBe('v1.0.0-rc1');
+
+      const result = generateReleaseNotes({
+        cwd: repo,
+        currentTag: 'v1.0.0',
+        env: {},
+      });
+      expect(result.prevTag).toBe('v1.0.0-rc1');
+      expect(result.commits).toHaveLength(1);
+      expect(result.markdown).toContain('- **core:** finalize release candidate');
+      expect(result.markdown).toContain('compare/v1.0.0-rc1...v1.0.0');
     });
 
     it('handles repositories with no previous tag gracefully', () => {
