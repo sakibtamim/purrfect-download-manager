@@ -1542,4 +1542,401 @@ describe('Persistent completed download rehydration across app restarts', () => 
     expect(active.some(d => d.gid === 'reconstruct-vid')).toBe(true);
     expect(active.some(d => d.gid === 'reconstruct-aud')).toBe(false);
   });
+
+  it('correctly assigns video and audio roles when audio task appears first in allDownloads', async () => {
+    const audioTask: Aria2Download = {
+      gid: 'audio-task-first',
+      status: 'active',
+      totalLength: '1000',
+      completedLength: '500',
+      downloadSpeed: '50',
+      dir: '/downloads',
+      files: [{ path: '/downloads/my-video.audio.m4a', length: '1000', completedLength: '500', uris: [] }],
+    };
+    const videoTask: Aria2Download = {
+      gid: 'video-task-second',
+      status: 'active',
+      totalLength: '4000',
+      completedLength: '2000',
+      downloadSpeed: '200',
+      dir: '/downloads',
+      files: [{ path: '/downloads/my-video.video.mp4', length: '4000', completedLength: '2000', uris: [] }],
+    };
+
+    // Notice audio task is first in tellActive array!
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([audioTask, videoTask]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([]);
+
+    const metaStore = await getMetaStore();
+    await metaStore.set('video-task-second', {
+      companionAudioGid: 'audio-task-first',
+      companionGid: 'audio-task-first',
+      muxFinalFilename: 'my-video.mp4',
+      totalLength: '4000',
+      completedLength: '2000',
+      addedAt: 1000,
+    });
+    await metaStore.set('audio-task-first', {
+      companionVideoGid: 'video-task-second',
+      isCompanionAudio: true,
+      companionGid: 'video-task-second',
+      muxFinalFilename: 'my-video.mp4',
+      totalLength: '1000',
+      completedLength: '500',
+      addedAt: 1000,
+    });
+    await metaStore.save();
+
+    const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      pendingMuxes: [],
+    }));
+
+    await useTestStore.getState().fetchDownloads();
+
+    const { active, completed, failed, pendingMuxes } = useTestStore.getState();
+
+    // Verify pendingMuxes has exactly 1 entry with correct video and audio role assignment
+    expect(pendingMuxes).toHaveLength(1);
+    expect(pendingMuxes[0].videoGid).toBe('video-task-second');
+    expect(pendingMuxes[0].audioGid).toBe('audio-task-first');
+    expect(pendingMuxes[0].finalFilename).toBe('my-video.mp4');
+
+    // Video should be in active list, and companion audio filtered out from all UI lists
+    expect(active).toHaveLength(1);
+    expect(active[0].gid).toBe('video-task-second');
+    expect(active.some(d => d.gid === 'audio-task-first')).toBe(false);
+    expect(completed.some(d => d.gid === 'audio-task-first')).toBe(false);
+    expect(failed.some(d => d.gid === 'audio-task-first')).toBe(false);
+
+    // Aggregated video progress: total and completed lengths and speeds combined
+    expect(active[0].totalLength).toBe('5000');
+    expect(active[0].completedLength).toBe('2500');
+    expect(active[0].downloadSpeed).toBe('250');
+    expect(active[0].files[0].path).toBe('/downloads/my-video.mp4');
+  });
+
+  it('backward compatibility: correctly assigns video and audio roles when audio task appears first with legacy metadata', async () => {
+    const audioTask: Aria2Download = {
+      gid: 'legacy-aud-1',
+      status: 'active',
+      totalLength: '1500',
+      completedLength: '750',
+      downloadSpeed: '30',
+      dir: '/downloads',
+      files: [{ path: '/downloads/legacy.audio.m4a', length: '1500', completedLength: '750', uris: [] }],
+    };
+    const videoTask: Aria2Download = {
+      gid: 'legacy-vid-1',
+      status: 'active',
+      totalLength: '6000',
+      completedLength: '3000',
+      downloadSpeed: '120',
+      dir: '/downloads',
+      files: [{ path: '/downloads/legacy.video.mp4', length: '6000', completedLength: '3000', uris: [] }],
+    };
+
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([audioTask, videoTask]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([]);
+
+    const metaStore = await getMetaStore();
+    // Legacy metadata only has companionGid and muxFinalFilename (no companionAudioGid / companionVideoGid)
+    await metaStore.set('legacy-vid-1', {
+      companionGid: 'legacy-aud-1',
+      muxFinalFilename: 'legacy.mp4',
+      downloadUrl: 'https://rr1---sn.googlevideo.com/videoplayback?itag=137',
+      totalLength: '6000',
+      completedLength: '3000',
+      addedAt: 2000,
+    });
+    await metaStore.set('legacy-aud-1', {
+      companionGid: 'legacy-vid-1',
+      muxFinalFilename: 'legacy.mp4',
+      downloadUrl: 'https://rr1---sn.googlevideo.com/videoplayback?itag=140',
+      totalLength: '1500',
+      completedLength: '750',
+      addedAt: 2000,
+    });
+    await metaStore.save();
+
+    const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      pendingMuxes: [],
+    }));
+
+    await useTestStore.getState().fetchDownloads();
+
+    const { active, pendingMuxes } = useTestStore.getState();
+    expect(pendingMuxes).toHaveLength(1);
+    expect(pendingMuxes[0].videoGid).toBe('legacy-vid-1');
+    expect(pendingMuxes[0].audioGid).toBe('legacy-aud-1');
+    expect(active).toHaveLength(1);
+    expect(active[0].gid).toBe('legacy-vid-1');
+    expect(active.some(d => d.gid === 'legacy-aud-1')).toBe(false);
+  });
+
+  it('addDownload stores companionAudioGid on video task and companionVideoGid/isCompanionAudio on audio task', async () => {
+    let callCount = 0;
+    vi.spyOn(aria2Client, 'addUri').mockImplementation(async () => {
+      callCount++;
+      return callCount === 1 ? 'yt-vid-gid' : 'yt-aud-gid';
+    });
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().addDownload(
+      'https://rr1---sn.googlevideo.com/videoplayback?itag=137',
+      [],
+      '/downloads',
+      'YouTube Video.mp4',
+      'https://rr1---sn.googlevideo.com/videoplayback?itag=140',
+      undefined,
+      'https://www.youtube.com/watch?v=abcdef'
+    );
+
+    const metaStore = await getMetaStore();
+    const vidMeta = await metaStore.get<CachedMeta>('yt-vid-gid');
+    const audMeta = await metaStore.get<CachedMeta>('yt-aud-gid');
+
+    expect(vidMeta).toBeDefined();
+    expect(vidMeta?.companionAudioGid).toBe('yt-aud-gid');
+    expect(vidMeta?.companionGid).toBe('yt-aud-gid');
+    expect(vidMeta?.muxFinalFilename).toBe('YouTube Video.mp4');
+
+    expect(audMeta).toBeDefined();
+    expect(audMeta?.companionVideoGid).toBe('yt-vid-gid');
+    expect(audMeta?.isCompanionAudio).toBe(true);
+    expect(audMeta?.companionGid).toBe('yt-vid-gid');
+    expect(audMeta?.muxFinalFilename).toBe('YouTube Video.mp4');
+  });
+
+  it('resolves pendingMuxes when completed downloads fallback to metaStore if files exist on disk', async () => {
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([
+      {
+        gid: 'fallback-vid-gid',
+        status: 'active',
+        totalLength: '8000',
+        completedLength: '8000',
+        downloadSpeed: '0',
+        dir: '/downloads',
+        files: [{ path: '/downloads/clip.video.mp4', length: '8000', completedLength: '8000', uris: [] }],
+      },
+      {
+        gid: 'fallback-aud-gid',
+        status: 'active',
+        totalLength: '2000',
+        completedLength: '2000',
+        downloadSpeed: '0',
+        dir: '/downloads',
+        files: [{ path: '/downloads/clip.audio.m4a', length: '2000', completedLength: '2000', uris: [] }],
+      },
+    ]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([]);
+
+    const metaStore = await getMetaStore();
+    await metaStore.set('fallback-vid-gid', {
+      status: 'complete',
+      totalLength: '8000',
+      completedLength: '8000',
+      path: '/downloads/clip.video.mp4',
+      dir: '/downloads',
+      companionAudioGid: 'fallback-aud-gid',
+      companionGid: 'fallback-aud-gid',
+      muxFinalFilename: 'clip.mp4',
+      addedAt: Date.now(),
+    });
+    await metaStore.set('fallback-aud-gid', {
+      status: 'complete',
+      totalLength: '2000',
+      completedLength: '2000',
+      path: '/downloads/clip.audio.m4a',
+      dir: '/downloads',
+      companionVideoGid: 'fallback-vid-gid',
+      isCompanionAudio: true,
+      companionGid: 'fallback-vid-gid',
+      muxFinalFilename: 'clip.mp4',
+      addedAt: Date.now(),
+    });
+    await metaStore.save();
+
+    const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      pendingMuxes: [],
+    }));
+
+    await useTestStore.getState().fetchDownloads();
+
+    const pendingMuxes = useTestStore.getState().pendingMuxes;
+    expect(pendingMuxes).toHaveLength(1);
+    expect(pendingMuxes[0].videoGid).toBe('fallback-vid-gid');
+    expect(pendingMuxes[0].audioGid).toBe('fallback-aud-gid');
+    expect(pendingMuxes[0].status).toBe('muxing');
+  });
+
+  it('immediately succeeds and cleans up if finalPath already exists on disk', async () => {
+    const metaStore = await getMetaStore();
+    await metaStore.set('premerged-vid', {
+      status: 'complete',
+      totalLength: '5000',
+      completedLength: '5000',
+      path: '/downloads/premerged.video.mp4',
+      dir: '/downloads',
+      companionAudioGid: 'premerged-aud',
+      companionGid: 'premerged-aud',
+      muxFinalFilename: 'already-merged.mp4',
+      addedAt: Date.now(),
+    });
+    await metaStore.set('premerged-aud', {
+      status: 'complete',
+      totalLength: '1000',
+      completedLength: '1000',
+      path: '/downloads/premerged.audio.m4a',
+      dir: '/downloads',
+      companionVideoGid: 'premerged-vid',
+      isCompanionAudio: true,
+      companionGid: 'premerged-vid',
+      muxFinalFilename: 'already-merged.mp4',
+      addedAt: Date.now(),
+    });
+    await metaStore.save();
+
+    const originalWindow = (globalThis as unknown as { window?: unknown }).window;
+    (globalThis as unknown as { window: unknown }).window = {
+      __TAURI_INTERNALS__: {},
+    };
+
+    try {
+      vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+        if (cmd === 'check_downloaded_file_exists') {
+          const p = (args as { path: string }).path;
+          return p.includes('already-merged.mp4');
+        }
+        return undefined;
+      });
+
+      const videoTask: Aria2Download = {
+        gid: 'premerged-vid',
+        status: 'complete',
+        totalLength: '5000',
+        completedLength: '5000',
+        downloadSpeed: '0',
+        dir: '/downloads',
+        files: [{ path: '/downloads/premerged.video.mp4', length: '5000', completedLength: '5000', uris: [] }],
+      };
+      const audioTask: Aria2Download = {
+        gid: 'premerged-aud',
+        status: 'complete',
+        totalLength: '1000',
+        completedLength: '1000',
+        downloadSpeed: '0',
+        dir: '/downloads',
+        files: [{ path: '/downloads/premerged.audio.m4a', length: '1000', completedLength: '1000', uris: [] }],
+      };
+
+      vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([videoTask, audioTask]);
+      vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([]);
+      vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+
+      const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => ({
+        ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+        pendingMuxes: [],
+      }));
+
+      await useTestStore.getState().fetchDownloads();
+
+      // Pending muxes must be empty (cleaned up, no looping)
+      expect(useTestStore.getState().pendingMuxes).toHaveLength(0);
+      // Completed list should have the video with finalPath
+      const completed = useTestStore.getState().completed;
+      expect(completed.some(c => c.gid === 'premerged-vid')).toBe(true);
+      expect(completed.find(c => c.gid === 'premerged-vid')?.files[0].path).toBe('/downloads/already-merged.mp4');
+      // Companion metadata cleaned up
+      const vidMeta = await metaStore.get<CachedMeta>('premerged-vid');
+      expect(vidMeta?.companionAudioGid).toBeUndefined();
+      expect(vidMeta?.companionGid).toBeUndefined();
+      expect(vidMeta?.muxFinalFilename).toBeUndefined();
+      expect(await metaStore.get('premerged-aud')).toBeNull();
+    } finally {
+      (globalThis as unknown as { window?: unknown }).window = originalWindow;
+    }
+  });
+
+  it('cleans up pendingMuxes and companion metadata on ffmpeg failure to prevent infinite notification loops', async () => {
+    const videoTask: Aria2Download = {
+      gid: 'fail-vid-1',
+      status: 'complete',
+      totalLength: '5000',
+      completedLength: '5000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/fail.video.mp4', length: '5000', completedLength: '5000', uris: [] }],
+    };
+    const audioTask: Aria2Download = {
+      gid: 'fail-aud-1',
+      status: 'complete',
+      totalLength: '1000',
+      completedLength: '1000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/fail.audio.m4a', length: '1000', completedLength: '1000', uris: [] }],
+    };
+
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([videoTask, audioTask]);
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+
+    const metaStore = await getMetaStore();
+    await metaStore.set('fail-vid-1', {
+      status: 'complete',
+      totalLength: '5000',
+      completedLength: '5000',
+      path: '/downloads/fail.video.mp4',
+      dir: '/downloads',
+      companionAudioGid: 'fail-aud-1',
+      companionGid: 'fail-aud-1',
+      muxFinalFilename: 'fail.mp4',
+      addedAt: Date.now(),
+    });
+    await metaStore.set('fail-aud-1', {
+      status: 'complete',
+      totalLength: '1000',
+      completedLength: '1000',
+      path: '/downloads/fail.audio.m4a',
+      dir: '/downloads',
+      companionVideoGid: 'fail-vid-1',
+      isCompanionAudio: true,
+      companionGid: 'fail-vid-1',
+      muxFinalFilename: 'fail.mp4',
+      addedAt: Date.now(),
+    });
+    await metaStore.save();
+
+    const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      pendingMuxes: [],
+    }));
+
+    await useTestStore.getState().fetchDownloads();
+
+    // Allow ffmpeg async promise to settle
+    await new Promise(r => setTimeout(r, 50));
+
+    // Must be removed from pendingMuxes so it never loops
+    expect(useTestStore.getState().pendingMuxes).toHaveLength(0);
+
+    // Metadata must have companion fields stripped
+    const vidMeta = await metaStore.get<CachedMeta>('fail-vid-1');
+    const audMeta = await metaStore.get<CachedMeta>('fail-aud-1');
+    expect(vidMeta?.companionAudioGid).toBeUndefined();
+    expect(vidMeta?.companionGid).toBeUndefined();
+    expect(vidMeta?.muxFinalFilename).toBeUndefined();
+    expect(audMeta?.companionVideoGid).toBeUndefined();
+    expect(audMeta?.companionGid).toBeUndefined();
+    expect(audMeta?.muxFinalFilename).toBeUndefined();
+  });
 });

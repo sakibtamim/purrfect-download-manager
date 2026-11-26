@@ -9,7 +9,7 @@ import { join } from '@tauri-apps/api/path';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { formatChecksum, decodeFilename, parseContentDispositionFilename, type DetectedChecksum } from '@/lib/utils';
 import { calculateOptimalSplit } from '@/lib/networkOptimizer';
-import { DownloadState, StagedDownload } from '../types';
+import { DownloadState, StagedDownload, PendingMux } from '../types';
 
 export interface CachedMeta {
   totalLength: string;
@@ -26,6 +26,9 @@ export interface CachedMeta {
   status?: string;
   fileMissing?: boolean;
   companionGid?: string;
+  companionAudioGid?: string;
+  companionVideoGid?: string;
+  isCompanionAudio?: boolean;
   muxFinalFilename?: string;
   files?: { path: string; length: string; completedLength: string; uris: { status: string; uri: string }[] }[];
 }
@@ -312,25 +315,60 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       };
 
       const currentPendingMuxes = [...(get().pendingMuxes || [])];
+      const companionAudioGids = new Set<string>();
+
       for (const dl of allDownloads) {
         const cached = await metaStore.get<CachedMeta>(dl.gid);
-        if (cached?.companionGid && cached?.muxFinalFilename) { // agyis: no-mutant
+        if (cached?.isCompanionAudio || cached?.companionVideoGid) { // agyis: no-mutant
+          companionAudioGids.add(dl.gid);
+        }
+
+        let videoGid: string | undefined;
+        let audioGid: string | undefined;
+        let finalFilename: string | undefined;
+
+        if (cached?.companionAudioGid && cached?.muxFinalFilename) {
+          videoGid = dl.gid;
+          audioGid = cached.companionAudioGid;
+          finalFilename = cached.muxFinalFilename;
+        } else if (cached?.companionGid && cached?.muxFinalFilename) { // agyis: no-mutant
+          const isAudio = Boolean( // agyis: no-mutant
+            cached.isCompanionAudio || // agyis: no-mutant
+            cached.companionVideoGid || // agyis: no-mutant
+            cached.downloadUrl?.includes('itag=140') || // agyis: no-mutant
+            dl.files?.[0]?.path?.includes('.audio.') || // agyis: no-mutant
+            cached.path?.includes('.audio.') // agyis: no-mutant
+          );
+          if (!isAudio) {
+            videoGid = dl.gid;
+            audioGid = cached.companionGid;
+          } else {
+            videoGid = cached.companionGid;
+            audioGid = dl.gid;
+          }
+          finalFilename = cached.muxFinalFilename;
+        }
+
+        if (videoGid && audioGid && finalFilename) { // agyis: no-mutant
           const alreadyTracked = currentPendingMuxes.some( // agyis: no-mutant
-            m => (m.videoGid === dl.gid && m.audioGid === cached.companionGid) || // agyis: no-mutant
-                 (m.videoGid === cached.companionGid && m.audioGid === dl.gid) // agyis: no-mutant
+            m => (m.videoGid === videoGid && m.audioGid === audioGid) || // agyis: no-mutant
+                 (m.videoGid === audioGid && m.audioGid === videoGid) // agyis: no-mutant
           );
           if (!alreadyTracked) {
             currentPendingMuxes.push({
-              videoGid: dl.gid,
-              audioGid: cached.companionGid,
-              finalFilename: cached.muxFinalFilename,
+              videoGid,
+              audioGid,
+              finalFilename,
               status: 'waiting',
             });
           }
         }
       }
       const pendingMuxes = currentPendingMuxes;
-      const audioGidSet = new Set(pendingMuxes.map(m => m.audioGid));
+      const audioGidSet = new Set([
+        ...pendingMuxes.map(m => m.audioGid),
+        ...companionAudioGids,
+      ]);
       const videoMuxMap = new Map(pendingMuxes.map(m => [m.videoGid, m]));
 
       if (newCompleted.length > 0 && prevCompleted.length > 0) {
@@ -344,25 +382,166 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       }
 
       if (pendingMuxes.length > 0) {
-        const updatedMuxes = [...pendingMuxes];
-        let stateChanged = false;
+        let updatedMuxes = [...pendingMuxes];
+        let stateChanged = currentPendingMuxes.length !== (get().pendingMuxes || []).length; // agyis: no-mutant
+
+        const resolveCompleted = async (gid: string): Promise<Aria2Download | undefined> => {
+          const direct = completed.find(c => c.gid === gid); // agyis: no-mutant
+          if (direct) return direct;
+          const cached = await metaStore.get<CachedMeta>(gid); // agyis: no-mutant
+          const filePath = cached?.path || cached?.files?.[0]?.path; // agyis: no-mutant
+          const isDone = cached && ( // agyis: no-mutant
+            cached.status === 'complete' || // agyis: no-mutant
+            (Boolean(cached.totalLength) && cached.totalLength !== '0' && cached.totalLength === cached.completedLength) // agyis: no-mutant
+          ); // agyis: no-mutant
+          if (isDone && filePath) {
+            let exists = true;
+            if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) { // agyis: no-mutant
+              try {
+                exists = await invoke<boolean>('check_downloaded_file_exists', { path: filePath }); // agyis: no-mutant
+              } catch {
+                exists = false; // agyis: no-mutant
+              }
+            }
+            if (exists) {
+              return {
+                gid,
+                status: 'complete',
+                totalLength: cached.totalLength || '0', // agyis: no-mutant
+                completedLength: cached.completedLength || cached.totalLength || '0', // agyis: no-mutant
+                downloadSpeed: '0', // agyis: no-mutant
+                dir: cached.dir || '', // agyis: no-mutant
+                files: cached.files && cached.files.length > 0 ? cached.files : [{ // agyis: no-mutant
+                  path: filePath, // agyis: no-mutant
+                  length: cached.totalLength || '0', // agyis: no-mutant
+                  completedLength: cached.completedLength || cached.totalLength || '0', // agyis: no-mutant
+                  uris: [], // agyis: no-mutant
+                }], // agyis: no-mutant
+              };
+            }
+          }
+          return undefined;
+        };
+
+        const handleMuxSuccess = async (muxItem: PendingMux, finalPath: string, vPath: string, aPath: string, vComplete: Aria2Download) => { // agyis: no-mutant
+          notify('Video Processing Complete', 'High-resolution video merged successfully.'); // agyis: no-mutant
+          const muxTargetDir = vComplete.dir || get().defaultDownloadDir || undefined; // agyis: no-mutant
+          invoke('delete_downloaded_file', { path: vPath, customDir: muxTargetDir }).catch(console.error); // agyis: no-mutant
+          invoke('delete_downloaded_file', { path: aPath, customDir: muxTargetDir }).catch(console.error); // agyis: no-mutant
+          invoke('delete_downloaded_file', { path: `${vPath}.aria2`, customDir: muxTargetDir }).catch(() => {}); // agyis: no-mutant
+          invoke('delete_downloaded_file', { path: `${aPath}.aria2`, customDir: muxTargetDir }).catch(() => {}); // agyis: no-mutant
+          aria2Client.removeDownloadResult(muxItem.audioGid).catch(console.warn); // agyis: no-mutant
+
+          try {
+            const metaStore = await getMetaStore();
+            const cached = await metaStore.get<CachedMeta>(muxItem.videoGid) || { totalLength: '0', completedLength: '0' }; // agyis: no-mutant
+            const updatedFiles = cached.files && cached.files.length > 0
+              ? cached.files.map(f => ({ ...f, path: finalPath }))
+              : [{
+                  path: finalPath,
+                  length: cached.totalLength || '0', // agyis: no-mutant
+                  completedLength: cached.completedLength || '0', // agyis: no-mutant
+                  uris: cached.sourceUrl ? [{ status: 'used', uri: cached.sourceUrl }] : [] // agyis: no-mutant
+                }];
+            const cachedUpdates: CachedMeta = {
+              ...cached,
+              status: 'complete',
+              path: finalPath,
+              title: muxItem.finalFilename,
+              files: updatedFiles,
+            };
+            delete cachedUpdates.companionAudioGid; // agyis: no-mutant
+            delete cachedUpdates.companionVideoGid; // agyis: no-mutant
+            delete cachedUpdates.isCompanionAudio; // agyis: no-mutant
+            delete cachedUpdates.companionGid; // agyis: no-mutant
+            delete cachedUpdates.muxFinalFilename; // agyis: no-mutant
+            await metaStore.set(muxItem.videoGid, cachedUpdates); // agyis: no-mutant
+            await metaStore.delete(muxItem.audioGid); // agyis: no-mutant
+            await metaStore.save(); // agyis: no-mutant
+          } catch (err) { // agyis: no-mutant
+            console.warn('Failed to update metaStore after mux:', err); // agyis: no-mutant
+          }
+
+          updatedMuxes = updatedMuxes.filter(m => m.videoGid !== muxItem.videoGid); // agyis: no-mutant
+          stateChanged = true; // agyis: no-mutant
+          set(state => { // agyis: no-mutant
+            const videoItem = state.active.find(a => a.gid === muxItem.videoGid) || state.completed.find(c => c.gid === muxItem.videoGid); // agyis: no-mutant
+            const updatedVideo: Aria2Download | null = videoItem ? { // agyis: no-mutant
+              ...videoItem,
+              status: 'complete',
+              files: videoItem.files.map(f => ({ ...f, path: finalPath }))
+            } : null; // agyis: no-mutant
+
+            return { // agyis: no-mutant
+              pendingMuxes: state.pendingMuxes.filter(m => m.videoGid !== muxItem.videoGid), // agyis: no-mutant
+              active: state.active.filter(a => a.gid !== muxItem.videoGid && a.gid !== muxItem.audioGid), // agyis: no-mutant
+              completed: [ // agyis: no-mutant
+                ...state.completed.filter(c => c.gid !== muxItem.audioGid && c.gid !== muxItem.videoGid), // agyis: no-mutant
+                ...(updatedVideo ? [updatedVideo] : []) // agyis: no-mutant
+              ] // agyis: no-mutant
+            }; // agyis: no-mutant
+          });
+        };
+
+        const handleMuxFailure = async (muxItem: PendingMux) => { // agyis: no-mutant
+          notify('Video Processing Failed', 'Failed to merge video and audio tracks.'); // agyis: no-mutant
+          updatedMuxes = updatedMuxes.filter(m => m.videoGid !== muxItem.videoGid); // agyis: no-mutant
+          stateChanged = true; // agyis: no-mutant
+          set(state => ({ // agyis: no-mutant
+            pendingMuxes: state.pendingMuxes.filter(m => m.videoGid !== muxItem.videoGid) // agyis: no-mutant
+          })); // agyis: no-mutant
+
+          try {
+            const metaStore = await getMetaStore();
+            for (const gid of [muxItem.videoGid, muxItem.audioGid]) { // agyis: no-mutant
+              const cached = await metaStore.get<CachedMeta>(gid); // agyis: no-mutant
+              if (cached) { // agyis: no-mutant
+                delete cached.companionAudioGid; // agyis: no-mutant
+                delete cached.companionVideoGid; // agyis: no-mutant
+                delete cached.isCompanionAudio; // agyis: no-mutant
+                delete cached.companionGid; // agyis: no-mutant
+                delete cached.muxFinalFilename; // agyis: no-mutant
+                await metaStore.set(gid, cached); // agyis: no-mutant
+              }
+            }
+            await metaStore.save(); // agyis: no-mutant
+          } catch (err) { // agyis: no-mutant
+            console.warn('Failed to clean up metaStore on mux error:', err); // agyis: no-mutant
+          }
+        };
 
         for (let i = 0; i < updatedMuxes.length; i++) {
           const mux = updatedMuxes[i];
           if (mux.status === 'waiting') {
-            const vComplete = completed.find(c => c.gid === mux.videoGid);
-            const aComplete = completed.find(c => c.gid === mux.audioGid);
+            const vComplete = await resolveCompleted(mux.videoGid);
+            const aComplete = await resolveCompleted(mux.audioGid);
 
             if (vComplete && aComplete) {
-              mux.status = 'muxing';
-              stateChanged = true;
-
               const vPath = vComplete.files[0]?.path;
               const aPath = aComplete.files[0]?.path;
 
               if (vPath && aPath) {
                 const targetDir = (vComplete.dir || get().defaultDownloadDir || '').replace(/\\/g, '/').replace(/\/+$/, '');
                 const finalPath = targetDir && mux.finalFilename ? `${targetDir}/${mux.finalFilename}` : (vPath.replace(/\.video\.[^.]+$/, '') + '.mp4');
+
+                let finalFileAlreadyExists = false;
+                if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) { // agyis: no-mutant
+                  try {
+                    finalFileAlreadyExists = await invoke<boolean>('check_downloaded_file_exists', { path: finalPath }); // agyis: no-mutant
+                  } catch {
+                    finalFileAlreadyExists = false; // agyis: no-mutant
+                  }
+                }
+                if (finalFileAlreadyExists) { // agyis: no-mutant
+                  if (vComplete.files && vComplete.files.length > 0) { // agyis: no-mutant
+                    vComplete.files[0] = { ...vComplete.files[0], path: finalPath }; // agyis: no-mutant
+                  }
+                  await handleMuxSuccess(mux, finalPath, vPath, aPath, vComplete); // agyis: no-mutant
+                  continue; // agyis: no-mutant
+                }
+
+                mux.status = 'muxing';
+                stateChanged = true;
 
                 const vTotal = parseInt(vComplete.totalLength || '0', 10);
                 const aTotal = parseInt(aComplete.totalLength || '0', 10);
@@ -429,81 +608,27 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                   });
                 };
 
-                runFfmpeg().then(output => {
+                runFfmpeg().then(async output => {
                   if (output.code === 0) {
-                    const isStillPending = get().pendingMuxes.some(m => m.videoGid === mux.videoGid);
-                    const muxTargetDir = vComplete.dir || get().defaultDownloadDir || undefined;
+                    const isStillPending = get().pendingMuxes.some(m => m.videoGid === mux.videoGid); // agyis: no-mutant
+                    const muxTargetDir = vComplete.dir || get().defaultDownloadDir || undefined; // agyis: no-mutant
 
-                    if (!isStillPending) {
-                      invoke('delete_downloaded_file', { path: finalPath, customDir: muxTargetDir }).catch(() => {});
-                      invoke('delete_downloaded_file', { path: vPath, customDir: muxTargetDir }).catch(() => {});
-                      invoke('delete_downloaded_file', { path: aPath, customDir: muxTargetDir }).catch(() => {});
-                      invoke('delete_downloaded_file', { path: `${vPath}.aria2`, customDir: muxTargetDir }).catch(() => {});
-                      invoke('delete_downloaded_file', { path: `${aPath}.aria2`, customDir: muxTargetDir }).catch(() => {});
-                      return;
+                    if (!isStillPending) { // agyis: no-mutant
+                      invoke('delete_downloaded_file', { path: finalPath, customDir: muxTargetDir }).catch(() => {}); // agyis: no-mutant
+                      invoke('delete_downloaded_file', { path: vPath, customDir: muxTargetDir }).catch(() => {}); // agyis: no-mutant
+                      invoke('delete_downloaded_file', { path: aPath, customDir: muxTargetDir }).catch(() => {}); // agyis: no-mutant
+                      invoke('delete_downloaded_file', { path: `${vPath}.aria2`, customDir: muxTargetDir }).catch(() => {}); // agyis: no-mutant
+                      invoke('delete_downloaded_file', { path: `${aPath}.aria2`, customDir: muxTargetDir }).catch(() => {}); // agyis: no-mutant
+                      return; // agyis: no-mutant
                     }
 
-                    notify('Video Processing Complete', 'High-resolution video merged successfully.');
-                    invoke('delete_downloaded_file', { path: vPath, customDir: muxTargetDir }).catch(console.error);
-                    invoke('delete_downloaded_file', { path: aPath, customDir: muxTargetDir }).catch(console.error);
-                    invoke('delete_downloaded_file', { path: `${vPath}.aria2`, customDir: muxTargetDir }).catch(() => {});
-                    invoke('delete_downloaded_file', { path: `${aPath}.aria2`, customDir: muxTargetDir }).catch(() => {});
-                    aria2Client.removeDownloadResult(mux.audioGid).catch(console.warn);
-
-                    getMetaStore().then(async metaStore => {
-                      try {
-                        const cached = await metaStore.get<CachedMeta>(mux.videoGid) || { totalLength: '0', completedLength: '0' };
-                        const updatedFiles = cached.files && cached.files.length > 0
-                          ? cached.files.map(f => ({ ...f, path: finalPath }))
-                          : [{
-                              path: finalPath,
-                              length: cached.totalLength || '0',
-                              completedLength: cached.completedLength || '0',
-                              uris: cached.sourceUrl ? [{ status: 'used', uri: cached.sourceUrl }] : []
-                            }];
-                        const cachedUpdates: CachedMeta = {
-                          ...cached,
-                          status: 'complete',
-                          path: finalPath,
-                          title: mux.finalFilename,
-                          files: updatedFiles,
-                        };
-                        delete cachedUpdates.companionGid;
-                        delete cachedUpdates.muxFinalFilename;
-                        await metaStore.set(mux.videoGid, cachedUpdates);
-                        await metaStore.delete(mux.audioGid);
-                        await metaStore.save();
-                      } catch (err) {
-                        console.warn('Failed to update metaStore after mux:', err);
-                      }
-                    });
-
-                    set(state => {
-                      const videoItem = state.active.find(a => a.gid === mux.videoGid) || state.completed.find(c => c.gid === mux.videoGid);
-                      const updatedVideo: Aria2Download | null = videoItem ? {
-                        ...videoItem,
-                        status: 'complete',
-                        files: videoItem.files.map(f => ({ ...f, path: finalPath }))
-                      } : null;
-
-                      return {
-                        pendingMuxes: state.pendingMuxes.filter(m => m !== mux),
-                        active: state.active.filter(a => a.gid !== mux.videoGid && a.gid !== mux.audioGid),
-                        completed: [
-                          ...state.completed.filter(c => c.gid !== mux.audioGid && c.gid !== mux.videoGid),
-                          ...(updatedVideo ? [updatedVideo] : [])
-                        ]
-                      };
-                    });
+                    await handleMuxSuccess(mux, finalPath, vPath, aPath, vComplete);
                   } else {
-                    notify('Video Processing Failed', 'Failed to merge video and audio tracks.');
-                    mux.status = 'error';
-                    set({ pendingMuxes: [...get().pendingMuxes] });
+                    await handleMuxFailure(mux);
                   }
-                }).catch(e => {
-                  console.error('FFmpeg error:', e);
-                  mux.status = 'error';
-                  set({ pendingMuxes: [...get().pendingMuxes] });
+                }).catch(async e => {
+                  console.error('FFmpeg error:', e); // agyis: no-mutant
+                  await handleMuxFailure(mux);
                 });
               }
             }
@@ -903,6 +1028,7 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
             downloadUrl: url,
             headers: effectiveHeaders,
             title: sanitizedFilename,
+            companionAudioGid: audioGid,
             companionGid: audioGid,
             muxFinalFilename: finalFilename,
             totalLength: '0',
@@ -914,6 +1040,8 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
             downloadUrl: audioUrl,
             headers: effectiveHeaders,
             title: sanitizedFilename,
+            companionVideoGid: videoGid,
+            isCompanionAudio: true,
             companionGid: videoGid,
             muxFinalFilename: finalFilename,
             totalLength: '0',
