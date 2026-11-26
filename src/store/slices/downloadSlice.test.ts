@@ -7,6 +7,8 @@ import { DownloadState, PendingMux, StagedDownload } from '../types';
 import { aria2Client, Aria2Download } from '@/lib/aria2Client';
 import { UserAttentionType } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
+import { Command } from '@tauri-apps/plugin-shell';
+import { EventEmitter } from 'events';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
@@ -1938,5 +1940,298 @@ describe('Persistent completed download rehydration across app restarts', () => 
     expect(audMeta?.companionVideoGid).toBeUndefined();
     expect(audMeta?.companionGid).toBeUndefined();
     expect(audMeta?.muxFinalFilename).toBeUndefined();
+  });
+});
+
+describe('FFmpeg muxing with Unicode filenames and silenced stderr', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    _resetMetaStoreForTesting();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    vi.spyOn(aria2Client, 'remove').mockResolvedValue('OK');
+    vi.spyOn(aria2Client, 'removeDownloadResult').mockResolvedValue('OK');
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'getGlobalStat').mockResolvedValue({ downloadSpeed: '0', numActive: '0', numWaiting: '0', numStopped: '0' });
+  });
+
+  class MockCommand extends EventEmitter {
+    stdout = new EventEmitter();
+    stderr = new EventEmitter();
+    program: string;
+    args: string[];
+
+    constructor(program: string, args: string[]) {
+      super();
+      this.program = program;
+      this.args = args;
+    }
+
+    spawn = vi.fn().mockResolvedValue({ pid: 1234 });
+  }
+
+  it('passes -nostdin, -nostats, and -loglevel error to ffmpegArgs and does not abort on non-fatal error events with Unicode titles', async () => {
+    const videoTask: Aria2Download = {
+      gid: 'vid-utf8',
+      status: 'complete',
+      totalLength: '6000',
+      completedLength: '6000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/অজ্ঞাতনামা.video.mp4', length: '6000', completedLength: '6000', uris: [] }],
+    };
+    const audioTask: Aria2Download = {
+      gid: 'aud-utf8',
+      status: 'complete',
+      totalLength: '2000',
+      completedLength: '2000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/অজ্ঞাতনামা.audio.m4a', length: '2000', completedLength: '2000', uris: [] }],
+    };
+
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([videoTask, audioTask]);
+
+    const metaStore = await getMetaStore();
+    await metaStore.set('vid-utf8', {
+      status: 'complete',
+      totalLength: '6000',
+      completedLength: '6000',
+      path: '/downloads/অজ্ঞাতনামা.video.mp4',
+      dir: '/downloads',
+      companionAudioGid: 'aud-utf8',
+      muxFinalFilename: 'অজ্ঞাতনামা.mp4',
+      addedAt: Date.now(),
+    });
+    await metaStore.set('aud-utf8', {
+      status: 'complete',
+      totalLength: '2000',
+      completedLength: '2000',
+      path: '/downloads/অজ্ঞাতনামা.audio.m4a',
+      dir: '/downloads',
+      companionVideoGid: 'vid-utf8',
+      isCompanionAudio: true,
+      muxFinalFilename: 'অজ্ঞাতনামা.mp4',
+      addedAt: Date.now(),
+    });
+    await metaStore.save();
+
+    let capturedCommand: MockCommand | null = null;
+    const sidecarSpy = vi.spyOn(Command, 'sidecar').mockImplementation((prog, args) => {
+      capturedCommand = new MockCommand(prog, args as string[]);
+      return capturedCommand as unknown as Command<string>;
+    });
+
+    const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      pendingMuxes: [],
+    }));
+
+    await useTestStore.getState().fetchDownloads();
+
+    expect(sidecarSpy).toHaveBeenCalledWith('bin/pdm-ffmpeg', expect.any(Array));
+    expect(capturedCommand).not.toBeNull();
+
+    const ffmpegArgs = capturedCommand!.args;
+    // Verify required silent arguments
+    expect(ffmpegArgs).toEqual([
+      '-nostdin',
+      '-nostats',
+      '-loglevel', 'error',
+      '-y',
+      '-progress', 'pipe:1',
+      '-i', '/downloads/অজ্ঞাতনামা.video.mp4',
+      '-i', '/downloads/অজ্ঞাতনামা.audio.m4a',
+      '-c:v', 'copy',
+      '-c:a', 'copy',
+      '/downloads/অজ্ঞাতনামা.mp4',
+    ]);
+
+    // Verify args contains specifically -nostdin, -nostats, -loglevel error
+    expect(ffmpegArgs.slice(0, 4)).toEqual(['-nostdin', '-nostats', '-loglevel', 'error']);
+
+    // Simulate progress event on stdout
+    capturedCommand!.stdout.emit('data', 'total_size=4000');
+    expect(useTestStore.getState().pendingMuxes[0].progress).toBe(50);
+
+    // Simulate progress event on stderr
+    capturedCommand!.stderr.emit('data', 'total_size=6000');
+    expect(useTestStore.getState().pendingMuxes[0].progress).toBe(75);
+
+    // Simulate non-fatal error event (e.g. Tauri stderr multi-byte chunk slicing)
+    capturedCommand!.emit('error', new Error('stream chunk UTF-8 decode error'));
+
+    // Should NOT have aborted or resolved failure prematurely!
+    expect(useTestStore.getState().pendingMuxes).toHaveLength(1);
+    expect(useTestStore.getState().pendingMuxes[0].status).toBe('muxing');
+
+    // Simulate normal FFmpeg process termination
+    capturedCommand!.emit('close', { code: 0 });
+
+    // Allow promise resolution to settle
+    await new Promise(r => setTimeout(r, 20));
+
+    // Muxing completed successfully
+    expect(useTestStore.getState().pendingMuxes).toHaveLength(0);
+    const completed = useTestStore.getState().completed;
+    expect(completed.some(c => c.gid === 'vid-utf8')).toBe(true);
+    expect(completed.find(c => c.gid === 'vid-utf8')?.files[0].path).toBe('/downloads/অজ্ঞাতনামা.mp4');
+  });
+
+  it('falls back to Command.create(system-ffmpeg) with silent args when sidecar spawn fails', async () => {
+    const videoTask: Aria2Download = {
+      gid: 'vid-fallback',
+      status: 'complete',
+      totalLength: '4000',
+      completedLength: '4000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/vid.video.mp4', length: '4000', completedLength: '4000', uris: [] }],
+    };
+    const audioTask: Aria2Download = {
+      gid: 'aud-fallback',
+      status: 'complete',
+      totalLength: '1000',
+      completedLength: '1000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/aud.audio.m4a', length: '1000', completedLength: '1000', uris: [] }],
+    };
+
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([videoTask, audioTask]);
+
+    const metaStore = await getMetaStore();
+    await metaStore.set('vid-fallback', {
+      status: 'complete',
+      totalLength: '4000',
+      completedLength: '4000',
+      path: '/downloads/vid.video.mp4',
+      dir: '/downloads',
+      companionAudioGid: 'aud-fallback',
+      muxFinalFilename: 'merged.mp4',
+      addedAt: Date.now(),
+    });
+    await metaStore.set('aud-fallback', {
+      status: 'complete',
+      totalLength: '1000',
+      completedLength: '1000',
+      path: '/downloads/aud.audio.m4a',
+      dir: '/downloads',
+      companionVideoGid: 'vid-fallback',
+      isCompanionAudio: true,
+      muxFinalFilename: 'merged.mp4',
+      addedAt: Date.now(),
+    });
+    await metaStore.save();
+
+    const failingSidecarCmd = new MockCommand('bin/pdm-ffmpeg', []);
+    failingSidecarCmd.spawn = vi.fn().mockRejectedValue(new Error('sidecar binary not found'));
+    vi.spyOn(Command, 'sidecar').mockReturnValue(failingSidecarCmd as unknown as Command<string>);
+
+    let fallbackCmd: MockCommand | null = null;
+    const createSpy = vi.spyOn(Command, 'create').mockImplementation((prog, args) => {
+      fallbackCmd = new MockCommand(prog, args as string[]);
+      return fallbackCmd as unknown as Command<string>;
+    });
+
+    const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      pendingMuxes: [],
+    }));
+
+    await useTestStore.getState().fetchDownloads();
+
+    // Sidecar was attempted
+    expect(failingSidecarCmd.spawn).toHaveBeenCalled();
+
+    // Allow spawn rejection to trigger fallback
+    await new Promise(r => setTimeout(r, 20));
+
+    expect(createSpy).toHaveBeenCalledWith('system-ffmpeg', expect.any(Array));
+    expect(fallbackCmd).not.toBeNull();
+    expect(fallbackCmd!.args.slice(0, 4)).toEqual(['-nostdin', '-nostats', '-loglevel', 'error']);
+
+    // Emitting error event on fallback command does not resolve failure prematurely
+    fallbackCmd!.emit('error', new Error('fallback non-fatal error'));
+    expect(useTestStore.getState().pendingMuxes).toHaveLength(1);
+
+    // Close successfully
+    fallbackCmd!.emit('close', { code: 0 });
+    await new Promise(r => setTimeout(r, 20));
+
+    expect(useTestStore.getState().pendingMuxes).toHaveLength(0);
+  });
+
+  it('handles non-zero exit code on FFmpeg close and purges pending mux state', async () => {
+    const videoTask: Aria2Download = {
+      gid: 'vid-fail-code',
+      status: 'complete',
+      totalLength: '3000',
+      completedLength: '3000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/fail.video.mp4', length: '3000', completedLength: '3000', uris: [] }],
+    };
+    const audioTask: Aria2Download = {
+      gid: 'aud-fail-code',
+      status: 'complete',
+      totalLength: '1000',
+      completedLength: '1000',
+      downloadSpeed: '0',
+      dir: '/downloads',
+      files: [{ path: '/downloads/fail.audio.m4a', length: '1000', completedLength: '1000', uris: [] }],
+    };
+
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([videoTask, audioTask]);
+
+    const metaStore = await getMetaStore();
+    await metaStore.set('vid-fail-code', {
+      status: 'complete',
+      totalLength: '3000',
+      completedLength: '3000',
+      path: '/downloads/fail.video.mp4',
+      dir: '/downloads',
+      companionAudioGid: 'aud-fail-code',
+      muxFinalFilename: 'fail.mp4',
+      addedAt: Date.now(),
+    });
+    await metaStore.set('aud-fail-code', {
+      status: 'complete',
+      totalLength: '1000',
+      completedLength: '1000',
+      path: '/downloads/fail.audio.m4a',
+      dir: '/downloads',
+      companionVideoGid: 'vid-fail-code',
+      isCompanionAudio: true,
+      muxFinalFilename: 'fail.mp4',
+      addedAt: Date.now(),
+    });
+    await metaStore.save();
+
+    let capturedCommand: MockCommand | null = null;
+    vi.spyOn(Command, 'sidecar').mockImplementation((prog, args) => {
+      capturedCommand = new MockCommand(prog, args as string[]);
+      return capturedCommand as unknown as Command<string>;
+    });
+
+    const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      pendingMuxes: [],
+    }));
+
+    await useTestStore.getState().fetchDownloads();
+
+    expect(capturedCommand).not.toBeNull();
+    // Simulate stderr error line
+    capturedCommand!.stderr.emit('data', 'Corrupted input stream');
+
+    // Simulate process exiting with code 1
+    capturedCommand!.emit('close', { code: 1 });
+    await new Promise(r => setTimeout(r, 20));
+
+    expect(useTestStore.getState().pendingMuxes).toHaveLength(0);
+    const vidMeta = await metaStore.get<CachedMeta>('vid-fail-code');
+    expect(vidMeta?.muxFinalFilename).toBeUndefined();
   });
 });

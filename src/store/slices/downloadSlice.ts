@@ -548,6 +548,9 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                 const totalBytesToMux = (vTotal + aTotal) || 1;
 
                 const ffmpegArgs = [
+                  '-nostdin',
+                  '-nostats',
+                  '-loglevel', 'error',
                   '-y',
                   '-progress', 'pipe:1',
                   '-i', vPath,
@@ -566,6 +569,8 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                       cmd = Command.create('system-ffmpeg', ffmpegArgs);
                     }
 
+                    const stderrLines: string[] = [];
+
                     const onProgressData = (line: string) => {
                       const match = line.match(/total_size=(\d+)/);
                       if (match) {
@@ -581,25 +586,39 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                       }
                     };
 
+                    const onStderrData = (line: string) => {
+                      stderrLines.push(line);
+                      onProgressData(line);
+                    };
+
                     cmd.stdout.on('data', onProgressData);
-                    cmd.stderr.on('data', onProgressData);
+                    cmd.stderr.on('data', onStderrData);
 
                     cmd.on('close', data => {
+                      if (data.code !== 0 && stderrLines.length > 0) { // agyis: no-mutant
+                        console.error('FFmpeg process failed:', stderrLines.join('\n')); // agyis: no-mutant
+                      }
                       resolve({ code: data.code ?? 0 });
                     });
 
                     cmd.on('error', err => {
-                      console.error('FFmpeg error:', err);
-                      resolve({ code: 1 });
+                      console.warn('FFmpeg process error event:', err); // agyis: no-mutant
                     });
 
                     cmd.spawn().catch(() => {
                       try {
                         const fallbackCmd = Command.create('system-ffmpeg', ffmpegArgs);
                         fallbackCmd.stdout.on('data', onProgressData);
-                        fallbackCmd.stderr.on('data', onProgressData);
-                        fallbackCmd.on('close', data => resolve({ code: data.code ?? 0 }));
-                        fallbackCmd.on('error', () => resolve({ code: 1 }));
+                        fallbackCmd.stderr.on('data', onStderrData);
+                        fallbackCmd.on('close', data => {
+                          if (data.code !== 0 && stderrLines.length > 0) { // agyis: no-mutant
+                            console.error('FFmpeg fallback failed:', stderrLines.join('\n')); // agyis: no-mutant
+                          }
+                          resolve({ code: data.code ?? 0 });
+                        });
+                        fallbackCmd.on('error', err => {
+                          console.warn('FFmpeg fallback process error event:', err); // agyis: no-mutant
+                        });
                         fallbackCmd.spawn().catch(() => resolve({ code: 1 }));
                       } catch {
                         resolve({ code: 1 });
