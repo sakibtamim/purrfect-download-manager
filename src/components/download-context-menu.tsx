@@ -366,7 +366,7 @@ export function DownloadContextMenu({
       {/* Separator */}
       <div className="my-1 h-px bg-border/60" role="separator" />
 
-      {/* 9. Remove / Delete... */}
+      {/* 9. Remove */}
       <button
         type="button"
         role="menuitem"
@@ -377,7 +377,7 @@ export function DownloadContextMenu({
         }}
       >
         <Trash2 className="h-3.5 w-3.5 text-destructive shrink-0" />
-        <span className="truncate">Remove / Delete...</span>
+        <span className="truncate">Remove</span>
       </button>
     </div>
   );

@@ -178,7 +178,7 @@ describe("DownloadContextMenu - Component Rendering", () => {
     expect(html).toContain("Copy Download Link");
     expect(html).toContain("Copy File Path");
     expect(html).toContain("View Details");
-    expect(html).toContain("Remove / Delete...");
+    expect(html).toContain("Remove");
   });
 
   it("renders Resume item for paused downloads", () => {
