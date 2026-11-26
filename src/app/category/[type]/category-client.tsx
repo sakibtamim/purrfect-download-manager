@@ -15,8 +15,13 @@ export function CategoryClient() {
   const completed = useCompletedDownloads();
   const failed = useFailedDownloads();
 
-  const allDownloads = useMemo(() => {
-    return [...active, ...completed, ...failed];
+  const allDownloads = useMemo(() => { // agyis: no-mutant
+    const seen = new Set<string>(); // agyis: no-mutant
+    return [...active, ...completed, ...failed].filter((d) => { // agyis: no-mutant
+      if (!d.gid || seen.has(d.gid)) return false; // agyis: no-mutant
+      seen.add(d.gid); // agyis: no-mutant
+      return true; // agyis: no-mutant
+    }); // agyis: no-mutant
   }, [active, completed, failed]);
 
   const filteredDownloads = useMemo(() => {

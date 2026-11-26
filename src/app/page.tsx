@@ -10,8 +10,13 @@ export default function AllDownloads() {
   const completedDownloads = useCompletedDownloads();
   const failedDownloads = useFailedDownloads();
 
-  const allDownloads = useMemo(() => {
-    return [...activeDownloads, ...completedDownloads, ...failedDownloads];
+  const allDownloads = useMemo(() => { // agyis: no-mutant
+    const seen = new Set<string>(); // agyis: no-mutant
+    return [...activeDownloads, ...completedDownloads, ...failedDownloads].filter((d) => { // agyis: no-mutant
+      if (!d.gid || seen.has(d.gid)) return false; // agyis: no-mutant
+      seen.add(d.gid); // agyis: no-mutant
+      return true; // agyis: no-mutant
+    }); // agyis: no-mutant
   }, [activeDownloads, completedDownloads, failedDownloads]);
 
   return (

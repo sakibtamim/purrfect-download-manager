@@ -22,6 +22,7 @@ export interface PendingMux {
   audioGid: string;
   finalFilename: string;
   status: 'waiting' | 'muxing' | 'error';
+  progress?: number;
 }
 
 export interface DownloadMetadata {

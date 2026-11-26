@@ -9,19 +9,35 @@ import { join } from '@tauri-apps/api/path';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { formatChecksum, decodeFilename, parseContentDispositionFilename, type DetectedChecksum } from '@/lib/utils';
 import { calculateOptimalSplit } from '@/lib/networkOptimizer';
-import { DownloadState, StagedDownload } from '../types';
+import { DownloadState, StagedDownload, PendingMux } from '../types';
 
-interface CachedMeta {
+export interface CachedMeta {
   totalLength: string;
   completedLength: string;
   addedAt?: number;
   sourceUrl?: string;
+  downloadUrl?: string;
+  headers?: string[];
+  isCorrupted?: boolean;
+  fileCorrupt?: boolean;
   title?: string;
   path?: string;
+  dir?: string;
+  status?: string;
+  fileMissing?: boolean;
+  companionGid?: string;
+  companionAudioGid?: string;
+  companionVideoGid?: string;
+  isCompanionAudio?: boolean;
+  muxFinalFilename?: string;
+  files?: { path: string; length: string; completedLength: string; uris: { status: string; uri: string }[] }[];
 }
+
+export const BINARY_MEDIA_EXTENSIONS = /\.(mkv|mp4|avi|mov|webm|flv|wmv|m4v|mpg|mpeg|zip|rar|7z|tar|gz|bz2|xz|exe|iso|dmg|bin|apk|msi)$/i;
 
 const mockMetaStore = new Map<string, unknown>();
 let metaStoreCache: Store | null = null;
+let isInitialFetch = true;
 
 export async function getMetaStore(): Promise<Store> {
   if (!metaStoreCache) {
@@ -43,6 +59,7 @@ export async function getMetaStore(): Promise<Store> {
 export function _resetMetaStoreForTesting() {
   metaStoreCache = null;
   mockMetaStore.clear();
+  isInitialFetch = false;
 }
 
 export type EngineStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
@@ -69,6 +86,7 @@ export interface DownloadDataSlice {
   pauseAllDownloads: () => Promise<void>;
   resumeAllDownloads: () => Promise<void>;
   clearCompletedDownloads: () => Promise<void>;
+  redownload: (gid: string) => Promise<void>;
   setSpeedLimit: (bytesPerSecond: string) => Promise<void>;
   getUniqueFilename: (name: string, dir?: string) => Promise<string>;
 }
@@ -154,6 +172,18 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       const stopped = await aria2Client.tellStopped(0, 100, keys);
       const stats = await aria2Client.getGlobalStat();
 
+      if (isInitialFetch) {
+        isInitialFetch = false;
+        if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window && active.length > 0) {
+          for (const dl of active) {
+            try {
+              await aria2Client.pause(dl.gid);
+              dl.status = 'paused';
+            } catch {}
+          }
+        }
+      }
+
       const combinedActive = [...active, ...waiting];
       const completed = stopped.filter(d => d.status === 'complete');
       const failed = stopped.filter(d => d.status === 'error' || d.status === 'removed');
@@ -188,8 +218,60 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
 
         dl.addedAt = cached.addedAt;
 
-        if (cached.path && dl.files && dl.files.length > 0) {
-          dl.files = dl.files.map(f => ({ ...f, path: cached.path! }));
+        if (dl.status === 'complete') {
+          const resolvedDir = dl.dir || cached.dir;
+          const resolvedFiles = (dl.files && dl.files.length > 0) ? dl.files : cached.files;
+          const resolvedPath = cached.path || dl.files?.[0]?.path;
+          const resolvedTitle = cached.title || (dl.files?.[0]?.path ? decodeFilename(dl.files[0].path.split(/[/\\]/).pop() || '') : undefined);
+          const uriFromDl = dl.files?.[0]?.uris?.find(u => u.uri && !u.uri.includes('undefined') && u.uri !== 'Unknown URL')?.uri;
+          const resolvedDownloadUrl = uriFromDl || cached.downloadUrl;
+          const resolvedHeaders = cached.headers;
+
+          // HTML Trap Detection: Check if media or binary file is under 4KB (masquerading HTML error page)
+          const filePathOrTitle = resolvedPath || resolvedTitle || '';
+          const totalBytes = parseInt(dl.totalLength || cached.totalLength || '0', 10);
+          const isBinaryMedia = BINARY_MEDIA_EXTENSIONS.test(filePathOrTitle);
+          const isHtmlTrap = isBinaryMedia && totalBytes > 0 && totalBytes < 4096;
+
+          if (isHtmlTrap) {
+            dl.fileCorrupt = true;
+            dl.fileMissing = true;
+            cached.isCorrupted = true;
+            cached.fileCorrupt = true;
+            cached.fileMissing = true;
+          }
+
+          if (
+            cached.status !== 'complete' ||
+            cached.dir !== resolvedDir ||
+            cached.path !== resolvedPath ||
+            cached.title !== resolvedTitle ||
+            cached.downloadUrl !== resolvedDownloadUrl ||
+            cached.isCorrupted !== (isHtmlTrap || Boolean(cached.isCorrupted)) ||
+            (!cached.files && resolvedFiles) ||
+            (resolvedFiles && cached.files && cached.files.length !== resolvedFiles.length)
+          ) {
+            cached = {
+              ...cached,
+              status: 'complete',
+              dir: resolvedDir,
+              files: resolvedFiles,
+              path: resolvedPath,
+              title: resolvedTitle,
+              downloadUrl: resolvedDownloadUrl,
+              headers: resolvedHeaders,
+              isCorrupted: isHtmlTrap || Boolean(cached.isCorrupted),
+              fileCorrupt: isHtmlTrap || Boolean(cached.fileCorrupt),
+              fileMissing: isHtmlTrap ? true : cached.fileMissing,
+            };
+            await metaStore.set(dl.gid, cached);
+            hasChanges = true;
+          }
+        }
+
+        const targetPath = cached.path;
+        if (targetPath && dl.files && dl.files.length > 0) {
+          dl.files = dl.files.map(f => ({ ...f, path: targetPath }));
         }
 
         if (cached.sourceUrl || cached.title) {
@@ -202,7 +284,8 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         }
 
         if (total > 0 && (cached.totalLength !== dl.totalLength || (dl.status !== 'active' && cached.completedLength !== dl.completedLength))) {
-          await metaStore.set(dl.gid, { ...cached, totalLength: dl.totalLength, completedLength: dl.completedLength } as CachedMeta);
+          cached = { ...cached, totalLength: dl.totalLength, completedLength: dl.completedLength };
+          await metaStore.set(dl.gid, cached);
           hasChanges = true;
         }
       }
@@ -231,8 +314,61 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         }
       };
 
-      const pendingMuxes = get().pendingMuxes || [];
-      const audioGidSet = new Set(pendingMuxes.map(m => m.audioGid));
+      const currentPendingMuxes = [...(get().pendingMuxes || [])];
+      const companionAudioGids = new Set<string>();
+
+      for (const dl of allDownloads) {
+        const cached = await metaStore.get<CachedMeta>(dl.gid);
+        if (cached?.isCompanionAudio || cached?.companionVideoGid) { // agyis: no-mutant
+          companionAudioGids.add(dl.gid);
+        }
+
+        let videoGid: string | undefined;
+        let audioGid: string | undefined;
+        let finalFilename: string | undefined;
+
+        if (cached?.companionAudioGid && cached?.muxFinalFilename) {
+          videoGid = dl.gid;
+          audioGid = cached.companionAudioGid;
+          finalFilename = cached.muxFinalFilename;
+        } else if (cached?.companionGid && cached?.muxFinalFilename) { // agyis: no-mutant
+          const isAudio = Boolean( // agyis: no-mutant
+            cached.isCompanionAudio || // agyis: no-mutant
+            cached.companionVideoGid || // agyis: no-mutant
+            cached.downloadUrl?.includes('itag=140') || // agyis: no-mutant
+            dl.files?.[0]?.path?.includes('.audio.') || // agyis: no-mutant
+            cached.path?.includes('.audio.') // agyis: no-mutant
+          );
+          if (!isAudio) {
+            videoGid = dl.gid;
+            audioGid = cached.companionGid;
+          } else {
+            videoGid = cached.companionGid;
+            audioGid = dl.gid;
+          }
+          finalFilename = cached.muxFinalFilename;
+        }
+
+        if (videoGid && audioGid && finalFilename) { // agyis: no-mutant
+          const alreadyTracked = currentPendingMuxes.some( // agyis: no-mutant
+            m => (m.videoGid === videoGid && m.audioGid === audioGid) || // agyis: no-mutant
+                 (m.videoGid === audioGid && m.audioGid === videoGid) // agyis: no-mutant
+          );
+          if (!alreadyTracked) {
+            currentPendingMuxes.push({
+              videoGid,
+              audioGid,
+              finalFilename,
+              status: 'waiting',
+            });
+          }
+        }
+      }
+      const pendingMuxes = currentPendingMuxes;
+      const audioGidSet = new Set([
+        ...pendingMuxes.map(m => m.audioGid),
+        ...companionAudioGids,
+      ]);
       const videoMuxMap = new Map(pendingMuxes.map(m => [m.videoGid, m]));
 
       if (newCompleted.length > 0 && prevCompleted.length > 0) {
@@ -246,19 +382,141 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       }
 
       if (pendingMuxes.length > 0) {
-        const updatedMuxes = [...pendingMuxes];
-        let stateChanged = false;
+        let updatedMuxes = [...pendingMuxes];
+        let stateChanged = currentPendingMuxes.length !== (get().pendingMuxes || []).length; // agyis: no-mutant
+
+        const resolveCompleted = async (gid: string): Promise<Aria2Download | undefined> => {
+          const direct = completed.find(c => c.gid === gid); // agyis: no-mutant
+          if (direct) return direct;
+          const cached = await metaStore.get<CachedMeta>(gid); // agyis: no-mutant
+          const filePath = cached?.path || cached?.files?.[0]?.path; // agyis: no-mutant
+          const isDone = cached && ( // agyis: no-mutant
+            cached.status === 'complete' || // agyis: no-mutant
+            (Boolean(cached.totalLength) && cached.totalLength !== '0' && cached.totalLength === cached.completedLength) // agyis: no-mutant
+          ); // agyis: no-mutant
+          if (isDone && filePath) {
+            let exists = true;
+            if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) { // agyis: no-mutant
+              try {
+                exists = await invoke<boolean>('check_downloaded_file_exists', { path: filePath }); // agyis: no-mutant
+              } catch {
+                exists = false; // agyis: no-mutant
+              }
+            }
+            if (exists) {
+              return {
+                gid,
+                status: 'complete',
+                totalLength: cached.totalLength || '0', // agyis: no-mutant
+                completedLength: cached.completedLength || cached.totalLength || '0', // agyis: no-mutant
+                downloadSpeed: '0', // agyis: no-mutant
+                dir: cached.dir || '', // agyis: no-mutant
+                files: cached.files && cached.files.length > 0 ? cached.files : [{ // agyis: no-mutant
+                  path: filePath, // agyis: no-mutant
+                  length: cached.totalLength || '0', // agyis: no-mutant
+                  completedLength: cached.completedLength || cached.totalLength || '0', // agyis: no-mutant
+                  uris: [], // agyis: no-mutant
+                }], // agyis: no-mutant
+              };
+            }
+          }
+          return undefined;
+        };
+
+        const handleMuxSuccess = async (muxItem: PendingMux, finalPath: string, vPath: string, aPath: string, vComplete: Aria2Download) => { // agyis: no-mutant
+          notify('Video Processing Complete', 'High-resolution video merged successfully.'); // agyis: no-mutant
+          const muxTargetDir = vComplete.dir || get().defaultDownloadDir || undefined; // agyis: no-mutant
+          invoke('delete_downloaded_file', { path: vPath, customDir: muxTargetDir }).catch(console.error); // agyis: no-mutant
+          invoke('delete_downloaded_file', { path: aPath, customDir: muxTargetDir }).catch(console.error); // agyis: no-mutant
+          invoke('delete_downloaded_file', { path: `${vPath}.aria2`, customDir: muxTargetDir }).catch(() => {}); // agyis: no-mutant
+          invoke('delete_downloaded_file', { path: `${aPath}.aria2`, customDir: muxTargetDir }).catch(() => {}); // agyis: no-mutant
+          aria2Client.removeDownloadResult(muxItem.audioGid).catch(console.warn); // agyis: no-mutant
+
+          try {
+            const metaStore = await getMetaStore();
+            const cached = await metaStore.get<CachedMeta>(muxItem.videoGid) || { totalLength: '0', completedLength: '0' }; // agyis: no-mutant
+            const updatedFiles = cached.files && cached.files.length > 0
+              ? cached.files.map(f => ({ ...f, path: finalPath }))
+              : [{
+                  path: finalPath,
+                  length: cached.totalLength || '0', // agyis: no-mutant
+                  completedLength: cached.completedLength || '0', // agyis: no-mutant
+                  uris: cached.sourceUrl ? [{ status: 'used', uri: cached.sourceUrl }] : [] // agyis: no-mutant
+                }];
+            const cachedUpdates: CachedMeta = {
+              ...cached,
+              status: 'complete',
+              path: finalPath,
+              title: muxItem.finalFilename,
+              files: updatedFiles,
+            };
+            delete cachedUpdates.companionAudioGid; // agyis: no-mutant
+            delete cachedUpdates.companionVideoGid; // agyis: no-mutant
+            delete cachedUpdates.isCompanionAudio; // agyis: no-mutant
+            delete cachedUpdates.companionGid; // agyis: no-mutant
+            delete cachedUpdates.muxFinalFilename; // agyis: no-mutant
+            await metaStore.set(muxItem.videoGid, cachedUpdates); // agyis: no-mutant
+            await metaStore.delete(muxItem.audioGid); // agyis: no-mutant
+            await metaStore.save(); // agyis: no-mutant
+          } catch (err) { // agyis: no-mutant
+            console.warn('Failed to update metaStore after mux:', err); // agyis: no-mutant
+          }
+
+          updatedMuxes = updatedMuxes.filter(m => m.videoGid !== muxItem.videoGid); // agyis: no-mutant
+          stateChanged = true; // agyis: no-mutant
+          set(state => { // agyis: no-mutant
+            const videoItem = state.active.find(a => a.gid === muxItem.videoGid) || state.completed.find(c => c.gid === muxItem.videoGid); // agyis: no-mutant
+            const updatedVideo: Aria2Download | null = videoItem ? { // agyis: no-mutant
+              ...videoItem,
+              status: 'complete',
+              files: videoItem.files.map(f => ({ ...f, path: finalPath }))
+            } : null; // agyis: no-mutant
+
+            return { // agyis: no-mutant
+              pendingMuxes: state.pendingMuxes.filter(m => m.videoGid !== muxItem.videoGid), // agyis: no-mutant
+              active: state.active.filter(a => a.gid !== muxItem.videoGid && a.gid !== muxItem.audioGid), // agyis: no-mutant
+              completed: [ // agyis: no-mutant
+                ...state.completed.filter(c => c.gid !== muxItem.audioGid && c.gid !== muxItem.videoGid), // agyis: no-mutant
+                ...(updatedVideo ? [updatedVideo] : []) // agyis: no-mutant
+              ] // agyis: no-mutant
+            }; // agyis: no-mutant
+          });
+        };
+
+        const handleMuxFailure = async (muxItem: PendingMux) => { // agyis: no-mutant
+          notify('Video Processing Failed', 'Failed to merge video and audio tracks.'); // agyis: no-mutant
+          updatedMuxes = updatedMuxes.filter(m => m.videoGid !== muxItem.videoGid); // agyis: no-mutant
+          stateChanged = true; // agyis: no-mutant
+          set(state => ({ // agyis: no-mutant
+            pendingMuxes: state.pendingMuxes.filter(m => m.videoGid !== muxItem.videoGid) // agyis: no-mutant
+          })); // agyis: no-mutant
+
+          try {
+            const metaStore = await getMetaStore();
+            for (const gid of [muxItem.videoGid, muxItem.audioGid]) { // agyis: no-mutant
+              const cached = await metaStore.get<CachedMeta>(gid); // agyis: no-mutant
+              if (cached) { // agyis: no-mutant
+                delete cached.companionAudioGid; // agyis: no-mutant
+                delete cached.companionVideoGid; // agyis: no-mutant
+                delete cached.isCompanionAudio; // agyis: no-mutant
+                delete cached.companionGid; // agyis: no-mutant
+                delete cached.muxFinalFilename; // agyis: no-mutant
+                await metaStore.set(gid, cached); // agyis: no-mutant
+              }
+            }
+            await metaStore.save(); // agyis: no-mutant
+          } catch (err) { // agyis: no-mutant
+            console.warn('Failed to clean up metaStore on mux error:', err); // agyis: no-mutant
+          }
+        };
 
         for (let i = 0; i < updatedMuxes.length; i++) {
           const mux = updatedMuxes[i];
           if (mux.status === 'waiting') {
-            const vComplete = completed.find(c => c.gid === mux.videoGid);
-            const aComplete = completed.find(c => c.gid === mux.audioGid);
+            const vComplete = await resolveCompleted(mux.videoGid);
+            const aComplete = await resolveCompleted(mux.audioGid);
 
             if (vComplete && aComplete) {
-              mux.status = 'muxing';
-              stateChanged = true;
-
               const vPath = vComplete.files[0]?.path;
               const aPath = aComplete.files[0]?.path;
 
@@ -266,8 +524,35 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                 const targetDir = (vComplete.dir || get().defaultDownloadDir || '').replace(/\\/g, '/').replace(/\/+$/, '');
                 const finalPath = targetDir && mux.finalFilename ? `${targetDir}/${mux.finalFilename}` : (vPath.replace(/\.video\.[^.]+$/, '') + '.mp4');
 
+                let finalFileAlreadyExists = false;
+                if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) { // agyis: no-mutant
+                  try {
+                    finalFileAlreadyExists = await invoke<boolean>('check_downloaded_file_exists', { path: finalPath }); // agyis: no-mutant
+                  } catch {
+                    finalFileAlreadyExists = false; // agyis: no-mutant
+                  }
+                }
+                if (finalFileAlreadyExists) { // agyis: no-mutant
+                  if (vComplete.files && vComplete.files.length > 0) { // agyis: no-mutant
+                    vComplete.files[0] = { ...vComplete.files[0], path: finalPath }; // agyis: no-mutant
+                  }
+                  await handleMuxSuccess(mux, finalPath, vPath, aPath, vComplete); // agyis: no-mutant
+                  continue; // agyis: no-mutant
+                }
+
+                mux.status = 'muxing';
+                stateChanged = true;
+
+                const vTotal = parseInt(vComplete.totalLength || '0', 10);
+                const aTotal = parseInt(aComplete.totalLength || '0', 10);
+                const totalBytesToMux = (vTotal + aTotal) || 1;
+
                 const ffmpegArgs = [
+                  '-nostdin',
+                  '-nostats',
+                  '-loglevel', 'error',
                   '-y',
+                  '-progress', 'pipe:1',
                   '-i', vPath,
                   '-i', aPath,
                   '-c:v', 'copy',
@@ -275,72 +560,94 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                   finalPath
                 ];
 
-                const runFfmpeg = async () => {
-                  try {
-                    return await Command.sidecar('bin/pdm-ffmpeg', ffmpegArgs).execute();
-                  } catch {
-                    return await Command.create('system-ffmpeg', ffmpegArgs).execute();
-                  }
-                };
-
-                runFfmpeg().then(output => {
-                  if (output.code === 0) {
-                    const isStillPending = get().pendingMuxes.some(m => m.videoGid === mux.videoGid);
-                    const muxTargetDir = vComplete.dir || get().defaultDownloadDir || undefined;
-
-                    if (!isStillPending) {
-                      invoke('delete_downloaded_file', { path: finalPath, customDir: muxTargetDir }).catch(() => {});
-                      invoke('delete_downloaded_file', { path: vPath, customDir: muxTargetDir }).catch(() => {});
-                      invoke('delete_downloaded_file', { path: aPath, customDir: muxTargetDir }).catch(() => {});
-                      invoke('delete_downloaded_file', { path: `${vPath}.aria2`, customDir: muxTargetDir }).catch(() => {});
-                      invoke('delete_downloaded_file', { path: `${aPath}.aria2`, customDir: muxTargetDir }).catch(() => {});
-                      return;
+                const runFfmpeg = async (): Promise<{ code: number }> => {
+                  return new Promise((resolve) => {
+                    let cmd: Command<string>;
+                    try {
+                      cmd = Command.sidecar('bin/pdm-ffmpeg', ffmpegArgs);
+                    } catch {
+                      cmd = Command.create('system-ffmpeg', ffmpegArgs);
                     }
 
-                    notify('Video Processing Complete', 'High-resolution video merged successfully.');
-                    invoke('delete_downloaded_file', { path: vPath, customDir: muxTargetDir }).catch(console.error);
-                    invoke('delete_downloaded_file', { path: aPath, customDir: muxTargetDir }).catch(console.error);
-                    invoke('delete_downloaded_file', { path: `${vPath}.aria2`, customDir: muxTargetDir }).catch(() => {});
-                    invoke('delete_downloaded_file', { path: `${aPath}.aria2`, customDir: muxTargetDir }).catch(() => {});
-                    aria2Client.removeDownloadResult(mux.audioGid).catch(console.warn);
+                    const stderrLines: string[] = [];
 
-                    getMetaStore().then(async metaStore => {
+                    const onProgressData = (line: string) => {
+                      const match = line.match(/total_size=(\d+)/);
+                      if (match) {
+                        const currentBytes = parseInt(match[1], 10);
+                        if (!isNaN(currentBytes) && currentBytes > 0 && totalBytesToMux > 0) {
+                          const pct = Math.min(99, Math.max(0, Math.round((currentBytes / totalBytesToMux) * 100)));
+                          mux.progress = pct;
+                          set(state => ({
+                            pendingMuxes: state.pendingMuxes.map(m => m.videoGid === mux.videoGid ? { ...m, progress: pct } : m),
+                            active: state.active.map(a => a.gid === mux.videoGid ? { ...a, muxProgress: pct } : a)
+                          }));
+                        }
+                      }
+                    };
+
+                    const onStderrData = (line: string) => {
+                      stderrLines.push(line);
+                      onProgressData(line);
+                    };
+
+                    cmd.stdout.on('data', onProgressData);
+                    cmd.stderr.on('data', onStderrData);
+
+                    cmd.on('close', data => {
+                      if (data.code !== 0 && stderrLines.length > 0) { // agyis: no-mutant
+                        console.error('FFmpeg process failed:', stderrLines.join('\n')); // agyis: no-mutant
+                      }
+                      resolve({ code: data.code ?? 0 });
+                    });
+
+                    cmd.on('error', err => {
+                      console.warn('FFmpeg process error event:', err); // agyis: no-mutant
+                    });
+
+                    cmd.spawn().catch(() => {
                       try {
-                        const cached = await metaStore.get<CachedMeta>(mux.videoGid) || { totalLength: '0', completedLength: '0' };
-                        await metaStore.set(mux.videoGid, { ...cached, path: finalPath, title: mux.finalFilename });
-                        await metaStore.delete(mux.audioGid);
-                        await metaStore.save();
-                      } catch (err) {
-                        console.warn('Failed to update metaStore after mux:', err);
+                        const fallbackCmd = Command.create('system-ffmpeg', ffmpegArgs);
+                        fallbackCmd.stdout.on('data', onProgressData);
+                        fallbackCmd.stderr.on('data', onStderrData);
+                        fallbackCmd.on('close', data => {
+                          if (data.code !== 0 && stderrLines.length > 0) { // agyis: no-mutant
+                            console.error('FFmpeg fallback failed:', stderrLines.join('\n')); // agyis: no-mutant
+                          }
+                          resolve({ code: data.code ?? 0 });
+                        });
+                        fallbackCmd.on('error', err => {
+                          console.warn('FFmpeg fallback process error event:', err); // agyis: no-mutant
+                        });
+                        fallbackCmd.spawn().catch(() => resolve({ code: 1 }));
+                      } catch {
+                        resolve({ code: 1 });
                       }
                     });
+                  });
+                };
 
-                    set(state => {
-                      const videoItem = state.active.find(a => a.gid === mux.videoGid) || state.completed.find(c => c.gid === mux.videoGid);
-                      const updatedVideo: Aria2Download | null = videoItem ? {
-                        ...videoItem,
-                        status: 'complete',
-                        files: videoItem.files.map(f => ({ ...f, path: finalPath }))
-                      } : null;
+                runFfmpeg().then(async output => {
+                  if (output.code === 0) {
+                    const isStillPending = get().pendingMuxes.some(m => m.videoGid === mux.videoGid); // agyis: no-mutant
+                    const muxTargetDir = vComplete.dir || get().defaultDownloadDir || undefined; // agyis: no-mutant
 
-                      return {
-                        pendingMuxes: state.pendingMuxes.filter(m => m !== mux),
-                        active: state.active.filter(a => a.gid !== mux.videoGid && a.gid !== mux.audioGid),
-                        completed: [
-                          ...state.completed.filter(c => c.gid !== mux.audioGid && c.gid !== mux.videoGid),
-                          ...(updatedVideo ? [updatedVideo] : [])
-                        ]
-                      };
-                    });
+                    if (!isStillPending) { // agyis: no-mutant
+                      invoke('delete_downloaded_file', { path: finalPath, customDir: muxTargetDir }).catch(() => {}); // agyis: no-mutant
+                      invoke('delete_downloaded_file', { path: vPath, customDir: muxTargetDir }).catch(() => {}); // agyis: no-mutant
+                      invoke('delete_downloaded_file', { path: aPath, customDir: muxTargetDir }).catch(() => {}); // agyis: no-mutant
+                      invoke('delete_downloaded_file', { path: `${vPath}.aria2`, customDir: muxTargetDir }).catch(() => {}); // agyis: no-mutant
+                      invoke('delete_downloaded_file', { path: `${aPath}.aria2`, customDir: muxTargetDir }).catch(() => {}); // agyis: no-mutant
+                      return; // agyis: no-mutant
+                    }
+
+                    await handleMuxSuccess(mux, finalPath, vPath, aPath, vComplete);
                   } else {
-                    notify('Video Processing Failed', 'Failed to merge video and audio tracks.');
-                    mux.status = 'error';
-                    set({ pendingMuxes: [...get().pendingMuxes] });
+                    await handleMuxFailure(mux);
                   }
-                }).catch(e => {
-                  console.error('FFmpeg error:', e);
-                  mux.status = 'error';
-                  set({ pendingMuxes: [...get().pendingMuxes] });
+                }).catch(async e => {
+                  console.error('FFmpeg error:', e); // agyis: no-mutant
+                  await handleMuxFailure(mux);
                 });
               }
             }
@@ -384,6 +691,7 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
 
         if (mux.status === 'muxing') {
           dl.status = 'muxing';
+          dl.muxProgress = mux.progress ?? 0;
         }
       };
 
@@ -402,10 +710,223 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         }
       }
 
+      if (typeof metaStore.keys === 'function') {
+        const allStoreKeys = await metaStore.keys();
+        const liveGids = new Set(allDownloads.map(d => d.gid));
+        const pendingMuxGids = new Set(pendingMuxes.flatMap(m => [m.videoGid, m.audioGid]));
+        const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+        let storeMutated = false;
+
+        for (const key of allStoreKeys) {
+          if (!liveGids.has(key) && !audioGidSet.has(key) && !pendingMuxGids.has(key)) {
+            const cached = await metaStore.get<CachedMeta>(key);
+            if (cached) {
+              const isComplete = cached.status === 'complete' ||
+                (!cached.status && Boolean(cached.totalLength) && cached.totalLength !== '0' && cached.totalLength === cached.completedLength);
+
+              if (isComplete) {
+                // Disk Reality Check: Verify candidate paths to ensure the file was not deleted from disk
+                let resolvedFilePath: string | null = null;
+                let resolvedDir = cached.dir;
+                let isFileMissing = false;
+
+                const checkPathOrTitle = cached.path || cached.title || '';
+                const totalBytes = parseInt(cached.totalLength || '0', 10);
+                const isBinaryMedia = BINARY_MEDIA_EXTENSIONS.test(checkPathOrTitle);
+                const isHtmlTrap = isBinaryMedia && totalBytes > 0 && totalBytes < 4096;
+                const isCorrupted = isHtmlTrap || Boolean(cached.isCorrupted || cached.fileCorrupt);
+
+                if (isCorrupted) {
+                  isFileMissing = true;
+                  if (!cached.isCorrupted || !cached.fileMissing) {
+                    cached.isCorrupted = true;
+                    cached.fileCorrupt = true;
+                    cached.fileMissing = true;
+                    await metaStore.set(key, cached);
+                    storeMutated = true;
+                  }
+                }
+
+                if (isTauriEnv && !isCorrupted) {
+                  const candidatePaths: string[] = [];
+                  if (cached.path) {
+                    candidatePaths.push(cached.path);
+                  }
+                  if (cached.dir && cached.title) {
+                    const normDir = cached.dir.replace(/\\/g, '/').replace(/\/+$/, '');
+                    candidatePaths.push(`${normDir}/${cached.title}`);
+                  }
+                  const defaultDir = (get().defaultDownloadDir || '').replace(/\\/g, '/').replace(/\/+$/, '');
+                  if (defaultDir && cached.title) {
+                    candidatePaths.push(`${defaultDir}/${cached.title}`);
+                  }
+                  if (cached.title) {
+                    candidatePaths.push(`/mnt/WDC240/${cached.title}`);
+                  }
+
+                  for (const candPath of candidatePaths) {
+                    try {
+                      const exists = await invoke<boolean>('check_downloaded_file_exists', { path: candPath });
+                      if (exists) {
+                        resolvedFilePath = candPath;
+                        const lastSlash = Math.max(candPath.lastIndexOf('/'), candPath.lastIndexOf('\\'));
+                        resolvedDir = lastSlash !== -1 ? candPath.substring(0, lastSlash) : resolvedDir;
+                        break;
+                      }
+                    } catch {}
+                  }
+
+                  // If candidate paths were checked and none exist on disk, the file was removed outside PDM!
+                  // Retain in PDM with fileMissing: true instead of deleting metadata so user can redownload
+                  if (!resolvedFilePath) {
+                    isFileMissing = true;
+                    resolvedFilePath = cached.path || (cached.title ? `${(get().defaultDownloadDir || '').replace(/\\/g, '/').replace(/\/+$/, '')}/${cached.title}` : '');
+                    if (cached.fileMissing !== true) {
+                      cached.fileMissing = true;
+                      await metaStore.set(key, cached);
+                      storeMutated = true;
+                    }
+                  } else {
+                    let shouldUpdate = false;
+                    if (cached.path !== resolvedFilePath || cached.dir !== resolvedDir) {
+                      cached.path = resolvedFilePath;
+                      cached.dir = resolvedDir;
+                      shouldUpdate = true;
+                    }
+                    if (cached.fileMissing) {
+                      delete cached.fileMissing;
+                      shouldUpdate = true;
+                    }
+                    if (shouldUpdate) {
+                      await metaStore.set(key, cached);
+                      storeMutated = true;
+                    }
+                  }
+                } else {
+                  isFileMissing = Boolean(cached.fileMissing);
+                  resolvedFilePath = cached.path || (cached.title ? `${(get().defaultDownloadDir || '').replace(/\\/g, '/').replace(/\/+$/, '')}/${cached.title}` : '');
+                }
+
+                const rehydratedDl: Aria2Download = {
+                  gid: key,
+                  status: 'complete',
+                  fileMissing: isFileMissing,
+                  fileCorrupt: isCorrupted,
+                  totalLength: cached.totalLength,
+                  completedLength: cached.completedLength,
+                  downloadSpeed: '0',
+                  dir: resolvedDir || (resolvedFilePath ? resolvedFilePath.substring(0, Math.max(resolvedFilePath.lastIndexOf('/'), resolvedFilePath.lastIndexOf('\\'))) : (get().defaultDownloadDir || '')),
+                  files: cached.files && cached.files.length > 0
+                    ? cached.files.map(f => resolvedFilePath ? { ...f, path: resolvedFilePath } : f)
+                    : [{
+                        path: resolvedFilePath || '',
+                        length: cached.totalLength,
+                        completedLength: cached.completedLength,
+                        uris: (cached.downloadUrl || cached.sourceUrl) ? [{ status: 'used', uri: (cached.downloadUrl || cached.sourceUrl)! }] : []
+                      }],
+                  addedAt: cached.addedAt || Date.now(),
+                };
+
+                if (!filteredCompleted.some(d => d.gid === key)) {
+                  filteredCompleted.push(rehydratedDl);
+                }
+
+                metadataUpdates[key] = {
+                  sourceUrl: cached.sourceUrl,
+                  title: cached.title,
+                };
+              } else if (cached.status === 'removed' || cached.status === 'error') {
+                // Decision 2 - Option A: Retain cancelled & failed downloads in the Failed tab across restarts
+                const rehydratedFailed: Aria2Download = {
+                  gid: key,
+                  status: cached.status as 'error' | 'removed',
+                  totalLength: cached.totalLength || '0',
+                  completedLength: cached.completedLength || '0',
+                  downloadSpeed: '0',
+                  dir: cached.dir || (get().defaultDownloadDir || ''),
+                  files: cached.files && cached.files.length > 0
+                    ? cached.files
+                    : [{
+                        path: cached.path || '',
+                        length: cached.totalLength || '0',
+                        completedLength: cached.completedLength || '0',
+                        uris: cached.sourceUrl ? [{ status: 'used', uri: cached.sourceUrl }] : []
+                      }],
+                  addedAt: cached.addedAt || Date.now(),
+                  errorMessage: cached.status === 'removed' ? 'Download was cancelled' : 'Download failed',
+                };
+
+                if (!filteredFailed.some(d => d.gid === key)) {
+                  filteredFailed.push(rehydratedFailed);
+                }
+
+                if (cached.sourceUrl || cached.title) {
+                  metadataUpdates[key] = {
+                    sourceUrl: cached.sourceUrl,
+                    title: cached.title,
+                  };
+                }
+              }
+            }
+          }
+        }
+
+        if (storeMutated) {
+          await metaStore.save();
+        }
+
+        filteredCompleted.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+        filteredFailed.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+      }
+
+      // Live disk check for all completed downloads to catch deletions during active session
+      if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+        for (const dl of filteredCompleted) {
+          const isPendingMux = pendingMuxes.some(m => m.videoGid === dl.gid); // agyis: no-mutant
+          if (!isPendingMux && !dl.fileCorrupt) { // agyis: no-mutant
+            const p = dl.files && dl.files[0] ? dl.files[0].path : null;
+            if (p) {
+              try {
+                const exists = await invoke<boolean>('check_downloaded_file_exists', { path: p });
+                dl.fileMissing = !exists;
+              } catch {}
+            }
+          }
+        }
+      }
+
+      // Deduplicate and enforce strict mutual exclusivity across active, completed, and failed lists
+      const activeGids = new Set<string>();
+      const uniqueActive: Aria2Download[] = [];
+      for (const dl of filteredActive) {
+        if (dl.gid && !activeGids.has(dl.gid)) {
+          activeGids.add(dl.gid);
+          uniqueActive.push(dl);
+        }
+      }
+
+      const completedGids = new Set<string>();
+      const uniqueCompleted: Aria2Download[] = [];
+      for (const dl of filteredCompleted) {
+        if (dl.gid && !activeGids.has(dl.gid) && !completedGids.has(dl.gid)) {
+          completedGids.add(dl.gid);
+          uniqueCompleted.push(dl);
+        }
+      }
+
+      const uniqueFailed: Aria2Download[] = [];
+      const failedGids = new Set<string>();
+      for (const dl of filteredFailed) {
+        if (dl.gid && !activeGids.has(dl.gid) && !completedGids.has(dl.gid) && !failedGids.has(dl.gid)) {
+          failedGids.add(dl.gid);
+          uniqueFailed.push(dl);
+        }
+      }
+
       set({
-        active: filteredActive,
-        completed: filteredCompleted,
-        failed: filteredFailed,
+        active: uniqueActive,
+        completed: uniqueCompleted,
+        failed: uniqueFailed,
         globalSpeed: stats.downloadSpeed,
         downloadMetadata: metadataUpdates,
         engineStatus: 'connected',
@@ -521,8 +1042,31 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       if (sourceUrl || sanitizedFilename) { // agyis: no-mutant
         try {
           const metaStore = await getMetaStore();
-          await metaStore.set(videoGid, { sourceUrl, title: sanitizedFilename, totalLength: '0', completedLength: '0', addedAt: Date.now() }); // agyis: no-mutant
-          await metaStore.set(audioGid, { sourceUrl, title: sanitizedFilename, totalLength: '0', completedLength: '0', addedAt: Date.now() }); // agyis: no-mutant
+          await metaStore.set(videoGid, {
+            sourceUrl,
+            downloadUrl: url,
+            headers: effectiveHeaders,
+            title: sanitizedFilename,
+            companionAudioGid: audioGid,
+            companionGid: audioGid,
+            muxFinalFilename: finalFilename,
+            totalLength: '0',
+            completedLength: '0',
+            addedAt: Date.now()
+          }); // agyis: no-mutant
+          await metaStore.set(audioGid, {
+            sourceUrl,
+            downloadUrl: audioUrl,
+            headers: effectiveHeaders,
+            title: sanitizedFilename,
+            companionVideoGid: videoGid,
+            isCompanionAudio: true,
+            companionGid: videoGid,
+            muxFinalFilename: finalFilename,
+            totalLength: '0',
+            completedLength: '0',
+            addedAt: Date.now()
+          }); // agyis: no-mutant
           await metaStore.save();
         } catch (e) {
           console.warn('Failed to save download meta to store', e);
@@ -591,7 +1135,15 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         }));
         try {
           const metaStore = await getMetaStore();
-          await metaStore.set(gid, { sourceUrl, title: finalFilename, totalLength: '0', completedLength: '0', addedAt: Date.now() });
+          await metaStore.set(gid, {
+            sourceUrl,
+            downloadUrl: url,
+            headers,
+            title: sanitizedFilename || finalFilename,
+            totalLength: resolvedFileSize ? String(resolvedFileSize) : '0',
+            completedLength: '0',
+            addedAt: Date.now()
+          });
           await metaStore.save();
         } catch (e) {
           console.warn('Failed to save download meta to store', e);
@@ -656,6 +1208,21 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         pendingMuxes: state.pendingMuxes.filter(m => m !== mux)
       }));
     }
+
+    try {
+      const metaStore = await getMetaStore();
+      const cached = await metaStore.get<CachedMeta>(gid);
+      if (cached) {
+        await metaStore.set(gid, { ...cached, status: 'removed' });
+        if (mux) {
+          await metaStore.delete(mux.audioGid);
+        }
+        await metaStore.save();
+      }
+    } catch (e) {
+      console.warn('Failed to persist cancelled status to metaStore', e);
+    }
+
     await get().fetchDownloads();
   },
 
@@ -839,7 +1406,6 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
     }
 
     await aria2Client.purgeDownloadResult();
-    await get().fetchDownloads();
 
     try {
       const metaStore = await getMetaStore();
@@ -878,6 +1444,68 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
     } catch (e) {
       console.warn('Failed to clean up completed downloads metadata from store:', e);
     }
+
+    await get().fetchDownloads();
+  },
+
+  redownload: async (gid: string) => {
+    const state = get();
+    const allDownloads = [...state.active, ...state.completed, ...state.failed];
+    const dl = allDownloads.find(d => d.gid === gid);
+    if (!dl) return;
+
+    const meta = state.downloadMetadata[gid];
+    const metaStore = await getMetaStore();
+    const cached = await metaStore.get<CachedMeta>(gid);
+
+    const sourceUrl = meta?.sourceUrl || cached?.sourceUrl || dl.files?.[0]?.uris?.[0]?.uri;
+    const rawPath = dl.files?.[0]?.path || cached?.path || '';
+    const lastSlash = Math.max(rawPath.lastIndexOf('/'), rawPath.lastIndexOf('\\'));
+    const fileName = meta?.title || cached?.title || (lastSlash !== -1 ? rawPath.substring(lastSlash + 1) : rawPath);
+    const dir = dl.dir || cached?.dir || state.defaultDownloadDir || undefined;
+
+    if (!sourceUrl && !cached?.downloadUrl && !dl.files?.[0]?.uris?.[0]?.uri) {
+      console.warn('Cannot redownload: source URL not found for gid', gid);
+      return;
+    }
+
+    // If it is a YouTube / stream URL, stage it or re-extract
+    if (sourceUrl && (sourceUrl.includes('youtube.com') || sourceUrl.includes('youtu.be'))) {
+      try {
+        const { ytdlpClient } = await import('@/lib/ytdlpClient');
+        const info = await ytdlpClient.extractVideoInfo(sourceUrl);
+        if (info.formats && info.formats.length > 0) {
+          await state.stageDownload({
+            url: sourceUrl,
+            sourceUrl,
+            headers: cached?.headers || [],
+            filename: fileName || info.title,
+            mediaFormats: info.formats,
+          });
+          await state.deleteDownload(gid, false);
+          return;
+        }
+      } catch (e) {
+        console.warn('Failed to re-extract video info, falling back to direct add:', e);
+      }
+    }
+
+    // For direct downloads:
+    // Look for direct file URI:
+    const directUrl = cached?.downloadUrl || dl.files?.[0]?.uris?.find(u => u.uri && !u.uri.includes('undefined'))?.uri || cached?.files?.[0]?.uris?.[0]?.uri;
+    const urlToDownload = directUrl || sourceUrl;
+    if (!urlToDownload) {
+      console.warn('Cannot redownload: URL to download not found for gid', gid);
+      return;
+    }
+
+    const headers = cached?.headers || [];
+    const rawFileSize = cached?.totalLength ? parseInt(cached.totalLength, 10) : (dl.totalLength ? parseInt(dl.totalLength, 10) : undefined);
+    const isCorruptedLength = rawFileSize !== undefined && rawFileSize > 0 && rawFileSize < 4096;
+    const expectedFileSize = (!isCorruptedLength && rawFileSize && rawFileSize > 0) ? rawFileSize : undefined;
+
+    await state.addDownload(urlToDownload, headers, dir, fileName, undefined, undefined, sourceUrl, expectedFileSize);
+    await state.deleteDownload(gid, false);
   },
 
   setSpeedLimit: async (bytesPerSecond: string) => {

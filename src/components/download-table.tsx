@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useAppStore } from "@/store";
 import { Aria2Download } from "@/lib/aria2Client";
+import { DownloadContextMenu } from "@/components/download-context-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Play, Pause, X, FolderOpen, File, RefreshCw, Trash2, Film, Music, Archive, Code, FileText, Image as ImageIcon } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import { formatSpeed, decodeFilename, cn } from "@/lib/utils";
 
@@ -26,9 +26,24 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
   const cancelDownload = useAppStore((state) => state.cancelDownload);
   const addDownload = useAppStore((state) => state.addDownload);
   const deleteDownload = useAppStore((state) => state.deleteDownload);
+  const redownload = useAppStore((state) => state.redownload);
 
   const [deleteTargetGid, setDeleteTargetGid] = useState<string | null>(null);
   const [deleteLocalFile, setDeleteLocalFile] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    download: Aria2Download;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const uniqueDownloads = useMemo(() => { // agyis: no-mutant
+    const seen = new Set<string>(); // agyis: no-mutant
+    return downloads.filter((d) => { // agyis: no-mutant
+      if (!d.gid || seen.has(d.gid)) return false; // agyis: no-mutant
+      seen.add(d.gid); // agyis: no-mutant
+      return true; // agyis: no-mutant
+    }); // agyis: no-mutant
+  }, [downloads]);
 
   const handleDelete = async () => {
     if (deleteTargetGid) {
@@ -71,7 +86,10 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
     }
   };
 
-  const getStatusText = (status: string) => {
+  const getStatusText = (status: string, fileMissing?: boolean) => {
+    if (fileMissing) {
+      return isPlayfulMode ? "Missing 🐾" : "File Missing";
+    }
     if (isPlayfulMode) {
       switch (status) {
         case "muxing": return "Merging 🎬";
@@ -112,16 +130,16 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
         <thead className="bg-muted/40 text-muted-foreground border-b border-border font-medium select-none">
           <tr>
             <th className="py-2 px-3 w-auto min-w-0">File Name</th>
-            <th className="py-2 px-2.5 w-[76px]">Size</th>
+            <th className="py-2 px-2.5 w-[80px]">Size</th>
             <th className="py-2 px-2.5 w-[100px] sm:w-[110px]">Progress</th>
-            <th className="py-2 px-2.5 w-[76px]">Speed</th>
-            <th className="py-2 px-2.5 w-[58px] hidden sm:table-cell">ETA</th>
+            <th className="py-2 px-2.5 w-[96px] sm:w-[104px]">Speed</th>
+            <th className="py-2 px-2.5 w-[64px] sm:w-[72px] hidden sm:table-cell">ETA</th>
             <th className="py-2 px-2.5 w-[100px] sm:w-[112px]">Status</th>
             <th className="py-2 pl-2 pr-3 w-[88px] sm:w-[96px] text-right">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border/60">
-          {downloads.map((download) => {
+          {uniqueDownloads.map((download) => {
             const filePath = download.files[0]?.path || "Unknown File";
             const rawName = filePath.includes("/")
               ? filePath.split("/").pop()
@@ -134,10 +152,12 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
             const fileCompleted = download.files[0] ? parseInt(download.files[0].completedLength, 10) : 0;
             const totalLength = rawTotal > 0 ? rawTotal : fileTotal;
             const completedLength = rawCompleted > 0 ? rawCompleted : fileCompleted;
-            const progress = totalLength > 0 ? (completedLength / totalLength) * 100 : 0;
+            const isMuxing = download.status === "muxing";
+            const progress = isMuxing
+              ? (download.muxProgress ?? 0)
+              : (totalLength > 0 ? (completedLength / totalLength) * 100 : 0);
             const speed = parseInt(download.downloadSpeed, 10);
             const isSelected = selectedDownloadId === download.gid;
-            const isMuxing = download.status === "muxing";
 
             let etaStr = "--";
             if (download.status === "active" && speed > 0 && totalLength > completedLength) {
@@ -159,6 +179,11 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
                 tabIndex={0}
                 role="row"
                 aria-selected={isSelected}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setContextMenu({ download, x: e.clientX, y: e.clientY });
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
@@ -184,7 +209,7 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
                 </td>
 
                 {/* Size */}
-                <td className="py-1.5 px-2.5 w-[76px] text-muted-foreground whitespace-nowrap">
+                <td className="py-1.5 px-2.5 w-[80px] text-muted-foreground whitespace-nowrap">
                   {formatBytes(completedLength)}
                   {totalLength > 0 && (
                     <span className="text-muted-foreground/60 text-[11px] block">
@@ -198,14 +223,14 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
                   <div className="space-y-1">
                     <div className="flex justify-between text-[11px] text-muted-foreground font-mono">
                       <span>{progress.toFixed(0)}%</span>
-                      {isMuxing && <span className="text-primary font-sans text-[10px]">Merging</span>}
+                      {isMuxing && <span className="text-primary font-sans text-[10px]">Merging {download.muxProgress ?? 0}%</span>}
                     </div>
                     <Progress value={progress} className="h-1 bg-muted" />
                   </div>
                 </td>
 
                 {/* Speed */}
-                <td className="py-1.5 px-2.5 w-[76px] whitespace-nowrap text-muted-foreground font-mono">
+                <td className="py-1.5 px-2.5 w-[96px] sm:w-[104px] whitespace-nowrap text-muted-foreground font-mono">
                   {download.status === "active" && speed > 0 ? (
                     <span className="text-emerald-600 dark:text-emerald-400 font-medium">
                       {formatSpeed(speed, speedUnit)}
@@ -216,22 +241,23 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
                 </td>
 
                 {/* ETA */}
-                <td className="py-1.5 px-2.5 w-[58px] whitespace-nowrap text-muted-foreground font-mono text-[11px] hidden sm:table-cell">
+                <td className="py-1.5 px-2.5 w-[64px] sm:w-[72px] whitespace-nowrap text-muted-foreground font-mono text-[11px] hidden sm:table-cell">
                   {etaStr}
                 </td>
 
                 {/* Status */}
                 <td className="py-1.5 px-2.5 w-[100px] sm:w-[112px] whitespace-nowrap">
                   <Badge
-                    variant={getStatusBadgeVariant(download.status)}
+                    variant={download.fileMissing ? "outline" : getStatusBadgeVariant(download.status)}
                     className={cn(
                       "text-[10px] px-1.5 py-0 font-normal",
-                      download.status === "active" && "bg-primary/15 text-primary border-primary/20",
-                      download.status === "paused" && "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20",
-                      download.status === "complete" && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                      download.fileMissing && "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
+                      !download.fileMissing && download.status === "active" && "bg-primary/15 text-primary border-primary/20",
+                      !download.fileMissing && download.status === "paused" && "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20",
+                      !download.fileMissing && download.status === "complete" && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                     )}
                   >
-                    {getStatusText(download.status)}
+                    {getStatusText(download.status, download.fileMissing)}
                   </Badge>
                 </td>
 
@@ -280,28 +306,41 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
                       )}
 
                       {download.status === "complete" && (
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="h-6 w-6 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                          title="Open Folder"
-                          aria-label="Open download folder"
-                          onClick={async () => {
-                            const p = download.files[0]?.path;
-                            if (p) {
-                              try {
-                                await invoke("reveal_in_folder", { path: p });
-                              } catch (err) {
-                                console.warn("Reveal in folder failed:", err);
-                                if (download.dir) open(download.dir).catch(console.error);
+                        download.fileMissing ? (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="h-6 w-6 text-amber-500 hover:text-amber-400 hover:bg-amber-500/10"
+                            title="Redownload missing file"
+                            aria-label="Redownload missing file"
+                            onClick={() => redownload(download.gid)}
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="h-6 w-6 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                            title="Open Folder"
+                            aria-label="Open download folder"
+                            onClick={async () => {
+                              const p = download.files[0]?.path;
+                              if (p) {
+                                try {
+                                  await invoke("reveal_in_folder", { path: p });
+                                } catch (err) {
+                                  console.warn("Reveal in folder failed:", err);
+                                  if (download.dir) invoke("reveal_in_folder", { path: download.dir }).catch(console.error);
+                                }
+                              } else if (download.dir) {
+                                invoke("reveal_in_folder", { path: download.dir }).catch(console.error);
                               }
-                            } else if (download.dir) {
-                              open(download.dir).catch(console.error);
-                            }
-                          }}
-                        >
-                          <FolderOpen className="h-3 w-3" />
-                        </Button>
+                            }}
+                          >
+                            <FolderOpen className="h-3 w-3" />
+                          </Button>
+                        )
                       )}
 
                       {(download.status === "error" || download.status === "removed") && (
@@ -386,6 +425,42 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <DownloadContextMenu
+        download={contextMenu?.download ?? null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        onClose={() => setContextMenu(null)}
+        onPause={(gid) => pauseDownload(gid)}
+        onResume={(gid) => resumeDownload(gid)}
+        onOpenFile={async (path) => {
+          try {
+            await invoke("open_file", { path });
+          } catch (err) {
+            console.error("Open file failed:", err);
+          }
+        }}
+        onOpenFolder={async (path) => {
+          try {
+            await invoke("reveal_in_folder", { path });
+          } catch {
+            try {
+              await invoke("show_item_in_folder", { path });
+            } catch (err) {
+              console.warn("Reveal in folder failed:", err);
+              const dl = contextMenu?.download;
+              if (dl?.dir) invoke("reveal_in_folder", { path: dl.dir }).catch(console.error);
+            }
+          }
+        }}
+        onRedownload={(gid) => redownload(gid)}
+        onViewDetails={(gid) => setSelectedDownload(gid)}
+        onCopyPath={(path) => {
+          if (typeof navigator !== "undefined" && navigator.clipboard) {
+            navigator.clipboard.writeText(path).catch(console.error);
+          }
+        }}
+        onDelete={(gid) => setDeleteTargetGid(gid)}
+      />
     </div>
   );
 }

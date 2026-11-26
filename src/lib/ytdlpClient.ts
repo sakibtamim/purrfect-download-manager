@@ -33,6 +33,8 @@ export interface RawFormat {
   format_id?: string;
   resolution?: string;
   format_note?: string;
+  language?: string;
+  language_preference?: number;
   width?: number;
   height?: number;
 }
@@ -157,10 +159,23 @@ export const ytdlpClient = {
 
       let availableFormats: YtDlpFormat[] = [];
       if (data.formats && Array.isArray(data.formats)) {
-        // Find best audio that is direct HTTP
+        // Find best audio that is direct HTTP, prioritizing original / non-dubbed tracks
         const bestAudio = data.formats
           .filter((f: RawFormat) => f.acodec !== 'none' && f.vcodec === 'none' && isDirectHttp(f))
-          .sort((a: RawFormat, b: RawFormat) => (b.abr || 0) - (a.abr || 0))[0];
+          .sort((a: RawFormat, b: RawFormat) => {
+            // 1. Prefer original / default language track (language_preference >= 0)
+            const prefA = (a.language_preference ?? 0) >= 0 ? 1 : 0;
+            const prefB = (b.language_preference ?? 0) >= 0 ? 1 : 0;
+            if (prefB !== prefA) return prefB - prefA;
+
+            // 2. Avoid auto-dubbed tracks if non-dubbed is present
+            const isDubbedA = (a.format_note?.toLowerCase().includes('dubbed') || a.format_id?.toLowerCase().includes('dubbed')) ? 1 : 0;
+            const isDubbedB = (b.format_note?.toLowerCase().includes('dubbed') || b.format_id?.toLowerCase().includes('dubbed')) ? 1 : 0;
+            if (isDubbedA !== isDubbedB) return isDubbedA - isDubbedB;
+
+            // 3. Fall back to highest bitrate among matching candidates
+            return (b.abr || 0) - (a.abr || 0);
+          })[0];
 
         availableFormats = data.formats
           .filter((f: RawFormat) => f.vcodec !== 'none' && f.url && isDirectHttp(f))

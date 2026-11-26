@@ -34,7 +34,7 @@ export default function RootLayout({
             <Sidebar />
             <div className="flex-1 flex flex-col h-full min-w-0">
               <DashboardHeader />
-              <main id="main-content" className="flex-1 overflow-y-auto p-4 md:p-5 relative">
+              <main id="main-content" className="flex-1 overflow-y-auto p-4 md:p-5 relative min-h-0">
                 {children}
               </main>
               <DownloadDetailsPanel />

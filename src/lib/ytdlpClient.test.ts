@@ -144,6 +144,66 @@ describe('ytdlpClient.extractVideoInfo', () => {
     expect(format137?.audioUrl).not.toContain('.m3u8');
   });
 
+  it('prioritizes original / non-dubbed audio over higher-bitrate auto-dubbed audio', async () => {
+    const mockOutput = {
+      code: 0,
+      stdout: JSON.stringify({
+        title: 'Multi-language Audio Video',
+        formats: [
+          // Video only stream (1080p)
+          {
+            format_id: '137',
+            resolution: '1920x1080',
+            width: 1920,
+            height: 1080,
+            vcodec: 'avc1.640028',
+            acodec: 'none',
+            protocol: 'https',
+            url: 'https://video.example.com/137.mp4',
+            filesize: 300 * 1024 * 1024,
+          },
+          // Foreign auto-dubbed audio with higher bitrate (e.g. Malayalam 175 kbps, language_preference -10)
+          {
+            format_id: '251-dubbed-ml',
+            format_note: 'medium, dubbed',
+            vcodec: 'none',
+            acodec: 'opus',
+            abr: 175,
+            language: 'ml',
+            language_preference: -10,
+            protocol: 'https',
+            url: 'https://audio.example.com/foreign-dubbed.opus',
+            filesize: 25 * 1024 * 1024,
+          },
+          // Original English audio with lower bitrate (137 kbps, language_preference 0)
+          {
+            format_id: '251-original-en',
+            format_note: 'medium, original',
+            vcodec: 'none',
+            acodec: 'opus',
+            abr: 137,
+            language: 'en',
+            language_preference: 0,
+            protocol: 'https',
+            url: 'https://audio.example.com/original-en.opus',
+            filesize: 20 * 1024 * 1024,
+          },
+        ],
+      }),
+      stderr: '',
+    };
+
+    (Command.sidecar as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      execute: vi.fn().mockResolvedValue(mockOutput),
+    });
+
+    const info = await ytdlpClient.extractVideoInfo('https://www.youtube.com/watch?v=F_DVcBW3KAg');
+    const format137 = info.formats.find(f => f.format_id === '137');
+    expect(format137).toBeDefined();
+    expect(format137?.audioUrl).toBe('https://audio.example.com/original-en.opus');
+    expect(format137?.audioUrl).not.toBe('https://audio.example.com/foreign-dubbed.opus');
+  });
+
   it('passes --js-runtimes node to yt-dlp arguments to solve YouTube n cipher challenge', async () => {
     const mockOutput = {
       code: 0,

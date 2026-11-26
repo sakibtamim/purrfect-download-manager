@@ -155,5 +155,26 @@ export function AppInitializer() {
     };
   }, [fetchDownloads, stageDownload, initSettings, pauseAllDownloads, resumeAllDownloads]);
 
+  // Global WebKit/Browser context menu suppression
+  useEffect(() => {
+    const handleContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const isEditable =
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable ||
+        Boolean(target.closest("input, textarea, [contenteditable='true']"));
+      if (!isEditable) {
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener("contextmenu", handleContextMenu);
+    return () => {
+      window.removeEventListener("contextmenu", handleContextMenu);
+    };
+  }, []);
+
   return null;
 }
