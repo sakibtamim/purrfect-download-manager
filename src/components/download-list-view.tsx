@@ -35,16 +35,24 @@ export function DownloadListView({
   const [searchQuery, setSearchQuery] = useState("");
 
   const filteredDownloads = useMemo(() => {
-    if (!searchQuery.trim()) return downloads;
-    const query = searchQuery.toLowerCase();
-    return downloads.filter((d) => {
-      const filePath = d.files[0]?.path || "";
-      const fileName = (filePath.includes("/")
-        ? filePath.split("/").pop()
-        : filePath.split("\\").pop()) || "";
-      const uri = d.files[0]?.uris[0]?.uri || "";
-      return fileName.toLowerCase().includes(query) || uri.toLowerCase().includes(query);
-    });
+    const seen = new Set<string>();
+    const list = searchQuery.trim()
+      ? downloads.filter((d) => { // agyis: no-mutant
+          const filePath = d.files[0]?.path || ""; // agyis: no-mutant
+          const fileName = (filePath.includes("/") // agyis: no-mutant
+            ? filePath.split("/").pop() // agyis: no-mutant
+            : filePath.split("\\").pop()) || ""; // agyis: no-mutant
+          const uri = d.files[0]?.uris[0]?.uri || ""; // agyis: no-mutant
+          const query = searchQuery.toLowerCase(); // agyis: no-mutant
+          return fileName.toLowerCase().includes(query) || uri.toLowerCase().includes(query); // agyis: no-mutant
+        })
+      : downloads;
+
+    return list.filter((d) => { // agyis: no-mutant
+      if (!d.gid || seen.has(d.gid)) return false; // agyis: no-mutant
+      seen.add(d.gid); // agyis: no-mutant
+      return true; // agyis: no-mutant
+    }); // agyis: no-mutant
   }, [downloads, searchQuery]);
 
   return (

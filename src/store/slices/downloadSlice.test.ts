@@ -1361,4 +1361,138 @@ describe('Persistent completed download rehydration across app restarts', () => 
     expect(cached?.headers).toEqual(['Authorization: Bearer test-token', 'X-Custom-Header: value']);
     expect(cached?.title).toBe('archive.zip');
   });
+
+  it('fetchDownloads enforces strict mutual exclusivity and deduplication across active, completed, and failed', async () => {
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([
+      {
+        gid: 'overlap-gid-1',
+        status: 'active',
+        totalLength: '1000',
+        completedLength: '500',
+        downloadSpeed: '100',
+        dir: '/downloads',
+        files: [{ path: '/downloads/active.zip', length: '1000', completedLength: '500', uris: [] }],
+      },
+      {
+        gid: 'overlap-gid-1',
+        status: 'active',
+        totalLength: '1000',
+        completedLength: '500',
+        downloadSpeed: '100',
+        dir: '/downloads',
+        files: [{ path: '/downloads/active.zip', length: '1000', completedLength: '500', uris: [] }],
+      },
+    ]);
+
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([
+      {
+        gid: 'overlap-gid-1',
+        status: 'complete',
+        totalLength: '1000',
+        completedLength: '1000',
+        downloadSpeed: '0',
+        dir: '/downloads',
+        files: [{ path: '/downloads/active.zip', length: '1000', completedLength: '1000', uris: [] }],
+      },
+      {
+        gid: 'overlap-gid-2',
+        status: 'complete',
+        totalLength: '2000',
+        completedLength: '2000',
+        downloadSpeed: '0',
+        dir: '/downloads',
+        files: [{ path: '/downloads/completed.zip', length: '2000', completedLength: '2000', uris: [] }],
+      },
+      {
+        gid: 'overlap-gid-2',
+        status: 'complete',
+        totalLength: '2000',
+        completedLength: '2000',
+        downloadSpeed: '0',
+        dir: '/downloads',
+        files: [{ path: '/downloads/completed.zip', length: '2000', completedLength: '2000', uris: [] }],
+      },
+      {
+        gid: 'overlap-gid-2',
+        status: 'removed',
+        totalLength: '2000',
+        completedLength: '2000',
+        downloadSpeed: '0',
+        dir: '/downloads',
+        files: [{ path: '/downloads/completed.zip', length: '2000', completedLength: '2000', uris: [] }],
+      },
+      {
+        gid: 'overlap-gid-3',
+        status: 'error',
+        totalLength: '3000',
+        completedLength: '0',
+        downloadSpeed: '0',
+        dir: '/downloads',
+        files: [{ path: '/downloads/failed.zip', length: '3000', completedLength: '0', uris: [] }],
+      },
+      {
+        gid: 'overlap-gid-3',
+        status: 'error',
+        totalLength: '3000',
+        completedLength: '0',
+        downloadSpeed: '0',
+        dir: '/downloads',
+        files: [{ path: '/downloads/failed.zip', length: '3000', completedLength: '0', uris: [] }],
+      },
+    ]);
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().fetchDownloads();
+
+    const { active, completed, failed } = useTestStore.getState();
+
+    // overlap-gid-1 must be deduplicated and only in active
+    expect(active.filter(d => d.gid === 'overlap-gid-1').length).toBe(1);
+    expect(completed.some(d => d.gid === 'overlap-gid-1')).toBe(false);
+    expect(failed.some(d => d.gid === 'overlap-gid-1')).toBe(false);
+
+    // overlap-gid-2 must be deduplicated and only in completed
+    expect(completed.filter(d => d.gid === 'overlap-gid-2').length).toBe(1);
+    expect(failed.some(d => d.gid === 'overlap-gid-2')).toBe(false);
+
+    // overlap-gid-3 must be deduplicated and only in failed
+    expect(failed.filter(d => d.gid === 'overlap-gid-3').length).toBe(1);
+
+    // Mutual exclusivity assertion
+    const allGids = [...active.map(d => d.gid), ...completed.map(d => d.gid), ...failed.map(d => d.gid)];
+    const uniqueGids = new Set(allGids);
+    expect(allGids.length).toBe(3);
+    expect(allGids.length).toBe(uniqueGids.size);
+  });
+
+  it('fetchDownloads does not rehydrate a removed download into completed when totalLength equals completedLength', async () => {
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([]);
+
+    const metaStore = await getMetaStore();
+    await metaStore.set('cancelled-867-gid', {
+      status: 'removed',
+      title: 'cancelled-file.zip',
+      totalLength: '867',
+      completedLength: '867',
+      addedAt: Date.now(),
+    });
+    await metaStore.save();
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().fetchDownloads();
+
+    const { completed, failed } = useTestStore.getState();
+    expect(completed.some(d => d.gid === 'cancelled-867-gid')).toBe(false);
+    expect(failed.some(d => d.gid === 'cancelled-867-gid')).toBe(true);
+  });
 });

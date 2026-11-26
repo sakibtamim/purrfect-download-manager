@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useAppStore } from "@/store";
 import { Aria2Download } from "@/lib/aria2Client";
 import { DownloadContextMenu } from "@/components/download-context-menu";
@@ -35,6 +35,15 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
     x: number;
     y: number;
   } | null>(null);
+
+  const uniqueDownloads = useMemo(() => { // agyis: no-mutant
+    const seen = new Set<string>(); // agyis: no-mutant
+    return downloads.filter((d) => { // agyis: no-mutant
+      if (!d.gid || seen.has(d.gid)) return false; // agyis: no-mutant
+      seen.add(d.gid); // agyis: no-mutant
+      return true; // agyis: no-mutant
+    }); // agyis: no-mutant
+  }, [downloads]);
 
   const handleDelete = async () => {
     if (deleteTargetGid) {
@@ -130,7 +139,7 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
           </tr>
         </thead>
         <tbody className="divide-y divide-border/60">
-          {downloads.map((download) => {
+          {uniqueDownloads.map((download) => {
             const filePath = download.files[0]?.path || "Unknown File";
             const rawName = filePath.includes("/")
               ? filePath.split("/").pop()

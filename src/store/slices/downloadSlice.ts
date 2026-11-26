@@ -555,7 +555,7 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
             const cached = await metaStore.get<CachedMeta>(key);
             if (cached) {
               const isComplete = cached.status === 'complete' ||
-                (Boolean(cached.totalLength) && cached.totalLength !== '0' && cached.totalLength === cached.completedLength);
+                (!cached.status && Boolean(cached.totalLength) && cached.totalLength !== '0' && cached.totalLength === cached.completedLength);
 
               if (isComplete) {
                 // Disk Reality Check: Verify candidate paths to ensure the file was not deleted from disk
@@ -727,10 +727,38 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         }
       }
 
+      // Deduplicate and enforce strict mutual exclusivity across active, completed, and failed lists
+      const activeGids = new Set<string>();
+      const uniqueActive: Aria2Download[] = [];
+      for (const dl of filteredActive) {
+        if (dl.gid && !activeGids.has(dl.gid)) {
+          activeGids.add(dl.gid);
+          uniqueActive.push(dl);
+        }
+      }
+
+      const completedGids = new Set<string>();
+      const uniqueCompleted: Aria2Download[] = [];
+      for (const dl of filteredCompleted) {
+        if (dl.gid && !activeGids.has(dl.gid) && !completedGids.has(dl.gid)) {
+          completedGids.add(dl.gid);
+          uniqueCompleted.push(dl);
+        }
+      }
+
+      const uniqueFailed: Aria2Download[] = [];
+      const failedGids = new Set<string>();
+      for (const dl of filteredFailed) {
+        if (dl.gid && !activeGids.has(dl.gid) && !completedGids.has(dl.gid) && !failedGids.has(dl.gid)) {
+          failedGids.add(dl.gid);
+          uniqueFailed.push(dl);
+        }
+      }
+
       set({
-        active: filteredActive,
-        completed: filteredCompleted,
-        failed: filteredFailed,
+        active: uniqueActive,
+        completed: uniqueCompleted,
+        failed: uniqueFailed,
         globalSpeed: stats.downloadSpeed,
         downloadMetadata: metadataUpdates,
         engineStatus: 'connected',
