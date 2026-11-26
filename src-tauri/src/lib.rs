@@ -1198,6 +1198,41 @@ fn delete_downloaded_file(app: tauri::AppHandle, path: String, custom_dir: Optio
 }
 
 #[tauri::command]
+fn open_file(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err("File does not exist".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let win_path = path.replace('/', "\\");
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "", &win_path])
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file via xdg-open: {}", e))?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 fn reveal_in_folder(path: String) -> Result<(), String> {
     let p = std::path::Path::new(&path);
     if !p.exists() {
@@ -2109,6 +2144,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
         delete_downloaded_file,
         check_downloaded_file_exists,
+        open_file,
         reveal_in_folder,
         raise_window,
         take_pending_startup_action,

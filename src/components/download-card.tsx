@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Play, Pause, X, FolderOpen, File, RefreshCw, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import { formatSpeed, decodeFilename } from "@/lib/utils";
 
@@ -243,10 +242,10 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
                           await invoke('reveal_in_folder', { path: filePath });
                         } catch (err) {
                           console.error("Reveal in folder failed:", err);
-                          if (download.dir) open(download.dir).catch(console.error);
+                          if (download.dir) invoke('reveal_in_folder', { path: download.dir }).catch(console.error);
                         }
                       } else if (download.dir) {
-                        open(download.dir).catch(console.error);
+                        invoke('reveal_in_folder', { path: download.dir }).catch(console.error);
                       }
                     }}
                   >
@@ -358,7 +357,7 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
         onResume={(gid) => !isMuxing && resumeDownload(gid)}
         onOpenFile={async (path) => {
           try {
-            await open(path);
+            await invoke("open_file", { path });
           } catch (err) {
             console.error("Open file failed:", err);
           }
@@ -371,17 +370,12 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
               await invoke("show_item_in_folder", { path });
             } catch (err) {
               console.warn("Reveal in folder failed:", err);
-              if (download.dir) open(download.dir).catch(console.error);
+              if (download.dir) invoke("reveal_in_folder", { path: download.dir }).catch(console.error);
             }
           }
         }}
         onRedownload={(gid) => redownload(gid)}
         onViewDetails={(gid) => setSelectedDownload(gid)}
-        onCopyLink={(url) => {
-          if (typeof navigator !== "undefined" && navigator.clipboard) {
-            navigator.clipboard.writeText(url).catch(console.error);
-          }
-        }}
         onCopyPath={(path) => {
           if (typeof navigator !== "undefined" && navigator.clipboard) {
             navigator.clipboard.writeText(path).catch(console.error);

@@ -10,7 +10,6 @@ import {
   FileText,
   RefreshCw,
   Copy,
-  Link,
   Info,
   Trash2,
 } from "lucide-react";
@@ -36,7 +35,6 @@ export interface DownloadContextMenuProps {
   onOpenFolder?: (filePath: string) => void;
   onRedownload?: (gid: string) => void;
   onViewDetails?: (gid: string) => void;
-  onCopyLink?: (url: string) => void;
   onCopyPath?: (path: string) => void;
   onDelete?: (gid: string) => void;
   isPlayfulMode?: boolean;
@@ -121,13 +119,11 @@ export function DownloadContextMenu({
   onOpenFolder,
   onRedownload,
   onViewDetails,
-  onCopyLink,
   onCopyPath,
   onDelete,
   isPlayfulMode: propPlayfulMode,
 }: DownloadContextMenuProps) {
   const storePlayfulMode = useAppStore((state) => state.isPlayfulMode);
-  const downloadMetadata = useAppStore((state) => state.downloadMetadata);
   const isPlayful = propPlayfulMode ?? storePlayfulMode;
 
   const menuRef = useRef<HTMLDivElement>(null);
@@ -200,9 +196,7 @@ export function DownloadContextMenu({
 
   if (!download || !position) return null;
 
-  const metaUrl = downloadMetadata[download.gid]?.sourceUrl;
   const actions = getDownloadContextMenuActions(download, { isPlayfulMode: isPlayful });
-  const finalDownloadUrl = metaUrl || actions.downloadUrl;
   const filePath = actions.filePath;
 
   return (
@@ -309,27 +303,7 @@ export function DownloadContextMenu({
       {/* Separator */}
       <div className="my-1 h-px bg-border/60" role="separator" />
 
-      {/* 6. Copy Download Link */}
-      <button
-        type="button"
-        role="menuitem"
-        disabled={!finalDownloadUrl}
-        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-xs font-medium text-foreground hover:bg-muted/80 focus:bg-muted/80 focus:outline-none transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-        onClick={() => {
-          if (finalDownloadUrl) {
-            onCopyLink?.(finalDownloadUrl);
-            if (!onCopyLink && typeof navigator !== "undefined" && navigator.clipboard) {
-              navigator.clipboard.writeText(finalDownloadUrl);
-            }
-          }
-          onClose();
-        }}
-      >
-        <Link className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        <span className="truncate">Copy Download Link</span>
-      </button>
-
-      {/* 7. Copy File Path */}
+      {/* 6. Copy File Path */}
       <button
         type="button"
         role="menuitem"

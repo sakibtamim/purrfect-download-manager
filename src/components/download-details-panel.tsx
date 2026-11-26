@@ -23,7 +23,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import { formatSpeed, decodeFilename } from "@/lib/utils";
 
@@ -355,7 +354,7 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
                 type="button"
                 onClick={async () => {
                   const fp = download.files[0]?.path;
-                  if (fp) open(fp).catch(console.error);
+                  if (fp) invoke("open_file", { path: fp }).catch(console.error);
                 }}
                 className="px-2.5 py-1 rounded-md text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
               >
@@ -372,10 +371,10 @@ function DownloadDetailsPanelContent({ selectedDownloadId }: { selectedDownloadI
                 try {
                   await invoke('reveal_in_folder', { path: fp });
                 } catch {
-                  if (download.dir) open(download.dir).catch(console.error);
+                  if (download.dir) invoke('reveal_in_folder', { path: download.dir }).catch(console.error);
                 }
               } else if (download.dir) {
-                open(download.dir).catch(console.error);
+                invoke('reveal_in_folder', { path: download.dir }).catch(console.error);
               }
             }}
             className="px-2.5 py-1 rounded-md text-xs font-medium bg-card hover:bg-muted border border-border text-foreground flex items-center gap-1 transition-colors cursor-pointer"

@@ -175,7 +175,7 @@ describe("DownloadContextMenu - Component Rendering", () => {
     expect(html).not.toContain("Resume");
     expect(html).toContain("Open Destination Folder");
     expect(html).toContain("Redownload");
-    expect(html).toContain("Copy Download Link");
+    expect(html).not.toContain("Copy Download Link");
     expect(html).toContain("Copy File Path");
     expect(html).toContain("View Details");
     expect(html).toContain("Remove");
