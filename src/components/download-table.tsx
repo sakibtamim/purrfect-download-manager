@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useAppStore } from "@/store";
 import { Aria2Download } from "@/lib/aria2Client";
+import { DownloadContextMenu } from "@/components/download-context-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -30,6 +31,11 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
 
   const [deleteTargetGid, setDeleteTargetGid] = useState<string | null>(null);
   const [deleteLocalFile, setDeleteLocalFile] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    download: Aria2Download;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const handleDelete = async () => {
     if (deleteTargetGid) {
@@ -165,6 +171,11 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
                 tabIndex={0}
                 role="row"
                 aria-selected={isSelected}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setContextMenu({ download, x: e.clientX, y: e.clientY });
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
@@ -406,6 +417,47 @@ export function DownloadTable({ downloads }: DownloadTableProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <DownloadContextMenu
+        download={contextMenu?.download ?? null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        onClose={() => setContextMenu(null)}
+        onPause={(gid) => pauseDownload(gid)}
+        onResume={(gid) => resumeDownload(gid)}
+        onOpenFile={async (path) => {
+          try {
+            await open(path);
+          } catch (err) {
+            console.error("Open file failed:", err);
+          }
+        }}
+        onOpenFolder={async (path) => {
+          try {
+            await invoke("reveal_in_folder", { path });
+          } catch {
+            try {
+              await invoke("show_item_in_folder", { path });
+            } catch (err) {
+              console.warn("Reveal in folder failed:", err);
+              const dl = contextMenu?.download;
+              if (dl?.dir) open(dl.dir).catch(console.error);
+            }
+          }
+        }}
+        onRedownload={(gid) => redownload(gid)}
+        onViewDetails={(gid) => setSelectedDownload(gid)}
+        onCopyLink={(url) => {
+          if (typeof navigator !== "undefined" && navigator.clipboard) {
+            navigator.clipboard.writeText(url).catch(console.error);
+          }
+        }}
+        onCopyPath={(path) => {
+          if (typeof navigator !== "undefined" && navigator.clipboard) {
+            navigator.clipboard.writeText(path).catch(console.error);
+          }
+        }}
+        onDelete={(gid) => setDeleteTargetGid(gid)}
+      />
     </div>
   );
 }

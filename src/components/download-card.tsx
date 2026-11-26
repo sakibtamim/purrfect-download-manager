@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useAppStore } from "@/store";
 import { Aria2Download } from "@/lib/aria2Client";
+import { DownloadContextMenu } from "@/components/download-context-menu";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +28,7 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteLocalFile, setDeleteLocalFile] = useState(false);
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
   const isMuxing = (download.status as string) === "muxing";
 
   const handleDelete = async () => {
@@ -152,6 +154,11 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
       role="button"
       tabIndex={0}
       onClick={() => setSelectedDownload(isSelected ? null : download.gid)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenuPos({ x: e.clientX, y: e.clientY });
+      }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
@@ -342,6 +349,46 @@ export function DownloadCard({ download }: { download: Aria2Download }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <DownloadContextMenu
+        download={download}
+        position={contextMenuPos}
+        onClose={() => setContextMenuPos(null)}
+        onPause={(gid) => !isMuxing && pauseDownload(gid)}
+        onResume={(gid) => !isMuxing && resumeDownload(gid)}
+        onOpenFile={async (path) => {
+          try {
+            await open(path);
+          } catch (err) {
+            console.error("Open file failed:", err);
+          }
+        }}
+        onOpenFolder={async (path) => {
+          try {
+            await invoke("reveal_in_folder", { path });
+          } catch {
+            try {
+              await invoke("show_item_in_folder", { path });
+            } catch (err) {
+              console.warn("Reveal in folder failed:", err);
+              if (download.dir) open(download.dir).catch(console.error);
+            }
+          }
+        }}
+        onRedownload={(gid) => redownload(gid)}
+        onViewDetails={(gid) => setSelectedDownload(gid)}
+        onCopyLink={(url) => {
+          if (typeof navigator !== "undefined" && navigator.clipboard) {
+            navigator.clipboard.writeText(url).catch(console.error);
+          }
+        }}
+        onCopyPath={(path) => {
+          if (typeof navigator !== "undefined" && navigator.clipboard) {
+            navigator.clipboard.writeText(path).catch(console.error);
+          }
+        }}
+        onDelete={() => setIsDeleteDialogOpen(true)}
+      />
     </Card>
   );
 }
