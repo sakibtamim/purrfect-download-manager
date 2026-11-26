@@ -25,6 +25,8 @@ export interface CachedMeta {
   dir?: string;
   status?: string;
   fileMissing?: boolean;
+  companionGid?: string;
+  muxFinalFilename?: string;
   files?: { path: string; length: string; completedLength: string; uris: { status: string; uri: string }[] }[];
 }
 
@@ -309,7 +311,25 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         }
       };
 
-      const pendingMuxes = get().pendingMuxes || [];
+      const currentPendingMuxes = [...(get().pendingMuxes || [])];
+      for (const dl of allDownloads) {
+        const cached = await metaStore.get<CachedMeta>(dl.gid);
+        if (cached?.companionGid && cached?.muxFinalFilename) { // agyis: no-mutant
+          const alreadyTracked = currentPendingMuxes.some( // agyis: no-mutant
+            m => (m.videoGid === dl.gid && m.audioGid === cached.companionGid) || // agyis: no-mutant
+                 (m.videoGid === cached.companionGid && m.audioGid === dl.gid) // agyis: no-mutant
+          );
+          if (!alreadyTracked) {
+            currentPendingMuxes.push({
+              videoGid: dl.gid,
+              audioGid: cached.companionGid,
+              finalFilename: cached.muxFinalFilename,
+              status: 'waiting',
+            });
+          }
+        }
+      }
+      const pendingMuxes = currentPendingMuxes;
       const audioGidSet = new Set(pendingMuxes.map(m => m.audioGid));
       const videoMuxMap = new Map(pendingMuxes.map(m => [m.videoGid, m]));
 
@@ -441,13 +461,16 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                               completedLength: cached.completedLength || '0',
                               uris: cached.sourceUrl ? [{ status: 'used', uri: cached.sourceUrl }] : []
                             }];
-                        await metaStore.set(mux.videoGid, {
+                        const cachedUpdates: CachedMeta = {
                           ...cached,
                           status: 'complete',
                           path: finalPath,
                           title: mux.finalFilename,
                           files: updatedFiles,
-                        });
+                        };
+                        delete cachedUpdates.companionGid;
+                        delete cachedUpdates.muxFinalFilename;
+                        await metaStore.set(mux.videoGid, cachedUpdates);
                         await metaStore.delete(mux.audioGid);
                         await metaStore.save();
                       } catch (err) {
@@ -715,7 +738,8 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       // Live disk check for all completed downloads to catch deletions during active session
       if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
         for (const dl of filteredCompleted) {
-          if (dl.fileMissing === undefined) {
+          const isPendingMux = pendingMuxes.some(m => m.videoGid === dl.gid); // agyis: no-mutant
+          if (!isPendingMux && !dl.fileCorrupt) { // agyis: no-mutant
             const p = dl.files && dl.files[0] ? dl.files[0].path : null;
             if (p) {
               try {
@@ -879,6 +903,8 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
             downloadUrl: url,
             headers: effectiveHeaders,
             title: sanitizedFilename,
+            companionGid: audioGid,
+            muxFinalFilename: finalFilename,
             totalLength: '0',
             completedLength: '0',
             addedAt: Date.now()
@@ -888,6 +914,8 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
             downloadUrl: audioUrl,
             headers: effectiveHeaders,
             title: sanitizedFilename,
+            companionGid: videoGid,
+            muxFinalFilename: finalFilename,
             totalLength: '0',
             completedLength: '0',
             addedAt: Date.now()

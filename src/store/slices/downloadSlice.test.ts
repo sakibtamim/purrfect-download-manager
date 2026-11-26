@@ -1495,4 +1495,51 @@ describe('Persistent completed download rehydration across app restarts', () => 
     expect(completed.some(d => d.gid === 'cancelled-867-gid')).toBe(false);
     expect(failed.some(d => d.gid === 'cancelled-867-gid')).toBe(true);
   });
+
+  it('fetchDownloads reconstructs pendingMuxes from metaStore across page reload', async () => {
+    vi.spyOn(aria2Client, 'tellActive').mockResolvedValue([
+      {
+        gid: 'reconstruct-vid',
+        status: 'active',
+        totalLength: '2000',
+        completedLength: '1000',
+        downloadSpeed: '50',
+        dir: '/downloads',
+        files: [{ path: '/downloads/movie.video.mp4', length: '2000', completedLength: '1000', uris: [] }],
+      },
+      {
+        gid: 'reconstruct-aud',
+        status: 'active',
+        totalLength: '500',
+        completedLength: '250',
+        downloadSpeed: '10',
+        dir: '/downloads',
+        files: [{ path: '/downloads/movie.audio.m4a', length: '500', completedLength: '250', uris: [] }],
+      },
+    ]);
+    vi.spyOn(aria2Client, 'tellWaiting').mockResolvedValue([]);
+    vi.spyOn(aria2Client, 'tellStopped').mockResolvedValue([]);
+
+    const metaStore = await getMetaStore();
+    await metaStore.set('reconstruct-vid', {
+      companionGid: 'reconstruct-aud',
+      muxFinalFilename: 'movie.mp4',
+      totalLength: '2000',
+      completedLength: '1000',
+      addedAt: Date.now(),
+    });
+    await metaStore.save();
+
+    const useTestStore = create<DownloadDataSlice & { pendingMuxes: PendingMux[] }>()((set, get, api) => ({
+      ...createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>),
+      pendingMuxes: [], // Empty initially (e.g. fresh reload)
+    }));
+
+    await useTestStore.getState().fetchDownloads();
+
+    const { active } = useTestStore.getState();
+    // Video should be in active list, and companion audio filtered out
+    expect(active.some(d => d.gid === 'reconstruct-vid')).toBe(true);
+    expect(active.some(d => d.gid === 'reconstruct-aud')).toBe(false);
+  });
 });
