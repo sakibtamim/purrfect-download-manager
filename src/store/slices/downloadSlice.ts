@@ -11,11 +11,15 @@ import { formatChecksum, decodeFilename, parseContentDispositionFilename, type D
 import { calculateOptimalSplit } from '@/lib/networkOptimizer';
 import { DownloadState, StagedDownload } from '../types';
 
-interface CachedMeta {
+export interface CachedMeta {
   totalLength: string;
   completedLength: string;
   addedAt?: number;
   sourceUrl?: string;
+  downloadUrl?: string;
+  headers?: string[];
+  isCorrupted?: boolean;
+  fileCorrupt?: boolean;
   title?: string;
   path?: string;
   dir?: string;
@@ -23,6 +27,8 @@ interface CachedMeta {
   fileMissing?: boolean;
   files?: { path: string; length: string; completedLength: string; uris: { status: string; uri: string }[] }[];
 }
+
+export const BINARY_MEDIA_EXTENSIONS = /\.(mkv|mp4|avi|mov|webm|flv|wmv|m4v|mpg|mpeg|zip|rar|7z|tar|gz|bz2|xz|exe|iso|dmg|bin|apk|msi)$/i;
 
 const mockMetaStore = new Map<string, unknown>();
 let metaStoreCache: Store | null = null;
@@ -212,12 +218,31 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
           const resolvedFiles = (dl.files && dl.files.length > 0) ? dl.files : cached.files;
           const resolvedPath = cached.path || dl.files?.[0]?.path;
           const resolvedTitle = cached.title || (dl.files?.[0]?.path ? decodeFilename(dl.files[0].path.split(/[/\\]/).pop() || '') : undefined);
+          const uriFromDl = dl.files?.[0]?.uris?.find(u => u.uri && !u.uri.includes('undefined') && u.uri !== 'Unknown URL')?.uri;
+          const resolvedDownloadUrl = uriFromDl || cached.downloadUrl;
+          const resolvedHeaders = cached.headers;
+
+          // HTML Trap Detection: Check if media or binary file is under 4KB (masquerading HTML error page)
+          const filePathOrTitle = resolvedPath || resolvedTitle || '';
+          const totalBytes = parseInt(dl.totalLength || cached.totalLength || '0', 10);
+          const isBinaryMedia = BINARY_MEDIA_EXTENSIONS.test(filePathOrTitle);
+          const isHtmlTrap = isBinaryMedia && totalBytes > 0 && totalBytes < 4096;
+
+          if (isHtmlTrap) {
+            dl.fileCorrupt = true;
+            dl.fileMissing = true;
+            cached.isCorrupted = true;
+            cached.fileCorrupt = true;
+            cached.fileMissing = true;
+          }
 
           if (
             cached.status !== 'complete' ||
             cached.dir !== resolvedDir ||
             cached.path !== resolvedPath ||
             cached.title !== resolvedTitle ||
+            cached.downloadUrl !== resolvedDownloadUrl ||
+            cached.isCorrupted !== (isHtmlTrap || Boolean(cached.isCorrupted)) ||
             (!cached.files && resolvedFiles) ||
             (resolvedFiles && cached.files && cached.files.length !== resolvedFiles.length)
           ) {
@@ -228,6 +253,11 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
               files: resolvedFiles,
               path: resolvedPath,
               title: resolvedTitle,
+              downloadUrl: resolvedDownloadUrl,
+              headers: resolvedHeaders,
+              isCorrupted: isHtmlTrap || Boolean(cached.isCorrupted),
+              fileCorrupt: isHtmlTrap || Boolean(cached.fileCorrupt),
+              fileMissing: isHtmlTrap ? true : cached.fileMissing,
             };
             await metaStore.set(dl.gid, cached);
             hasChanges = true;
@@ -533,7 +563,24 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                 let resolvedDir = cached.dir;
                 let isFileMissing = false;
 
-                if (isTauriEnv) {
+                const checkPathOrTitle = cached.path || cached.title || '';
+                const totalBytes = parseInt(cached.totalLength || '0', 10);
+                const isBinaryMedia = BINARY_MEDIA_EXTENSIONS.test(checkPathOrTitle);
+                const isHtmlTrap = isBinaryMedia && totalBytes > 0 && totalBytes < 4096;
+                const isCorrupted = isHtmlTrap || Boolean(cached.isCorrupted || cached.fileCorrupt);
+
+                if (isCorrupted) {
+                  isFileMissing = true;
+                  if (!cached.isCorrupted || !cached.fileMissing) {
+                    cached.isCorrupted = true;
+                    cached.fileCorrupt = true;
+                    cached.fileMissing = true;
+                    await metaStore.set(key, cached);
+                    storeMutated = true;
+                  }
+                }
+
+                if (isTauriEnv && !isCorrupted) {
                   const candidatePaths: string[] = [];
                   if (cached.path) {
                     candidatePaths.push(cached.path);
@@ -597,6 +644,7 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                   gid: key,
                   status: 'complete',
                   fileMissing: isFileMissing,
+                  fileCorrupt: isCorrupted,
                   totalLength: cached.totalLength,
                   completedLength: cached.completedLength,
                   downloadSpeed: '0',
@@ -607,7 +655,7 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
                         path: resolvedFilePath || '',
                         length: cached.totalLength,
                         completedLength: cached.completedLength,
-                        uris: cached.sourceUrl ? [{ status: 'used', uri: cached.sourceUrl }] : []
+                        uris: (cached.downloadUrl || cached.sourceUrl) ? [{ status: 'used', uri: (cached.downloadUrl || cached.sourceUrl)! }] : []
                       }],
                   addedAt: cached.addedAt || Date.now(),
                 };
@@ -798,8 +846,24 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       if (sourceUrl || sanitizedFilename) { // agyis: no-mutant
         try {
           const metaStore = await getMetaStore();
-          await metaStore.set(videoGid, { sourceUrl, title: sanitizedFilename, totalLength: '0', completedLength: '0', addedAt: Date.now() }); // agyis: no-mutant
-          await metaStore.set(audioGid, { sourceUrl, title: sanitizedFilename, totalLength: '0', completedLength: '0', addedAt: Date.now() }); // agyis: no-mutant
+          await metaStore.set(videoGid, {
+            sourceUrl,
+            downloadUrl: url,
+            headers: effectiveHeaders,
+            title: sanitizedFilename,
+            totalLength: '0',
+            completedLength: '0',
+            addedAt: Date.now()
+          }); // agyis: no-mutant
+          await metaStore.set(audioGid, {
+            sourceUrl,
+            downloadUrl: audioUrl,
+            headers: effectiveHeaders,
+            title: sanitizedFilename,
+            totalLength: '0',
+            completedLength: '0',
+            addedAt: Date.now()
+          }); // agyis: no-mutant
           await metaStore.save();
         } catch (e) {
           console.warn('Failed to save download meta to store', e);
@@ -868,7 +932,15 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
         }));
         try {
           const metaStore = await getMetaStore();
-          await metaStore.set(gid, { sourceUrl, title: finalFilename, totalLength: '0', completedLength: '0', addedAt: Date.now() });
+          await metaStore.set(gid, {
+            sourceUrl,
+            downloadUrl: url,
+            headers,
+            title: sanitizedFilename || finalFilename,
+            totalLength: resolvedFileSize ? String(resolvedFileSize) : '0',
+            completedLength: '0',
+            addedAt: Date.now()
+          });
           await metaStore.save();
         } catch (e) {
           console.warn('Failed to save download meta to store', e);
@@ -1183,19 +1255,19 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
     const metaStore = await getMetaStore();
     const cached = await metaStore.get<CachedMeta>(gid);
 
-    const sourceUrl = meta?.sourceUrl || cached?.sourceUrl || dl.files[0]?.uris[0]?.uri;
-    const rawPath = dl.files[0]?.path || cached?.path || '';
+    const sourceUrl = meta?.sourceUrl || cached?.sourceUrl || dl.files?.[0]?.uris?.[0]?.uri;
+    const rawPath = dl.files?.[0]?.path || cached?.path || '';
     const lastSlash = Math.max(rawPath.lastIndexOf('/'), rawPath.lastIndexOf('\\'));
     const fileName = meta?.title || cached?.title || (lastSlash !== -1 ? rawPath.substring(lastSlash + 1) : rawPath);
     const dir = dl.dir || cached?.dir || state.defaultDownloadDir || undefined;
 
-    if (!sourceUrl) {
+    if (!sourceUrl && !cached?.downloadUrl && !dl.files?.[0]?.uris?.[0]?.uri) {
       console.warn('Cannot redownload: source URL not found for gid', gid);
       return;
     }
 
     // If it is a YouTube / stream URL, stage it or re-extract
-    if (sourceUrl.includes('youtube.com') || sourceUrl.includes('youtu.be')) {
+    if (sourceUrl && (sourceUrl.includes('youtube.com') || sourceUrl.includes('youtu.be'))) {
       try {
         const { ytdlpClient } = await import('@/lib/ytdlpClient');
         const info = await ytdlpClient.extractVideoInfo(sourceUrl);
@@ -1203,7 +1275,7 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
           await state.stageDownload({
             url: sourceUrl,
             sourceUrl,
-            headers: [],
+            headers: cached?.headers || [],
             filename: fileName || info.title,
             mediaFormats: info.formats,
           });
@@ -1215,8 +1287,21 @@ export const createDownloadSlice: StateCreator<DownloadState, [], [], DownloadDa
       }
     }
 
-    // Direct download: add to download queue and remove the old missing record
-    await state.addDownload(sourceUrl, [], dir, fileName, undefined, undefined, sourceUrl);
+    // For direct downloads:
+    // Look for direct file URI:
+    const directUrl = cached?.downloadUrl || dl.files?.[0]?.uris?.find(u => u.uri && !u.uri.includes('undefined'))?.uri || cached?.files?.[0]?.uris?.[0]?.uri;
+    const urlToDownload = directUrl || sourceUrl;
+    if (!urlToDownload) {
+      console.warn('Cannot redownload: URL to download not found for gid', gid);
+      return;
+    }
+
+    const headers = cached?.headers || [];
+    const rawFileSize = cached?.totalLength ? parseInt(cached.totalLength, 10) : (dl.totalLength ? parseInt(dl.totalLength, 10) : undefined);
+    const isCorruptedLength = rawFileSize !== undefined && rawFileSize > 0 && rawFileSize < 4096;
+    const expectedFileSize = (!isCorruptedLength && rawFileSize && rawFileSize > 0) ? rawFileSize : undefined;
+
+    await state.addDownload(urlToDownload, headers, dir, fileName, undefined, undefined, sourceUrl, expectedFileSize);
     await state.deleteDownload(gid, false);
   },
 

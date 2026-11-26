@@ -79,13 +79,15 @@ export function getDownloadContextMenuActions(
   const rawUrl = download.files?.[0]?.uris?.[0]?.uri;
   const downloadUrl = rawUrl && rawUrl !== "Unknown URL" ? rawUrl : undefined;
   const hasMissingFile = Boolean(download.fileMissing);
+  const isFailedOrError = download.status === "error" || download.status === "removed";
+  const isCorrupted = Boolean(download.fileMissing) || Boolean(download.fileCorrupt);
+  const canRedownload = hasMissingFile || isFailedOrError || isCorrupted;
 
   const canPause = download.status === "active" && !isMuxing;
   const canResume =
     (download.status === "paused" || download.status === "waiting") && !isMuxing;
-  const canOpenFile = download.status === "complete" && !hasMissingFile && Boolean(filePath);
+  const canOpenFile = download.status === "complete" && !hasMissingFile && !isCorrupted && Boolean(filePath);
   const canOpenFolder = Boolean(filePath || download.dir);
-  const canRedownload = true;
 
   const pauseLabel = isPlayful ? "Put to Sleep 💤" : "Pause";
   const resumeLabel = isPlayful ? "Wake Up & Pounce 🐾" : "Resume";
@@ -277,28 +279,30 @@ export function DownloadContextMenu({
       </button>
 
       {/* 5. Redownload */}
-      <button
-        type="button"
-        role="menuitem"
-        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-xs font-medium text-foreground hover:bg-muted/80 focus:bg-muted/80 focus:outline-none transition-colors cursor-pointer"
-        onClick={() => {
-          onRedownload?.(download.gid);
-          onClose();
-        }}
-      >
-        <RefreshCw
-          className={cn(
-            "h-3.5 w-3.5 shrink-0",
-            actions.hasMissingFile ? "text-amber-500" : "text-muted-foreground"
+      {actions.canRedownload && (
+        <button
+          type="button"
+          role="menuitem"
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-xs font-medium text-foreground hover:bg-muted/80 focus:bg-muted/80 focus:outline-none transition-colors cursor-pointer"
+          onClick={() => {
+            onRedownload?.(download.gid);
+            onClose();
+          }}
+        >
+          <RefreshCw
+            className={cn(
+              "h-3.5 w-3.5 shrink-0",
+              actions.hasMissingFile ? "text-amber-500" : "text-muted-foreground"
+            )}
+          />
+          <span className="flex-1 truncate">Redownload</span>
+          {actions.hasMissingFile && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-medium shrink-0">
+              Missing
+            </span>
           )}
-        />
-        <span className="flex-1 truncate">Redownload</span>
-        {actions.hasMissingFile && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-medium shrink-0">
-            Missing
-          </span>
-        )}
-      </button>
+        </button>
+      )}
 
       {/* Separator */}
       <div className="my-1 h-px bg-border/60" role="separator" />

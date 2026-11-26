@@ -20,6 +20,7 @@ export interface Aria2Download {
   pieceLength?: string;
   muxProgress?: number;
   fileMissing?: boolean;
+  fileCorrupt?: boolean;
 }
 
 export interface Aria2Config {

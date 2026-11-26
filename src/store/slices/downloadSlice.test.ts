@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import { create, StoreApi } from 'zustand';
-import { createDownloadSlice, DownloadDataSlice, getMetaStore, _resetMetaStoreForTesting } from './downloadSlice';
+import { createDownloadSlice, DownloadDataSlice, getMetaStore, _resetMetaStoreForTesting, CachedMeta } from './downloadSlice';
 import { createSettingsSlice, SettingsSlice } from './settingsSlice';
 import { createUISlice, UISlice } from './uiSlice';
 import { DownloadState, PendingMux, StagedDownload } from '../types';
@@ -1136,8 +1136,8 @@ describe('Persistent completed download rehydration across app restarts', () => 
     const metaStore = await getMetaStore();
     await metaStore.set('missing-1', {
       status: 'complete',
-      totalLength: '1000',
-      completedLength: '1000',
+      totalLength: '10000000',
+      completedLength: '10000000',
       title: 'deleted-movie.mp4',
       path: '/downloads/deleted-movie.mp4',
       dir: '/downloads',
@@ -1145,8 +1145,8 @@ describe('Persistent completed download rehydration across app restarts', () => 
     });
     await metaStore.set('existing-1', {
       status: 'complete',
-      totalLength: '2000',
-      completedLength: '2000',
+      totalLength: '20000000',
+      completedLength: '20000000',
       title: 'real-movie.mp4',
       path: '/downloads/real-movie.mp4',
       dir: '/downloads',
@@ -1257,5 +1257,108 @@ describe('Persistent completed download rehydration across app restarts', () => 
     expect(active).toHaveLength(1);
     expect(active[0].status).toBe('muxing');
     expect(active[0].muxProgress).toBe(68);
+  });
+
+  it('redownload uses direct downloadUrl over webpage sourceUrl and passes preserved headers', async () => {
+    const metaStore = await getMetaStore();
+    await metaStore.set('corrupt-or-webpage-gid', {
+      status: 'complete',
+      totalLength: '867',
+      completedLength: '867',
+      title: 'movie.mkv',
+      path: '/downloads/movie.mkv',
+      dir: '/downloads',
+      sourceUrl: 'http://new.circleftp.net/content/106296',
+      downloadUrl: 'http://new.circleftp.net/download/movie.mkv',
+      headers: ['Cookie: session=secret123', 'Referer: http://new.circleftp.net/content/106296'],
+      isCorrupted: true,
+      fileMissing: true,
+    });
+    await metaStore.save();
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().fetchDownloads();
+
+    const addSpy = vi.spyOn(aria2Client, 'addUri').mockResolvedValue('new-gid-101');
+    await useTestStore.getState().redownload('corrupt-or-webpage-gid');
+
+    expect(addSpy).toHaveBeenCalledWith(
+      ['http://new.circleftp.net/download/movie.mkv'],
+      expect.objectContaining({
+        header: expect.arrayContaining([
+          'Cookie: session=secret123',
+          'Referer: http://new.circleftp.net/content/106296',
+        ]),
+      })
+    );
+
+    expect(await metaStore.get('corrupt-or-webpage-gid')).toBeNull();
+  });
+
+  it('detects HTML trap: flags binary/media files under 4KB as corrupt and missing', async () => {
+    vi.mocked(aria2Client.tellStopped).mockResolvedValueOnce([
+      {
+        gid: 'html-trap-gid',
+        status: 'complete',
+        totalLength: '867',
+        completedLength: '867',
+        downloadSpeed: '0',
+        dir: '/downloads',
+        files: [
+          {
+            path: '/downloads/blockbuster.mkv',
+            length: '867',
+            completedLength: '867',
+            uris: [{ status: 'used', uri: 'http://new.circleftp.net/content/106296' }],
+          },
+        ],
+      },
+    ]);
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().fetchDownloads();
+
+    const completed = useTestStore.getState().completed;
+    const trapDl = completed.find(d => d.gid === 'html-trap-gid');
+    expect(trapDl).toBeDefined();
+    expect(trapDl?.fileCorrupt).toBe(true);
+    expect(trapDl?.fileMissing).toBe(true);
+
+    const metaStore = await getMetaStore();
+    const cached = await metaStore.get<CachedMeta>('html-trap-gid');
+    expect(cached?.isCorrupted).toBe(true);
+    expect(cached?.fileMissing).toBe(true);
+  });
+
+  it('addDownload stores downloadUrl and headers in metaStore', async () => {
+    const metaStore = await getMetaStore();
+    vi.spyOn(aria2Client, 'addUri').mockResolvedValue('new-gid-meta-check');
+
+    const useTestStore = create<DownloadDataSlice>()((set, get, api) =>
+      createDownloadSlice(set, get as () => DownloadState, api as unknown as StoreApi<DownloadState>)
+    );
+
+    await useTestStore.getState().addDownload(
+      'https://example.com/stream/file.zip',
+      ['Authorization: Bearer test-token', 'X-Custom-Header: value'],
+      '/downloads',
+      'archive.zip',
+      undefined,
+      undefined,
+      'https://example.com/downloads/page/123'
+    );
+
+    const cached = await metaStore.get<CachedMeta>('new-gid-meta-check');
+    expect(cached).toBeDefined();
+    expect(cached?.downloadUrl).toBe('https://example.com/stream/file.zip');
+    expect(cached?.sourceUrl).toBe('https://example.com/downloads/page/123');
+    expect(cached?.headers).toEqual(['Authorization: Bearer test-token', 'X-Custom-Header: value']);
+    expect(cached?.title).toBe('archive.zip');
   });
 });

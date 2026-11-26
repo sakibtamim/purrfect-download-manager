@@ -105,6 +105,7 @@ describe("DownloadContextMenu - getDownloadContextMenuActions", () => {
     expect(actions.canOpenFolder).toBe(true);
     expect(actions.filePath).toBe("/home/user/Downloads/video.mp4");
     expect(actions.downloadUrl).toBe("https://example.com/video.mp4");
+    expect(actions.canRedownload).toBe(false);
   });
 
   it("disables Open File and marks hasMissingFile when fileMissing is true", () => {
@@ -174,7 +175,7 @@ describe("DownloadContextMenu - Component Rendering", () => {
     expect(html).toContain("Pause");
     expect(html).not.toContain("Resume");
     expect(html).toContain("Open Destination Folder");
-    expect(html).toContain("Redownload");
+    expect(html).not.toContain("Redownload");
     expect(html).not.toContain("Copy Download Link");
     expect(html).toContain("Copy File Path");
     expect(html).toContain("View Details");
@@ -220,6 +221,49 @@ describe("DownloadContextMenu - Component Rendering", () => {
     );
     expect(html).not.toContain("Open File");
     expect(html).toContain("Missing");
+  });
+
+  it("does NOT render Redownload for healthy complete downloads", () => {
+    const healthyComplete = { ...baseDownload, status: "complete" as const, fileMissing: false };
+    const html = renderToStaticMarkup(
+      <DownloadContextMenu
+        download={healthyComplete}
+        position={{ x: 200, y: 200 }}
+        onClose={vi.fn()}
+        isPlayfulMode={false}
+      />
+    );
+    expect(html).toContain("Open File");
+    expect(html).not.toContain("Redownload");
+  });
+
+  it("DOES render Redownload for missing files", () => {
+    const missingDownload = { ...baseDownload, status: "complete" as const, fileMissing: true };
+    const html = renderToStaticMarkup(
+      <DownloadContextMenu
+        download={missingDownload}
+        position={{ x: 200, y: 200 }}
+        onClose={vi.fn()}
+        isPlayfulMode={false}
+      />
+    );
+    expect(html).toContain("Redownload");
+    expect(html).toContain("Missing");
+  });
+
+  it("DOES render Redownload for failed downloads with error status", () => {
+    const failedDownload = { ...baseDownload, status: "error" as const };
+    const html = renderToStaticMarkup(
+      <DownloadContextMenu
+        download={failedDownload}
+        position={{ x: 200, y: 200 }}
+        onClose={vi.fn()}
+        isPlayfulMode={false}
+      />
+    );
+    expect(html).toContain("Redownload");
+    expect(html).not.toContain("Pause");
+    expect(html).not.toContain("Resume");
   });
 
   it("renders playful labels when isPlayfulMode is true", () => {
